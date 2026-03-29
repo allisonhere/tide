@@ -520,7 +520,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case keyMatches(msg, m.keys.Summary):
-		if m.focused == paneContent && len(m.filteredArticles) > 0 {
+		if len(m.filteredArticles) > 0 {
 			return m.openSummary()
 		}
 		return m, nil
@@ -1073,7 +1073,7 @@ func (m Model) renderOverlay(base string) string {
 
 	case overlaySettings:
 		winW := min(m.width-4, 62)
-		winH := min(m.height-4, 26)
+		winH := min(m.height-4, 36)
 		chrome := newManagerChrome(winW, m.styles.Theme)
 		inner := m.settings.View(winW, winH, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)

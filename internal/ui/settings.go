@@ -370,50 +370,67 @@ func (s Settings) View(width, height int, chrome managerChrome) string {
 }
 
 func (s Settings) viewBody(width int, chrome managerChrome) string {
-	indent := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2)
-	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
+	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2)
+	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 
-	inputW := width - 3
+	// inputW: full inner width minus the 2-char left padding of ind.
+	inputW := width - 2
 
-	lines := []string{
-		s.renderSectionLabel("DISPLAY", width, chrome),
-		indent.Render(s.renderToggle("Icons", s.icons, s.focusedField == sfIcons, width-4, chrome)),
-		indent.Render(s.renderToggle("Dates", !s.dateAbsolute, s.focusedField == sfDateFormat, width-4, chrome) +
-			s.renderToggleHint(s.dateAbsolute, "absolute", "relative", s.focusedField == sfDateFormat, chrome)),
-		indent.Render(s.renderToggle("Mark read on open", s.markReadOnOpen, s.focusedField == sfMarkReadOnOpen, width-4, chrome)),
-		indent.Render(s.renderFieldLabel("Browser", s.focusedField == sfBrowser, width-4, chrome) +
-			renderTextInput(s.browserInput, inputW, s.focusedField == sfBrowser, chrome)),
-		gap,
-		s.renderSectionLabel("AI SUMMARIES", width, chrome),
-		indent.Render(s.renderProviderSelector(width-4, chrome)),
-	}
-
-	// Provider-specific inputs.
-	switch s.providerIdx {
-	case 1:
-		lines = append(lines, indent.Render(s.renderFieldLabel("OpenAI key", s.focusedField == sfAPIKey, width-4, chrome)+
-			renderTextInput(s.openaiInput, inputW, s.focusedField == sfAPIKey, chrome)))
-	case 2:
-		lines = append(lines, indent.Render(s.renderFieldLabel("Claude key", s.focusedField == sfAPIKey, width-4, chrome)+
-			renderTextInput(s.claudeInput, inputW, s.focusedField == sfAPIKey, chrome)))
-	case 3:
-		lines = append(lines, indent.Render(s.renderFieldLabel("Gemini key", s.focusedField == sfAPIKey, width-4, chrome)+
-			renderTextInput(s.geminiInput, inputW, s.focusedField == sfAPIKey, chrome)))
-	case 4:
-		lines = append(lines,
-			indent.Render(s.renderFieldLabel("Ollama URL", s.focusedField == sfOllamaURL, width-4, chrome)+
-				renderTextInput(s.ollamaURLInput, inputW, s.focusedField == sfOllamaURL, chrome)),
-			indent.Render(s.renderFieldLabel("Model", s.focusedField == sfOllamaModel, width-4, chrome)+
-				renderTextInput(s.ollamaModelInput, inputW, s.focusedField == sfOllamaModel, chrome)),
+	addToggle := func(lines []string, label string, on bool, field settingsField) []string {
+		focused := s.focusedField == field
+		return append(lines,
+			ind.Render(s.renderToggle(label, on, focused, width-2, chrome)),
+			blank,
 		)
 	}
 
+	addInput := func(lines []string, label string, input textinput.Model, field settingsField) []string {
+		focused := s.focusedField == field
+		return append(lines,
+			ind.Render(s.renderFieldLabel(label, focused, width-2, chrome)),
+			ind.Render(renderTextInput(input, inputW, focused, chrome)),
+			blank,
+		)
+	}
+
+	lines := []string{
+		s.renderSectionLabel("DISPLAY", width, chrome),
+		blank,
+	}
+	lines = addToggle(lines, "Icons", s.icons, sfIcons)
+	lines = addToggle(lines, "Dates — "+s.dateLabel(), !s.dateAbsolute, sfDateFormat)
+	lines = addToggle(lines, "Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
+	lines = addInput(lines, "Browser command", s.browserInput, sfBrowser)
+
 	lines = append(lines,
-		indent.Render(s.renderFieldLabel("Save summaries to", s.focusedField == sfSavePath, width-4, chrome)+
-			renderTextInput(s.savePathInput, inputW, s.focusedField == sfSavePath, chrome)),
+		s.renderSectionLabel("AI SUMMARIES", width, chrome),
+		blank,
+		ind.Render(s.renderProviderSelector(width-2, chrome)),
+		blank,
 	)
 
+	switch s.providerIdx {
+	case 1:
+		lines = addInput(lines, "OpenAI key", s.openaiInput, sfAPIKey)
+	case 2:
+		lines = addInput(lines, "Claude key", s.claudeInput, sfAPIKey)
+	case 3:
+		lines = addInput(lines, "Gemini key", s.geminiInput, sfAPIKey)
+	case 4:
+		lines = addInput(lines, "Ollama URL", s.ollamaURLInput, sfOllamaURL)
+		lines = addInput(lines, "Model", s.ollamaModelInput, sfOllamaModel)
+	}
+
+	lines = addInput(lines, "Save summaries to", s.savePathInput, sfSavePath)
+
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+func (s Settings) dateLabel() string {
+	if s.dateAbsolute {
+		return "absolute"
+	}
+	return "relative"
 }
 
 func (s Settings) renderSectionLabel(label string, width int, chrome managerChrome) string {
