@@ -432,7 +432,7 @@ func (fm FeedManager) viewList(width, height int, styles Styles) string {
 		"x", "export",
 		"esc", "back",
 	)
-	main := lipgloss.NewStyle().PaddingLeft(2).Render(
+	main := lipgloss.NewStyle().Background(chrome.baseBg).PaddingLeft(2).Render(
 		lipgloss.JoinVertical(lipgloss.Left, content...),
 	)
 	return lipgloss.JoinVertical(lipgloss.Left, main, footer)
@@ -454,12 +454,12 @@ func (fm FeedManager) viewEdit(width, height int, styles Styles) string {
 		renderManagerSection("URL", renderTextInput(fm.urlInput, width-3, fm.focusedField == 1, chrome), chrome),
 		"",
 	)
-	return lipgloss.NewStyle().PaddingLeft(2).Render(content)
+	return lipgloss.NewStyle().Background(chrome.baseBg).PaddingLeft(2).Render(content)
 }
 
 func (fm FeedManager) viewImport(width, height int, styles Styles) string {
 	chrome := newManagerChrome(width)
-	return lipgloss.NewStyle().PaddingLeft(2).Render(
+	return lipgloss.NewStyle().Background(chrome.baseBg).PaddingLeft(2).Render(
 		renderManagerSection("01. IMPORT OPML", renderManagerInput(width-3, fm.importInput.Value(), "PATH TO OPML FILE...", true, chrome), chrome),
 	)
 }
@@ -475,7 +475,7 @@ func (fm FeedManager) viewConfirmDelete(width, height int, styles Styles) string
 		renderManagerSection("01. DELETE FEED", renderManagerPanel(width-3, strings.ToUpper(truncate(name, width-7)), chrome), chrome),
 		renderManagerSection("WARNING", chrome.body.Render("ALL ARTICLES FROM THIS FEED WILL BE REMOVED."), chrome),
 	)
-	return lipgloss.NewStyle().PaddingLeft(2).Render(content)
+	return lipgloss.NewStyle().Background(chrome.baseBg).PaddingLeft(2).Render(content)
 }
 
 func (fm FeedManager) viewHints(width int, styles Styles) string {
