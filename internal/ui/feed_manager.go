@@ -628,16 +628,15 @@ func renderTextInput(input textinput.Model, width int, focused bool, chrome mana
 	input.Cursor.Style = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
 	input.Cursor.TextStyle = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
 
-	// Manually pad to contentW with fieldBg-coloured spaces.
-	// Lipgloss does not re-emit the background after ANSI resets that bubbles
-	// injects between styled segments, so right-side padding would show terminal bg
-	// without this explicit fill.
-	rendered := input.View()
+	// bubbles pads input.View() with plain un-styled spaces to fill input.Width.
+	// Those spaces carry no ANSI bg code, so they show terminal bg.
+	// Strip them, then re-pad to contentW with explicit fieldBg-coloured spaces.
+	rendered := strings.TrimRight(input.View(), " ")
 	if gap := contentW - lipgloss.Width(rendered); gap > 0 {
 		rendered += lipgloss.NewStyle().Background(fieldBg).Render(strings.Repeat(" ", gap))
 	}
 
-	// Assemble: explicit bg-coloured padding on each side keeps the full row covered.
+	// Explicit bg-coloured padding on each side keeps the full row covered.
 	pad := lipgloss.NewStyle().Background(fieldBg).Render(" ")
 	inner := pad + rendered + pad
 
