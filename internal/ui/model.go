@@ -43,6 +43,7 @@ const (
 	overlayThemePicker
 	overlayFeedManager
 	overlayHelp
+	overlayFetchError // fetch-error details for a single feed
 )
 
 // ── Model ────────────────────────────────────────────────────────────────────
@@ -85,6 +86,12 @@ type Model struct {
 	statusMsg string
 	statusErr bool
 
+	// Fetch error details overlay
+	lastFetchError *feed.FetchResult
+
+	// Pending permanent-redirect URL update (shown in status bar)
+	pendingURLUpdate *pendingURLUpdate
+
 	// Async
 	refreshing  map[int64]bool
 	spinner     spinner.Model
@@ -93,6 +100,11 @@ type Model struct {
 	firstLoad           bool  // true until the initial FeedsLoadedMsg is processed
 	pendingSelectFeedID int64 // select this feed when FeedsLoadedMsg arrives
 	keys                KeyMap
+}
+
+type pendingURLUpdate struct {
+	feedID int64
+	newURL string
 }
 
 var dbgLog *log.Logger
@@ -188,7 +200,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Only auto-refresh on startup — manual refresh uses f/F keys.
 		if isFirstLoad {
 			for _, f := range m.feeds {
-				cmds = append(cmds, m.refreshFeedCmd(f.ID, f.URL))
+				cmds = append(cmds, m.refreshFeedCmd(f.ID, f.URL, false))
 			}
 		}
 		return m, tea.Batch(cmds...)
@@ -212,8 +224,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case FeedRefreshedMsg:
 		delete(m.refreshing, msg.FeedID)
 		if msg.Err != nil {
-			m.setStatus(fmt.Sprintf("refresh failed: %v", msg.Err), true)
-			return m, m.clearStatusCmd()
+			r := msg.Result
+			if r != nil {
+				friendly := r.FriendlyMessage()
+				if r.HasDetails() && msg.Manual {
+					// Show error details overlay for manually triggered single-feed refresh.
+					m.lastFetchError = r
+					m.overlay = overlayFetchError
+					m.setStatus(fmt.Sprintf("refresh failed: %s", friendly), true)
+				} else {
+					m.setStatus(fmt.Sprintf("refresh failed: %s", friendly), true)
+					return m, m.clearStatusCmd()
+				}
+			} else {
+				m.setStatus(fmt.Sprintf("refresh failed: %v", msg.Err), true)
+				return m, m.clearStatusCmd()
+			}
+			return m, nil
+		}
+		// Success — check for permanent redirect suggestion.
+		if r := msg.Result; r != nil && r.SuggestURLUpdate {
+			m.pendingURLUpdate = &pendingURLUpdate{feedID: msg.FeedID, newURL: r.SuggestedURL}
+			m.setStatus("feed moved permanently — press U to update stored URL", false)
 		}
 		cmds := []tea.Cmd{}
 		for _, a := range msg.Articles {
@@ -230,6 +262,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.loadArticlesCmd(msg.FeedID))
 		}
 		cmds = append(cmds, m.loadFeedsCmd())
+		if m.pendingURLUpdate == nil {
+			cmds = append(cmds, m.clearStatusCmd())
+		}
 		return m, tea.Batch(cmds...)
 
 	case FeedSavedMsg:
@@ -255,6 +290,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.filteredArticles = nil
 		m.feedManager = NewFeedManager(m.db)
 		return m, m.loadFeedsCmd()
+
+	case FeedURLUpdatedMsg:
+		if msg.Err != nil {
+			m.setStatus(fmt.Sprintf("URL update failed: %v", msg.Err), true)
+		} else {
+			m.setStatus(fmt.Sprintf("feed URL updated to %s", msg.NewURL), false)
+		}
+		m.pendingURLUpdate = nil
+		return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
 
 	case OPMLImportedMsg:
 		if msg.Err != nil {
@@ -393,14 +437,14 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, m.keys.Refresh):
 		if len(m.feeds) > 0 {
 			f := m.feeds[m.feedCursor]
-			return m, m.refreshFeedCmd(f.ID, f.URL)
+			return m, m.refreshFeedCmd(f.ID, f.URL, true)
 		}
 		return m, nil
 
 	case keyMatches(msg, m.keys.RefreshAll):
 		var cmds []tea.Cmd
 		for _, f := range m.feeds {
-			cmds = append(cmds, m.refreshFeedCmd(f.ID, f.URL))
+			cmds = append(cmds, m.refreshFeedCmd(f.ID, f.URL, false))
 		}
 		return m, tea.Batch(cmds...)
 
@@ -420,6 +464,14 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, m.keys.OpenBrowser):
 		if len(m.filteredArticles) > 0 {
 			return m, openBrowserCmd(m.filteredArticles[m.articleCursor].Link)
+		}
+		return m, nil
+
+	case msg.String() == "U":
+		if m.pendingURLUpdate != nil {
+			p := m.pendingURLUpdate
+			m.pendingURLUpdate = nil
+			return m, m.updateFeedURLCmd(p.feedID, p.newURL)
 		}
 		return m, nil
 	}
@@ -565,6 +617,28 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case overlayHelp:
 		if keyMatches(msg, m.keys.Back, m.keys.Help, m.keys.Quit) {
 			m.overlay = overlayNone
+		}
+		return m, nil
+
+	case overlayFetchError:
+		switch msg.String() {
+		case "esc", "q", "enter":
+			m.overlay = overlayNone
+			m.lastFetchError = nil
+			return m, m.clearStatusCmd()
+		case "u", "U":
+			if m.lastFetchError != nil && m.lastFetchError.SuggestURLUpdate {
+				r := m.lastFetchError
+				m.overlay = overlayNone
+				m.lastFetchError = nil
+				m.pendingURLUpdate = nil
+				// find the feed ID for this URL
+				for _, f := range m.feeds {
+					if f.URL == r.OriginalURL {
+						return m, m.updateFeedURLCmd(f.ID, r.SuggestedURL)
+					}
+				}
+			}
 		}
 		return m, nil
 	}
@@ -888,6 +962,21 @@ func (m Model) renderOverlay(base string) string {
 			BorderForeground(t.BorderFocus).
 			Width(winW).Height(winH).
 			Render(inner)
+
+	case overlayFetchError:
+		if m.lastFetchError != nil {
+			winW := min(m.width-4, 70)
+			chrome := newManagerChrome(winW)
+			inner := m.renderFetchErrorOverlay(winW, chrome)
+			inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
+			box = lipgloss.NewStyle().
+				Background(chrome.baseBg).
+				Border(lipgloss.NormalBorder()).
+				BorderForeground(lipgloss.Color("#7AA2F7")).
+				BorderBackground(chrome.baseBg).
+				Width(winW).
+				Render(inner)
+		}
 	}
 
 	return overlayOnBase(base, box, m.width, m.height, BuiltinThemes[m.activeTheme].Bg)
@@ -979,15 +1068,16 @@ func (m *Model) loadArticlesCmd(feedID int64) tea.Cmd {
 	}
 }
 
-func (m *Model) refreshFeedCmd(feedID int64, feedURL string) tea.Cmd {
+func (m *Model) refreshFeedCmd(feedID int64, feedURL string, manual bool) tea.Cmd {
 	m.refreshing[feedID] = true
 	conv := m.mdConverter
 	return func() tea.Msg {
-		parsed, _, err := feed.FetchAndParse(feedURL)
-		if err != nil {
-			return FeedRefreshedMsg{FeedID: feedID, Err: err}
+		result := feed.FetchFeed(feedURL)
+		if !result.IsSuccess() {
+			return FeedRefreshedMsg{FeedID: feedID, Err: result.Err, Result: result, Manual: manual}
 		}
 
+		parsed := result.Feed
 		articles := make([]db.Article, 0, len(parsed.Items))
 		for _, item := range parsed.Items {
 			content, _ := conv.ConvertString(item.Content)
@@ -1004,7 +1094,16 @@ func (m *Model) refreshFeedCmd(feedID int64, feedURL string) tea.Cmd {
 			FeedID:   feedID,
 			Articles: articles,
 			Title:    parsed.Title,
+			Result:   result,
+			Manual:   manual,
 		}
+	}
+}
+
+func (m *Model) updateFeedURLCmd(feedID int64, newURL string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.db.UpdateFeed(feedID, "", newURL)
+		return FeedURLUpdatedMsg{FeedID: feedID, NewURL: newURL, Err: err}
 	}
 }
 
@@ -1090,6 +1189,108 @@ func (m *Model) applyFilter() {
 func (m *Model) setStatus(msg string, isErr bool) {
 	m.statusMsg = msg
 	m.statusErr = isErr
+}
+
+func (m Model) renderFetchErrorOverlay(w int, chrome managerChrome) string {
+	r := m.lastFetchError
+	if r == nil {
+		return ""
+	}
+
+	textW := max(1, w-4)
+	bg := chrome.baseBg
+	surf := chrome.surfaceBg
+	accent := chrome.accent
+	muted := chrome.muted
+	text := chrome.text
+
+	label := func(s string) string {
+		return lipgloss.NewStyle().Background(bg).Foreground(muted).Width(14).Render(s)
+	}
+	val := func(s string) string {
+		return lipgloss.NewStyle().Background(bg).Foreground(text).Render(s)
+	}
+	accentLine := func(s string) string {
+		return lipgloss.NewStyle().Background(bg).Foreground(accent).Bold(true).Render(s)
+	}
+	row := func(k, v string) string {
+		return lipgloss.NewStyle().Background(bg).Width(textW).
+			Render(label(k) + val(v))
+	}
+
+	header := renderManagerHeader(w, chrome)
+
+	// Title line
+	title := accentLine(r.FriendlyMessage())
+
+	// Detail rows
+	rows := []string{""}
+	if r.StatusCode != 0 {
+		rows = append(rows, row("Status:", fmt.Sprintf("%d", r.StatusCode)))
+	}
+	if r.ContentType != "" {
+		ct := r.ContentType
+		if len(ct) > textW-16 {
+			ct = ct[:textW-16]
+		}
+		rows = append(rows, row("Content-Type:", ct))
+	}
+	origURL := r.OriginalURL
+	if len(origURL) > textW-16 {
+		origURL = "…" + origURL[len(origURL)-(textW-17):]
+	}
+	rows = append(rows, row("Original URL:", origURL))
+	if r.FinalURL != r.OriginalURL {
+		finalURL := r.FinalURL
+		if len(finalURL) > textW-16 {
+			finalURL = "…" + finalURL[len(finalURL)-(textW-17):]
+		}
+		rows = append(rows, row("Final URL:", finalURL))
+	}
+
+	// Redirect chain
+	if len(r.RedirectChain) > 1 {
+		rows = append(rows, "")
+		rows = append(rows, lipgloss.NewStyle().Background(bg).Foreground(muted).
+			Render(fmt.Sprintf("Redirects (%d):", len(r.RedirectChain)-1)))
+		for _, u := range r.RedirectChain {
+			display := u
+			if len(display) > textW-4 {
+				display = "…" + display[len(display)-(textW-5):]
+			}
+			rows = append(rows, lipgloss.NewStyle().Background(bg).Foreground(text).
+				Render("  → "+display))
+		}
+	}
+
+	// Snippet
+	if r.Snippet != "" {
+		rows = append(rows, "")
+		rows = append(rows, lipgloss.NewStyle().Background(bg).Foreground(muted).Render("Preview:"))
+		snip := strings.ReplaceAll(r.Snippet, "\n", " ")
+		snip = strings.Join(strings.Fields(snip), " ")
+		if len(snip) > textW-2 {
+			snip = snip[:textW-2] + "…"
+		}
+		rows = append(rows, lipgloss.NewStyle().Background(surf).Foreground(text).
+			Width(textW).Padding(0, 1).Render(snip))
+	}
+
+	// URL update suggestion
+	var actions string
+	if r.SuggestURLUpdate {
+		rows = append(rows, "")
+		rows = append(rows, lipgloss.NewStyle().Background(bg).Foreground(accent).
+			Render("↳ Feed permanently moved to new URL"))
+		actions = renderManagerActions(w, chrome, "u", "update URL", "esc", "dismiss")
+	} else {
+		actions = renderManagerActions(w, chrome, "esc", "dismiss")
+	}
+
+	body := lipgloss.NewStyle().Background(bg).Width(w).Padding(0, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, title, strings.Join(rows, "\n")))
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, body, actions)
 }
 
 func shouldFetchArticleContent(a db.Article) bool {
