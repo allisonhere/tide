@@ -597,7 +597,7 @@ func renderManagerPanel(width int, content string, chrome managerChrome) string 
 }
 
 func renderManagerInput(width int, value, placeholder string, focused, showProtocol bool, chrome managerChrome) string {
-	textW := max(1, width-6)
+	textW := max(1, width-1)
 	cursor := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.accent).Bold(true)
 	protocol := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.accent).Bold(true)
 	text := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.text)
