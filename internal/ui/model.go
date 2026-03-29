@@ -815,9 +815,28 @@ func (m Model) renderOverlay(base string) string {
 
 	switch m.overlay {
 	case overlayQuitConfirm:
-		content := m.styles.OverlayTitle.Render("Quit rss reader?") + "\n\n" +
-			m.styles.OverlayHint.Render("[y / enter] quit   [n / esc] cancel")
-		box = m.styles.Overlay.Render(content)
+		quitW := 40
+		chrome := newManagerChrome(quitW)
+		header := renderManagerHeader(quitW, chrome)
+		body := lipgloss.NewStyle().
+			Background(chrome.baseBg).
+			Foreground(chrome.text).
+			Width(quitW).
+			Padding(1, 2).
+			Render("QUIT TIDE?")
+		actions := renderManagerActions(quitW, chrome,
+			"y", "quit",
+			"esc", "cancel",
+		)
+		inner := lipgloss.JoinVertical(lipgloss.Left, header, body, actions)
+		inner = clampView(inner, quitW, strings.Count(inner, "\n")+1, chrome.baseBg)
+		box = lipgloss.NewStyle().
+			Background(chrome.baseBg).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#7AA2F7")).
+			BorderBackground(chrome.baseBg).
+			Width(quitW).
+			Render(inner)
 
 	case overlaySearch:
 		content := m.styles.OverlayTitle.Render("Search Articles") + "\n\n" +
