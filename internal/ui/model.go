@@ -381,6 +381,9 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, m.keys.Add):
 		m.overlay = overlayFeedManager
 		m.feedManager = NewFeedManager(m.db)
+		if len(m.feedManager.feeds) == 0 {
+			m.feedManager.focusAdd()
+		}
 		return m, nil
 
 	case keyMatches(msg, m.keys.ThemePicker):
