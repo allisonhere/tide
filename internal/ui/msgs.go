@@ -1,6 +1,9 @@
 package ui
 
-import "tide/internal/db"
+import (
+	"tide/internal/db"
+	"tide/internal/feed"
+)
 
 type FeedsLoadedMsg struct{ Feeds []db.Feed }
 type ArticlesLoadedMsg struct {
@@ -12,6 +15,8 @@ type FeedRefreshedMsg struct {
 	Title    string
 	Articles []db.Article
 	Err      error
+	Result   *feed.FetchResult // full result; always non-nil when coming from refreshFeedCmd
+	Manual   bool              // true when triggered by user keypress (f), not startup auto-refresh
 }
 type FeedSavedMsg struct {
 	Feed db.Feed
@@ -33,6 +38,11 @@ type ArticleContentFetchedMsg struct {
 	ArticleID int64
 	Content   string
 	Err       error
+}
+type FeedURLUpdatedMsg struct {
+	FeedID int64
+	NewURL string
+	Err    error
 }
 type StatusClearMsg struct{}
 type ErrMsg struct{ Err error }
