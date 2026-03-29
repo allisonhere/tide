@@ -671,9 +671,11 @@ func renderManagerActions(width int, chrome managerChrome, pairs ...string) stri
 	if len(parts) == 0 {
 		return bar.Render(clampView("", width, 1, chrome.baseBg))
 	}
-	left := strings.Join(parts[:max(0, len(parts)-1)], "  ")
+	bg := lipgloss.NewStyle().Background(chrome.baseBg)
+	sep := bg.Render("  ")
+	left := strings.Join(parts[:max(0, len(parts)-1)], sep)
 	right := parts[len(parts)-1]
 	gap := max(1, width-lipgloss.Width(left)-lipgloss.Width(right))
-	row := clampView(left+strings.Repeat(" ", gap)+right, width, 1, chrome.baseBg)
+	row := clampView(left+bg.Render(strings.Repeat(" ", gap))+right, width, 1, chrome.baseBg)
 	return bar.Render(row)
 }
