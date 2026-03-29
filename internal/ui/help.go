@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -13,50 +14,58 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 		entries []entry
 	}
 
+	bind := func(b key.Binding) entry {
+		h := b.Help()
+		return entry{h.Key, h.Desc}
+	}
+
 	sections := []section{
 		{
 			name: "Navigation",
 			entries: []entry{
-				{"Tab / Shift-Tab", "cycle panes"},
-				{"h / ←   l / →", "move between panes"},
-				{"j / ↓   k / ↑", "navigate within pane"},
-				{"Enter", "open article in content pane"},
-				{"Esc", "return to articles from content"},
+				bind(keys.NextPane),
+				bind(keys.PrevPane),
+				bind(keys.Left),
+				bind(keys.Right),
+				bind(keys.Up),
+				bind(keys.Down),
+				bind(keys.Enter),
+				bind(keys.Back),
 			},
 		},
 		{
 			name: "Articles",
 			entries: []entry{
-				{"r", "toggle read / unread"},
-				{"R", "mark all articles read"},
-				{"o", "open article in browser"},
-				{"/", "search / filter articles"},
+				bind(keys.MarkRead),
+				bind(keys.MarkAllRead),
+				bind(keys.OpenBrowser),
+				bind(keys.Search),
 			},
 		},
 		{
 			name: "Feeds",
 			entries: []entry{
-				{"f", "refresh selected feed"},
-				{"F", "refresh all feeds"},
-				{"m", "open feed manager"},
+				bind(keys.Refresh),
+				bind(keys.RefreshAll),
+				bind(keys.FeedManager),
 			},
 		},
 		{
 			name: "Feed Manager",
 			entries: []entry{
-				{"a", "add feed"},
-				{"e / Enter", "edit selected feed"},
-				{"d", "delete feed (with confirmation)"},
-				{"i", "import OPML file"},
-				{"x", "export OPML to ~/.config/rss/feeds.opml"},
+				bind(keys.Add),
+				bind(keys.Edit),
+				bind(keys.Delete),
+				bind(keys.Import),
+				bind(keys.Export),
 			},
 		},
 		{
 			name: "App",
 			entries: []entry{
-				{"T", "open theme picker (live preview)"},
-				{"?", "this help screen"},
-				{"q", "quit (with confirmation)"},
+				bind(keys.ThemePicker),
+				bind(keys.Help),
+				bind(keys.Quit),
 			},
 		},
 	}
