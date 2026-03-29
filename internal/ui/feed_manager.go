@@ -616,37 +616,30 @@ func renderManagerPanel(width int, content string, chrome managerChrome) string 
 }
 
 func renderTextInput(input textinput.Model, width int, focused bool, chrome managerChrome) string {
-	const (
-		focusBg = lipgloss.Color("#1e2235")
-		dimBg   = lipgloss.Color("#13161f")
-	)
-	bg := dimBg
-	if focused {
-		bg = focusBg
-	}
+	// Single bg for all states — sub-styles must match the container exactly so
+	// ANSI resets emitted between segments don't expose terminal bg.
+	// Focus is indicated solely by the accent left border.
+	const fieldBg = lipgloss.Color("#1e2235")
 
-	// Sub-styles carry NO background — the container bg owns the field color.
-	// This prevents per-character ANSI bg codes from fighting the container.
 	input.Width = max(1, width-6) // border(1) + padding(2) + prompt(2) + cursor(1)
-	input.PromptStyle = lipgloss.NewStyle().Foreground(chrome.accent).Bold(true)
-	input.TextStyle = lipgloss.NewStyle().Foreground(chrome.text)
-	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(chrome.muted)
+	input.PromptStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.accent).Bold(true)
+	input.TextStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.text)
+	input.PlaceholderStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.muted)
 	input.Cursor.Style = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
 	input.Cursor.TextStyle = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
 
-	inner := lipgloss.NewStyle().Background(bg).Width(width - 1).Padding(0, 1).Render(input.View())
+	inner := lipgloss.NewStyle().Background(fieldBg).Width(width - 1).Padding(0, 1).Render(input.View())
 
-	// Focused: accent left bar. Unfocused: invisible bar (same color as bg) keeps alignment stable.
-	barColor := bg
+	barColor := lipgloss.Color(fieldBg)
 	if focused {
 		barColor = chrome.accent
 	}
 	return lipgloss.NewStyle().
-		Background(bg).
+		Background(fieldBg).
 		BorderLeft(true).
 		BorderStyle(lipgloss.ThickBorder()).
 		BorderForeground(barColor).
-		BorderBackground(bg).
+		BorderBackground(fieldBg).
 		Render(inner)
 }
 
