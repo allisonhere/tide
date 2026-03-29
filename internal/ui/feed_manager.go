@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"tide/internal/db"
 	"tide/internal/feed"
@@ -578,12 +579,17 @@ func renderManagerSectionLabel(label string, chrome managerChrome) string {
 func renderManagerPanel(width int, content string, chrome managerChrome) string {
 	panelW := max(1, width-4) // total width incl. padding, excl. border
 	textW := max(1, panelW-2) // subtract Padding(0,1) on each side
+	bgStyle := lipgloss.NewStyle().Background(chrome.surfaceBg)
 	lines := strings.Split(content, "\n")
-	for i := range lines {
-		lines[i] = clampView(lines[i], textW, 1, chrome.surfaceBg)
+	for i, l := range lines {
+		l = ansi.Truncate(l, textW, "")
+		if pad := textW - lipgloss.Width(l); pad > 0 {
+			l += bgStyle.Render(strings.Repeat(" ", pad))
+		}
+		// No reset — preserve bg state so panel's right padding/border inherit surfaceBg
+		lines[i] = l
 	}
-	view := clampView(strings.Join(lines, "\n"), textW, len(lines), chrome.surfaceBg)
-	panel := chrome.panel.Width(panelW).Render(view)
+	panel := chrome.panel.Width(panelW).Render(strings.Join(lines, "\n"))
 	return lipgloss.NewStyle().Width(width).Background(chrome.baseBg).Render(panel)
 }
 
