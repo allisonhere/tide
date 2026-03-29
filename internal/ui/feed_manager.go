@@ -616,29 +616,37 @@ func renderManagerPanel(width int, content string, chrome managerChrome) string 
 }
 
 func renderTextInput(input textinput.Model, width int, focused bool, chrome managerChrome) string {
-	const inputBg = lipgloss.Color("#1e2235")
+	const (
+		focusBg = lipgloss.Color("#1e2235")
+		dimBg   = lipgloss.Color("#13161f")
+	)
+	bg := dimBg
+	if focused {
+		bg = focusBg
+	}
 
-	// Consistent background across both states; focus is indicated by the border.
+	// Sub-styles carry NO background — the container bg owns the field color.
+	// This prevents per-character ANSI bg codes from fighting the container.
 	input.Width = max(1, width-6) // border(1) + padding(2) + prompt(2) + cursor(1)
-	input.PromptStyle = lipgloss.NewStyle().Background(inputBg).Foreground(chrome.accent).Bold(true)
-	input.TextStyle = lipgloss.NewStyle().Background(inputBg).Foreground(chrome.text)
-	input.PlaceholderStyle = lipgloss.NewStyle().Background(inputBg).Foreground(chrome.muted)
+	input.PromptStyle = lipgloss.NewStyle().Foreground(chrome.accent).Bold(true)
+	input.TextStyle = lipgloss.NewStyle().Foreground(chrome.text)
+	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(chrome.muted)
 	input.Cursor.Style = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
 	input.Cursor.TextStyle = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
 
-	inner := lipgloss.NewStyle().Background(inputBg).Width(width - 1).Padding(0, 1).Render(input.View())
+	inner := lipgloss.NewStyle().Background(bg).Width(width - 1).Padding(0, 1).Render(input.View())
 
-	// Focused: bright accent left bar. Unfocused: same bar in inputBg (invisible, preserves alignment).
-	barColor := inputBg
+	// Focused: accent left bar. Unfocused: invisible bar (same color as bg) keeps alignment stable.
+	barColor := bg
 	if focused {
 		barColor = chrome.accent
 	}
 	return lipgloss.NewStyle().
-		Background(inputBg).
+		Background(bg).
 		BorderLeft(true).
 		BorderStyle(lipgloss.ThickBorder()).
 		BorderForeground(barColor).
-		BorderBackground(inputBg).
+		BorderBackground(bg).
 		Render(inner)
 }
 
