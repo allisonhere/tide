@@ -910,7 +910,10 @@ func (m Model) renderThemePicker() string {
 			rows = append(rows, normal.Render("  "+t.Name))
 		}
 	}
-	rows = append(rows, m.styles.OverlayHint.Render("\n[enter] confirm   [esc] revert"))
+	hintStyle := lipgloss.NewStyle().
+		Foreground(m.styles.OverlayHint.GetForeground()).
+		Background(m.styles.Overlay.GetBackground())
+	rows = append(rows, "", hintStyle.Render("[enter] confirm   [esc] revert"))
 	return strings.Join(rows, "\n")
 }
 
