@@ -433,6 +433,7 @@ func (fm FeedManager) viewEdit(width, height int, styles Styles) string {
 		renderManagerSection("Title", renderManagerInput(width-3, fm.titleInput.Value(), "Title", fm.focusedField == 0, false, chrome), chrome),
 		"",
 		renderManagerSection("URL", renderManagerInput(width-3, fm.urlInput.Value(), "enter URL or JSON endpoint", fm.focusedField == 1, true, chrome), chrome),
+		"",
 	)
 	return lipgloss.NewStyle().PaddingLeft(2).Render(content)
 }
