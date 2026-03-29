@@ -302,6 +302,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	default:
+		if m.overlay == overlayFeedManager {
+			return m.handleFeedManagerMsg(msg)
+		}
 	}
 
 	return m, nil
@@ -565,6 +570,17 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m Model) handleFeedManagerMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+	newFM, cmd := m.feedManager.Update(msg, m.keys)
+	m.feedManager = newFM
+	if m.feedManager.shouldExit {
+		m.overlay = overlayNone
+		m.feedManager.shouldExit = false
+		return m, m.loadFeedsCmd()
+	}
+	return m, cmd
 }
 
 func (m Model) handleFeedManagerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
