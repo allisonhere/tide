@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -53,7 +54,31 @@ func (db *DB) init() error {
 			return err
 		}
 	}
-	return db.migrate()
+	if err := db.migrate(); err != nil {
+		return err
+	}
+	return db.migrateSchema()
+}
+
+// migrateSchema applies incremental ALTER TABLE migrations tracked by
+// PRAGMA user_version so they are applied exactly once.
+func (db *DB) migrateSchema() error {
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
+	if version < 1 {
+		if _, err := db.Exec(`ALTER TABLE articles ADD COLUMN summary TEXT NOT NULL DEFAULT ''`); err != nil {
+			// Ignore duplicate-column errors from a previously interrupted migration.
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return err
+			}
+		}
+		if _, err := db.Exec(`PRAGMA user_version = 1`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (db *DB) migrate() error {

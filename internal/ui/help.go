@@ -61,9 +61,16 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 			},
 		},
 		{
+			name: "Content",
+			entries: []entry{
+				bind(keys.Summary),
+			},
+		},
+		{
 			name: "App",
 			entries: []entry{
 				bind(keys.ThemePicker),
+				bind(keys.Settings),
 				bind(keys.Help),
 				bind(keys.Quit),
 			},

@@ -3,26 +3,31 @@ package ui
 import "github.com/charmbracelet/bubbles/key"
 
 type KeyMap struct {
-	Up       key.Binding
-	Down     key.Binding
-	Left     key.Binding
-	Right    key.Binding
+	Up      key.Binding
+	Down    key.Binding
+	Left    key.Binding
+	Right   key.Binding
 	NextPane key.Binding
 	PrevPane key.Binding
-	Enter    key.Binding
-	Back     key.Binding
+	Enter   key.Binding
+	Back    key.Binding
 
-	Refresh    key.Binding
-	RefreshAll key.Binding
-	MarkRead   key.Binding
+	Refresh     key.Binding
+	RefreshAll  key.Binding
+	MarkRead    key.Binding
 	MarkAllRead key.Binding
 	OpenBrowser key.Binding
-	Search     key.Binding
+	Search      key.Binding
 
 	FeedManager key.Binding
 	ThemePicker key.Binding
+	Settings    key.Binding
 	Help        key.Binding
 	Quit        key.Binding
+
+	Summary  key.Binding // fetch/show AI summary (content pane)
+	CopyText key.Binding // copy summary to clipboard
+	SaveMD   key.Binding // save summary as .md file
 
 	// Feed manager specific
 	Add    key.Binding
@@ -32,21 +37,21 @@ type KeyMap struct {
 	Export key.Binding
 
 	// Overlay / input
-	Confirm key.Binding
-	Cancel  key.Binding
-	Tab     key.Binding
+	Confirm   key.Binding
+	Cancel    key.Binding
+	Tab       key.Binding
 	Backspace key.Binding
 }
 
 var DefaultKeys = KeyMap{
-	Up:   key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
-	Down: key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
-	Left: key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "move left")),
-	Right: key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "move right")),
+	Up:       key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
+	Down:     key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
+	Left:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "move left")),
+	Right:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "move right")),
 	NextPane: key.NewBinding(key.WithKeys("tab", "]"), key.WithHelp("tab/]", "next pane")),
 	PrevPane: key.NewBinding(key.WithKeys("shift+tab", "["), key.WithHelp("shift+tab/[", "prev pane")),
-	Enter: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
-	Back:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+	Enter:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+	Back:     key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 
 	Refresh:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "refresh feed")),
 	RefreshAll:  key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "refresh all")),
@@ -57,8 +62,13 @@ var DefaultKeys = KeyMap{
 
 	FeedManager: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "feed manager")),
 	ThemePicker: key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "theme picker")),
+	Settings:    key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "settings")),
 	Help:        key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 	Quit:        key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
+
+	Summary:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "AI summary")),
+	CopyText: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
+	SaveMD:   key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "save .md")),
 
 	Add:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 	Edit:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),

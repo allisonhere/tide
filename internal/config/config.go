@@ -8,11 +8,42 @@ import (
 )
 
 type Config struct {
-	Theme string `toml:"theme"`
+	Theme   string        `toml:"theme"`
+	Display DisplayConfig `toml:"display"`
+	AI      AIConfig      `toml:"ai"`
+}
+
+type DisplayConfig struct {
+	Icons          bool   `toml:"icons"`
+	DateFormat     string `toml:"date_format"`      // "relative" | "absolute"
+	MarkReadOnOpen bool   `toml:"mark_read_on_open"`
+	Browser        string `toml:"browser"`
+}
+
+type AIConfig struct {
+	Provider    string `toml:"provider"`     // "openai" | "claude" | "gemini" | "ollama" | ""
+	OpenAIKey   string `toml:"openai_key"`
+	ClaudeKey   string `toml:"claude_key"`
+	GeminiKey   string `toml:"gemini_key"`
+	OllamaURL   string `toml:"ollama_url"`
+	OllamaModel string `toml:"ollama_model"`
+	SavePath    string `toml:"save_path"`
 }
 
 func DefaultConfig() Config {
-	return Config{Theme: "catppuccin-mocha"}
+	return Config{
+		Theme: "catppuccin-mocha",
+		Display: DisplayConfig{
+			Icons:          false,
+			DateFormat:     "relative",
+			MarkReadOnOpen: true,
+		},
+		AI: AIConfig{
+			OllamaURL:   "http://localhost:11434",
+			OllamaModel: "llama3.2",
+			SavePath:    "~/",
+		},
+	}
 }
 
 func Load() (Config, error) {
@@ -29,7 +60,8 @@ func Load() (Config, error) {
 		return DefaultConfig(), err
 	}
 
-	var cfg Config
+	// Start from defaults so missing keys keep their default values.
+	cfg := DefaultConfig()
 	if _, err := toml.Decode(string(data), &cfg); err != nil {
 		return DefaultConfig(), err
 	}

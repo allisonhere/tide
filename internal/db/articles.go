@@ -11,13 +11,14 @@ type Article struct {
 	Title       string
 	Link        string
 	Content     string
+	Summary     string
 	PublishedAt time.Time
 	Read        bool
 }
 
 func (db *DB) ListArticles(feedID int64) ([]Article, error) {
 	rows, err := db.Query(`
-		SELECT id, feed_id, guid, title, link, content, published_at, read
+		SELECT id, feed_id, guid, title, link, content, summary, published_at, read
 		FROM articles
 		WHERE feed_id = ?
 		ORDER BY published_at DESC
@@ -71,6 +72,11 @@ func (db *DB) UpdateArticleContent(id int64, content string) error {
 	return err
 }
 
+func (db *DB) SaveSummary(id int64, summary string) error {
+	_, err := db.Exec(`UPDATE articles SET summary = ? WHERE id = ?`, summary, id)
+	return err
+}
+
 type scanner interface {
 	Scan(dest ...any) error
 }
@@ -79,7 +85,7 @@ func scanArticle(s scanner) (Article, error) {
 	var a Article
 	var publishedAt int64
 	var read int
-	err := s.Scan(&a.ID, &a.FeedID, &a.GUID, &a.Title, &a.Link, &a.Content, &publishedAt, &read)
+	err := s.Scan(&a.ID, &a.FeedID, &a.GUID, &a.Title, &a.Link, &a.Content, &a.Summary, &publishedAt, &read)
 	if err != nil {
 		return Article{}, err
 	}

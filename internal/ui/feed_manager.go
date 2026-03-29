@@ -361,7 +361,7 @@ func (fm *FeedManager) exportCmd() tea.Cmd {
 func (fm FeedManager) View(width, height int, styles Styles) string {
 	contentW := min(width, 74)
 	chrome := newManagerChrome(contentW, styles.Theme)
-	header := renderManagerHeader(contentW, chrome)
+	header := renderManagerHeader("FEED LISTING", contentW, chrome)
 	status := ""
 	hints := ""
 
@@ -605,8 +605,7 @@ func newManagerChrome(width int, t Theme) managerChrome {
 	}
 }
 
-func renderManagerHeader(width int, chrome managerChrome) string {
-	title := "FEED LISTING"
+func renderManagerHeader(title string, width int, chrome managerChrome) string {
 	gap := max(0, width-lipgloss.Width(title)-2)
 	return chrome.header.Render(title + strings.Repeat(" ", gap))
 }
