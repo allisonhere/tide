@@ -1,0 +1,25 @@
+# Status — 2026-03-29
+
+## Current branch: main (b728584)
+
+## What's working
+- Feed manager overlay: add / edit / delete / import OPML / export OPML
+- Blinking cursor in add/edit inputs via bubbles textinput
+- Accent left-border focus indicator on inputs; title field focused first on new add
+- Background bleed fully fixed in feed manager dialog (labels, inputs, spacers, wrappers)
+- Robust feed fetching: up to 10 redirects, loop detection, 307/308 method preservation, bot-protection detection, full error classification (9 kinds), TUI error details overlay, permanent-redirect URL update suggestion
+- 18 feed fetcher tests passing
+- deploy.sh release tool, install.sh curl installer, GitHub Actions release CI
+
+## Known issues / next up
+- Background bleed in feed manager MAY still appear — monitor with pic.png screenshots
+  - Root causes documented in memory/feedback_lipgloss_bg.md
+
+## Key bg-bleed patterns (summary)
+1. bubbles pads input.View() with plain spaces → TrimRight + re-pad with fieldBg
+2. lipgloss doesn't re-emit bg after ANSI resets → sub-styles need Background(fieldBg)
+3. JoinVertical pads with plain spaces → all elements must be same width (contentW)
+4. PaddingLeft without Background → always add Background to padding styles
+
+## Repo
+github.com/allisonhere/tide
