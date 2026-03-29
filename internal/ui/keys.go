@@ -43,8 +43,8 @@ var DefaultKeys = KeyMap{
 	Down: key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
 	Left: key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "move left")),
 	Right: key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "move right")),
-	NextPane: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next pane")),
-	PrevPane: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev pane")),
+	NextPane: key.NewBinding(key.WithKeys("tab", "]"), key.WithHelp("tab/]", "next pane")),
+	PrevPane: key.NewBinding(key.WithKeys("shift+tab", "["), key.WithHelp("shift+tab/[", "prev pane")),
 	Enter: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
 	Back:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 

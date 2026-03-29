@@ -372,19 +372,12 @@ func (fm FeedManager) View(width, height int, styles Styles) string {
 		parts = append(parts, hints)
 	}
 
-	view := lipgloss.JoinVertical(lipgloss.Left, parts...)
-	return lipgloss.Place(
-		width, height,
-		lipgloss.Center, lipgloss.Center,
-		view,
-		lipgloss.WithWhitespaceBackground(chrome.baseBg),
-		lipgloss.WithWhitespaceChars(" "),
-	)
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func (fm FeedManager) viewList(width, height int, styles Styles) string {
 	chrome := newManagerChrome(width)
-	sectionW := max(12, width-3)
+	sectionW := max(12, width-1)
 	content := []string{}
 
 	if len(fm.feeds) == 0 {
@@ -587,7 +580,8 @@ func renderManagerPanel(width int, content string, chrome managerChrome) string 
 		lines[i] = clampView(lines[i], textW, 1, chrome.surfaceBg)
 	}
 	view := clampView(strings.Join(lines, "\n"), textW, len(lines), chrome.surfaceBg)
-	return chrome.panel.Copy().Width(panelW).Render(view)
+	panel := chrome.panel.Width(panelW).Render(view)
+	return lipgloss.NewStyle().Width(width).Background(chrome.baseBg).Render(panel)
 }
 
 func renderManagerInput(width int, value, placeholder string, focused, showProtocol bool, chrome managerChrome) string {
@@ -618,24 +612,26 @@ func renderManagerInput(width int, value, placeholder string, focused, showProto
 func renderManagerRow(width int, title string, chrome managerChrome) string {
 	rowW := max(1, width-4)
 	textW := max(1, rowW-2)
-	return lipgloss.NewStyle().
+	row := lipgloss.NewStyle().
 		Width(rowW).
 		Background(chrome.surfaceBg).
 		Foreground(chrome.text).
 		Padding(0, 1).
 		Render(truncate(title, textW))
+	return lipgloss.NewStyle().Width(width).Background(chrome.baseBg).Render(row)
 }
 
 func renderManagerSelectedRow(width int, title string, chrome managerChrome) string {
 	rowW := max(1, width-4)
 	textW := max(1, rowW-2)
-	return lipgloss.NewStyle().
+	row := lipgloss.NewStyle().
 		Width(rowW).
 		Background(chrome.surfaceBg).
 		Foreground(chrome.highlight).
 		Bold(true).
 		Padding(0, 1).
 		Render(truncate(title, textW))
+	return lipgloss.NewStyle().Width(width).Background(chrome.baseBg).Render(row)
 }
 
 func renderManagerSourceLine(width int, value string, chrome managerChrome) string {

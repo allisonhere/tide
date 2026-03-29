@@ -62,13 +62,12 @@ func renderHelp(width, height int, styles Styles, keys KeyMap) string {
 	}
 
 	lines := []string{
-		styles.OverlayTitle.Render("Help — Keyboard Shortcuts"),
+		styles.HelpSection.Render("Help — Keyboard Shortcuts"),
 		"",
 	}
 
 	for _, s := range sections {
 		lines = append(lines, styles.HelpSection.Render(s.name))
-		lines = append(lines, styles.HelpSection.Render(strings.Repeat("─", 40)))
 		for _, e := range s.entries {
 			line := styles.HelpKey.Render(e.key) + styles.HelpDesc.Render(e.desc)
 			lines = append(lines, line)

@@ -91,18 +91,17 @@ func BuildStyles(t Theme) Styles {
 			Foreground(t.Fg).
 			AlignHorizontal(lipgloss.Left),
 		FeedItemSelected: lipgloss.NewStyle().
-			Background(t.BorderFocus).
-			Foreground(t.Bg).
+			Background(t.Bg).
+			Foreground(t.BorderFocus).
+			Bold(true).
 			AlignHorizontal(lipgloss.Left),
 		FeedItemActive: lipgloss.NewStyle().
 			Background(t.Border).
 			Foreground(t.Fg).
 			AlignHorizontal(lipgloss.Left),
 		UnreadBadge: lipgloss.NewStyle().
-			Background(t.Unread).
-			Foreground(t.Bg).
-			Bold(true).
-			Padding(0, 1),
+			Foreground(t.Unread).
+			Bold(true),
 
 		ArticleUnread: lipgloss.NewStyle().
 			Background(t.Bg).
@@ -113,8 +112,9 @@ func BuildStyles(t Theme) Styles {
 			Foreground(t.Dimmed).
 			AlignHorizontal(lipgloss.Left),
 		ArticleSelected: lipgloss.NewStyle().
-			Background(t.BorderFocus).
-			Foreground(t.Bg).
+			Background(t.Bg).
+			Foreground(t.BorderFocus).
+			Bold(true).
 			AlignHorizontal(lipgloss.Left),
 		ArticleTime: lipgloss.NewStyle().
 			Background(t.Bg).
@@ -180,18 +180,14 @@ func BuildStyles(t Theme) Styles {
 			Foreground(modalMuted),
 
 		HelpSection: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#0f141c")).
-			Background(modalAccent).
+			Foreground(t.BorderFocus).
 			Bold(true).
-			Padding(0, 1).
 			MarginTop(1),
 		HelpKey: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#0f141c")).
-			Background(modalAccent).
-			Padding(0, 1).
+			Foreground(t.Unread).
 			Width(20),
 		HelpDesc: lipgloss.NewStyle().
-			Foreground(modalFg),
+			Foreground(t.Fg),
 
 		Spinner: lipgloss.NewStyle().
 			Foreground(t.Unread),
