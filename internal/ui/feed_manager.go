@@ -384,7 +384,8 @@ func (fm FeedManager) View(width, height int, styles Styles) string {
 		body = fm.viewList(contentW, bodyH, styles)
 	}
 
-	parts := []string{header, "", body}
+	spacer := lipgloss.NewStyle().Background(chrome.baseBg).Width(contentW).Render("")
+	parts := []string{header, spacer, body}
 	if status != "" {
 		parts = append(parts, status)
 	}
@@ -432,7 +433,7 @@ func (fm FeedManager) viewList(width, height int, styles Styles) string {
 		"x", "export",
 		"esc", "back",
 	)
-	main := lipgloss.NewStyle().Background(chrome.baseBg).PaddingLeft(2).Render(
+	main := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(
 		lipgloss.JoinVertical(lipgloss.Left, content...),
 	)
 	return lipgloss.JoinVertical(lipgloss.Left, main, footer)
@@ -447,19 +448,20 @@ func renderManagerInset(spaces int, s string) string {
 
 func (fm FeedManager) viewEdit(width, height int, styles Styles) string {
 	chrome := newManagerChrome(width)
+	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		renderManagerSection("Title", renderTextInput(fm.titleInput, width-3, fm.focusedField == 0, chrome), chrome),
-		"",
+		gap,
 		renderManagerSection("URL", renderTextInput(fm.urlInput, width-3, fm.focusedField == 1, chrome), chrome),
-		"",
+		gap,
 	)
-	return lipgloss.NewStyle().Background(chrome.baseBg).PaddingLeft(2).Render(content)
+	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(content)
 }
 
 func (fm FeedManager) viewImport(width, height int, styles Styles) string {
 	chrome := newManagerChrome(width)
-	return lipgloss.NewStyle().Background(chrome.baseBg).PaddingLeft(2).Render(
+	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(
 		renderManagerSection("01. IMPORT OPML", renderManagerInput(width-3, fm.importInput.Value(), "PATH TO OPML FILE...", true, chrome), chrome),
 	)
 }
@@ -475,7 +477,7 @@ func (fm FeedManager) viewConfirmDelete(width, height int, styles Styles) string
 		renderManagerSection("01. DELETE FEED", renderManagerPanel(width-3, strings.ToUpper(truncate(name, width-7)), chrome), chrome),
 		renderManagerSection("WARNING", chrome.body.Render("ALL ARTICLES FROM THIS FEED WILL BE REMOVED."), chrome),
 	)
-	return lipgloss.NewStyle().Background(chrome.baseBg).PaddingLeft(2).Render(content)
+	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(content)
 }
 
 func (fm FeedManager) viewHints(width int, styles Styles) string {
