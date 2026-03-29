@@ -567,11 +567,9 @@ func renderManagerHeader(width int, chrome managerChrome) string {
 }
 
 func renderManagerSection(label, body string, chrome managerChrome) string {
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		renderManagerSectionLabel(label, chrome),
-		body,
-	)
+	w := lipgloss.Width(body)
+	styledLabel := chrome.sectionLabel.Width(w).Render(label)
+	return lipgloss.JoinVertical(lipgloss.Left, styledLabel, body)
 }
 
 func renderManagerSectionLabel(label string, chrome managerChrome) string {
