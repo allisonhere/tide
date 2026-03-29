@@ -74,9 +74,11 @@ func BuildStyles(t Theme) Styles {
 
 		FeedsPane: paneBase.
 			Border(lipgloss.NormalBorder(), false, true, false, false).
+			BorderBackground(t.Bg).
 			AlignVertical(lipgloss.Top),
 		ArticlesPane: focusedPane.
 			Border(lipgloss.NormalBorder(), false, false, true, false).
+			BorderBackground(t.Bg).
 			AlignVertical(lipgloss.Top),
 		ContentPane: lipgloss.NewStyle().
 			Background(t.Bg),
