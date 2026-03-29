@@ -1,0 +1,5 @@
+.gocache/
+vendor/
+*.db
+*.db.migrated
+tide

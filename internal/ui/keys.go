@@ -1,0 +1,73 @@
+package ui
+
+import "github.com/charmbracelet/bubbles/key"
+
+type KeyMap struct {
+	Up       key.Binding
+	Down     key.Binding
+	Left     key.Binding
+	Right    key.Binding
+	NextPane key.Binding
+	PrevPane key.Binding
+	Enter    key.Binding
+	Back     key.Binding
+
+	Refresh    key.Binding
+	RefreshAll key.Binding
+	MarkRead   key.Binding
+	MarkAllRead key.Binding
+	OpenBrowser key.Binding
+	Search     key.Binding
+
+	FeedManager key.Binding
+	ThemePicker key.Binding
+	Help        key.Binding
+	Quit        key.Binding
+
+	// Feed manager specific
+	Add    key.Binding
+	Edit   key.Binding
+	Delete key.Binding
+	Import key.Binding
+	Export key.Binding
+
+	// Overlay / input
+	Confirm key.Binding
+	Cancel  key.Binding
+	Tab     key.Binding
+	Backspace key.Binding
+}
+
+var DefaultKeys = KeyMap{
+	Up:   key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
+	Down: key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
+	Left: key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "move left")),
+	Right: key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "move right")),
+	NextPane: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next pane")),
+	PrevPane: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev pane")),
+	Enter: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+	Back:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+
+	Refresh:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "refresh feed")),
+	RefreshAll:  key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "refresh all")),
+	MarkRead:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "toggle read")),
+	MarkAllRead: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "mark all read")),
+	OpenBrowser: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open in browser")),
+	Search:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+
+	FeedManager: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "feed manager")),
+	ThemePicker: key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "theme picker")),
+	Help:        key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+	Quit:        key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
+
+	Add:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
+	Edit:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
+	Delete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	Import: key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "import OPML")),
+	Export: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "export OPML")),
+
+	Confirm:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
+	Cancel:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	Tab:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next field")),
+	Backspace: key.NewBinding(key.WithKeys("backspace")),
+}
