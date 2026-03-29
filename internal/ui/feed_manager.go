@@ -486,7 +486,10 @@ func (fm FeedManager) viewConfirmDelete(width, height int, styles Styles) string
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		renderManagerSection("01. DELETE FEED", renderManagerPanel(width-3, strings.ToUpper(truncate(name, width-7)), chrome), chrome),
-		renderManagerSection("WARNING", chrome.body.Render("ALL ARTICLES FROM THIS FEED WILL BE REMOVED."), chrome),
+		lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.NewStyle().Background(chrome.baseBg).Foreground(lipgloss.Color("#f7768e")).Bold(true).Width(max(12, width-3)).Render("WARNING"),
+			chrome.body.Width(max(12, width-3)).Render("ALL ARTICLES FROM THIS FEED WILL BE REMOVED."),
+		),
 	)
 	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(content)
 }
