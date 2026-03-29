@@ -24,8 +24,8 @@ func TestFeedManagerListViewGeometry(t *testing.T) {
 	view := fm.View(96, 24, BuildStyles(CatppuccinMocha))
 	lines := strings.Split(ansi.Strip(view), "\n")
 
-	if got := len(lines); got != 24 {
-		t.Fatalf("expected 24 lines, got %d", got)
+	if got := len(lines); got > 24 {
+		t.Fatalf("expected at most 24 lines, got %d", got)
 	}
 	if !strings.Contains(lines[len(lines)-1], "BACK") {
 		t.Fatalf("expected bottom line to contain action bar, got %q", lines[len(lines)-1])

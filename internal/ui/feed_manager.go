@@ -372,7 +372,15 @@ func (fm FeedManager) View(width, height int, styles Styles) string {
 		status = chrome.statusBar.Render(truncate(strings.ToUpper(strings.ReplaceAll(fm.statusMsg, "\n", " ")), max(1, contentW-4)))
 	}
 
-	bodyH := max(1, height-lipgloss.Height(header)-lipgloss.Height(status)-lipgloss.Height(hints))
+	statusH, hintsH := 0, 0
+	if status != "" {
+		statusH = lipgloss.Height(status)
+	}
+	if hints != "" {
+		hintsH = lipgloss.Height(hints)
+	}
+	spacerH := 1
+	bodyH := max(1, height-lipgloss.Height(header)-spacerH-statusH-hintsH)
 	switch fm.mode {
 	case fmEdit:
 		body = fm.viewEdit(contentW, bodyH, styles)
@@ -398,7 +406,7 @@ func (fm FeedManager) View(width, height int, styles Styles) string {
 
 func (fm FeedManager) viewList(width, height int, styles Styles) string {
 	chrome := newManagerChrome(width)
-	sectionW := max(12, width-1)
+	sectionW := max(12, width-3)
 	content := []string{}
 
 	if len(fm.feeds) == 0 {
@@ -433,9 +441,12 @@ func (fm FeedManager) viewList(width, height int, styles Styles) string {
 		"x", "export",
 		"esc", "back",
 	)
-	main := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(
+	maxMainH := max(1, height-lipgloss.Height(footer))
+	rawMain := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(
 		lipgloss.JoinVertical(lipgloss.Left, content...),
 	)
+	actualH := strings.Count(rawMain, "\n") + 1
+	main := clampView(rawMain, width, min(actualH, maxMainH), chrome.baseBg)
 	return lipgloss.JoinVertical(lipgloss.Left, main, footer)
 }
 
@@ -626,7 +637,11 @@ func renderTextInput(input textinput.Model, width int, focused bool, chrome mana
 	input.Width = max(1, contentW-2)
 	input.PromptStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.accent).Bold(true)
 	input.TextStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.text)
-	input.PlaceholderStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.muted)
+	placeholderFg := chrome.muted
+	if focused {
+		placeholderFg = chrome.accent
+	}
+	input.PlaceholderStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(placeholderFg)
 	input.Cursor.Style = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
 	input.Cursor.TextStyle = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
 

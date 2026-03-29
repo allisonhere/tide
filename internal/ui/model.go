@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/charmbracelet/bubbles/key"
@@ -749,7 +748,7 @@ func (m Model) renderFeedsPane() string {
 	}
 
 	content := strings.Join(rows, "\n")
-	return border.Width(w).Height(m.mainHeight()).Render(content)
+	return border.Width(innerW).Height(m.mainHeight()).Render(content)
 }
 
 func (m Model) renderArticlesPane() string {
@@ -1424,14 +1423,13 @@ func truncate(s string, maxW int) string {
 	if maxW <= 0 {
 		return ""
 	}
-	if utf8.RuneCountInString(s) <= maxW {
+	if lipgloss.Width(s) <= maxW {
 		return s
 	}
-	runes := []rune(s)
-	if maxW <= 3 {
-		return string(runes[:maxW])
+	if maxW <= 1 {
+		return ansi.Truncate(s, maxW, "")
 	}
-	return string(runes[:maxW-1]) + "…"
+	return ansi.Truncate(s, maxW-1, "") + "…"
 }
 
 func relativeTime(t time.Time) string {
