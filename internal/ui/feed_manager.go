@@ -82,7 +82,14 @@ func (fm *FeedManager) focusAdd() {
 	fm.urlInput.Blur()
 }
 
-func (fm FeedManager) Update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd) {
+func (fm FeedManager) Update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd, bool) {
+	fm, cmd := fm.update(msg, keys)
+	exit := fm.shouldExit
+	fm.shouldExit = false
+	return fm, cmd, exit
+}
+
+func (fm FeedManager) update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd) {
 	// Route non-key messages to the focused textinput (cursor blink ticks etc.)
 	if _, ok := msg.(tea.KeyMsg); !ok {
 		switch fm.mode {
@@ -361,11 +368,11 @@ func (fm FeedManager) View(width, height int, styles Styles) string {
 	var body string
 	switch fm.mode {
 	case fmEdit:
-		hints = fm.viewHints(contentW, styles)
+		hints = fm.viewHints(contentW, chrome)
 	case fmImport:
-		hints = fm.viewHints(contentW, styles)
+		hints = fm.viewHints(contentW, chrome)
 	case fmConfirmDelete:
-		hints = fm.viewHints(contentW, styles)
+		hints = fm.viewHints(contentW, chrome)
 	}
 
 	if fm.statusMsg != "" {
@@ -383,13 +390,13 @@ func (fm FeedManager) View(width, height int, styles Styles) string {
 	bodyH := max(1, height-lipgloss.Height(header)-spacerH-statusH-hintsH)
 	switch fm.mode {
 	case fmEdit:
-		body = fm.viewEdit(contentW, bodyH, styles)
+		body = fm.viewEdit(contentW, bodyH, chrome)
 	case fmImport:
-		body = fm.viewImport(contentW, bodyH, styles)
+		body = fm.viewImport(contentW, bodyH, chrome)
 	case fmConfirmDelete:
-		body = fm.viewConfirmDelete(contentW, bodyH, styles)
+		body = fm.viewConfirmDelete(contentW, bodyH, chrome)
 	default:
-		body = fm.viewList(contentW, bodyH, styles)
+		body = fm.viewList(contentW, bodyH, chrome)
 	}
 
 	spacer := lipgloss.NewStyle().Background(chrome.baseBg).Width(contentW).Render("")
@@ -404,8 +411,7 @@ func (fm FeedManager) View(width, height int, styles Styles) string {
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
-func (fm FeedManager) viewList(width, height int, styles Styles) string {
-	chrome := newManagerChrome(width, styles.Theme)
+func (fm FeedManager) viewList(width, height int, chrome managerChrome) string {
 	sectionW := max(12, width-3)
 	content := []string{}
 
@@ -457,8 +463,7 @@ func renderManagerInset(spaces int, s string) string {
 	return strings.Repeat(" ", spaces) + s
 }
 
-func (fm FeedManager) viewEdit(width, height int, styles Styles) string {
-	chrome := newManagerChrome(width, styles.Theme)
+func (fm FeedManager) viewEdit(width, height int, chrome managerChrome) string {
 	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -470,15 +475,13 @@ func (fm FeedManager) viewEdit(width, height int, styles Styles) string {
 	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(content)
 }
 
-func (fm FeedManager) viewImport(width, height int, styles Styles) string {
-	chrome := newManagerChrome(width, styles.Theme)
+func (fm FeedManager) viewImport(width, height int, chrome managerChrome) string {
 	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(
 		renderManagerSection("01. IMPORT OPML", renderManagerInput(width-3, fm.importInput.Value(), "PATH TO OPML FILE...", true, chrome), chrome),
 	)
 }
 
-func (fm FeedManager) viewConfirmDelete(width, height int, styles Styles) string {
-	chrome := newManagerChrome(width, styles.Theme)
+func (fm FeedManager) viewConfirmDelete(width, height int, chrome managerChrome) string {
 	if len(fm.feeds) == 0 {
 		return ""
 	}
@@ -494,8 +497,7 @@ func (fm FeedManager) viewConfirmDelete(width, height int, styles Styles) string
 	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(content)
 }
 
-func (fm FeedManager) viewHints(width int, styles Styles) string {
-	chrome := newManagerChrome(width, styles.Theme)
+func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 	switch fm.mode {
 	case fmEdit:
 		return renderManagerActions(width, chrome,

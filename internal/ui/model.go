@@ -341,7 +341,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	default:
 		if m.overlay == overlayFeedManager {
-			return m.handleFeedManagerMsg(msg)
+			return m.handleFeedManager(msg)
 		}
 	}
 
@@ -608,7 +608,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case overlayFeedManager:
-		return m.handleFeedManagerKey(msg)
+		return m.handleFeedManager(msg)
 
 	case overlayHelp:
 		if keyMatches(msg, m.keys.Back, m.keys.Help, m.keys.Quit) {
@@ -645,27 +645,13 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleFeedManagerMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
-	newFM, cmd := m.feedManager.Update(msg, m.keys)
+func (m Model) handleFeedManager(msg tea.Msg) (tea.Model, tea.Cmd) {
+	newFM, cmd, exit := m.feedManager.Update(msg, m.keys)
 	m.feedManager = newFM
-	if m.feedManager.shouldExit {
+	if exit {
 		m.overlay = overlayNone
-		m.feedManager.shouldExit = false
 		return m, m.loadFeedsCmd()
 	}
-	return m, cmd
-}
-
-func (m Model) handleFeedManagerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	newFM, cmd := m.feedManager.Update(msg, m.keys)
-	m.feedManager = newFM
-
-	if m.feedManager.shouldExit {
-		m.overlay = overlayNone
-		m.feedManager.shouldExit = false
-		return m, m.loadFeedsCmd()
-	}
-
 	return m, cmd
 }
 
@@ -1306,112 +1292,6 @@ func shouldFetchArticleContent(a db.Article) bool {
 	return true
 }
 
-func formatArticleBody(content string, width int) string {
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	paras := splitArticleParagraphs(content)
-	out := make([]string, 0, len(paras))
-	for _, p := range paras {
-		if p == "" {
-			continue
-		}
-		out = append(out, formatArticleParagraph(p, width))
-	}
-	if len(out) == 0 {
-		return ""
-	}
-	return strings.Join(out, "\n\n")
-}
-
-func splitArticleParagraphs(content string) []string {
-	raw := strings.Split(content, "\n\n")
-	out := make([]string, 0, len(raw))
-	for _, part := range raw {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		out = append(out, part)
-	}
-	return out
-}
-
-func formatArticleParagraph(p string, width int) string {
-	lines := strings.Split(strings.TrimSpace(p), "\n")
-	if len(lines) == 0 {
-		return ""
-	}
-
-	trimmed := strings.TrimSpace(lines[0])
-	switch {
-	case strings.HasPrefix(trimmed, "#"):
-		return wrapWords(strings.TrimSpace(strings.TrimLeft(trimmed, "#")), width)
-	case strings.HasPrefix(trimmed, ">"):
-		quote := normalizeInlineSpacing(strings.TrimSpace(strings.TrimLeft(trimmed, ">")))
-		return wrapWords("│ "+quote, width)
-	case strings.HasPrefix(trimmed, "- "), strings.HasPrefix(trimmed, "* "):
-		items := make([]string, 0, len(lines))
-		for _, line := range lines {
-			line = strings.TrimSpace(strings.TrimLeft(strings.TrimLeft(line, "-"), "*"))
-			if line == "" {
-				continue
-			}
-			items = append(items, wrapBullet(line, width))
-		}
-		return strings.Join(items, "\n")
-	default:
-		return wrapWords(normalizeInlineSpacing(strings.Join(lines, " ")), width)
-	}
-}
-
-func wrapBullet(text string, width int) string {
-	if width <= 2 {
-		return "• " + text
-	}
-	wrapped := wrapWords(text, width-2)
-	lines := strings.Split(wrapped, "\n")
-	for i := range lines {
-		if i == 0 {
-			lines[i] = "• " + lines[i]
-		} else {
-			lines[i] = "  " + lines[i]
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-func wrapWords(text string, width int) string {
-	text = normalizeInlineSpacing(text)
-	if text == "" || width <= 1 {
-		return text
-	}
-	words := strings.Fields(text)
-	if len(words) == 0 {
-		return ""
-	}
-
-	lines := []string{words[0]}
-	for _, word := range words[1:] {
-		current := lines[len(lines)-1]
-		if lipgloss.Width(current)+1+lipgloss.Width(word) <= width {
-			lines[len(lines)-1] = current + " " + word
-			continue
-		}
-		if lipgloss.Width(word) > width {
-			if lipgloss.Width(current) < width {
-				lines = append(lines, truncate(word, width))
-			} else {
-				lines = append(lines, truncate(word, width))
-			}
-			continue
-		}
-		lines = append(lines, word)
-	}
-	return strings.Join(lines, "\n")
-}
-
-func normalizeInlineSpacing(s string) string {
-	return strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
-}
 
 func keyMatches(msg tea.KeyMsg, bindings ...key.Binding) bool {
 	for _, b := range bindings {
