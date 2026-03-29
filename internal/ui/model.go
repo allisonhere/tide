@@ -796,13 +796,14 @@ func (m Model) renderArticlesPane() string {
 		title = fmt.Sprintf("Articles [/%s]", m.searchQuery)
 	}
 
-	contentRows := append([]string{m.renderPaneHeader(title, focused, w-2)}, rows...)
+	contentRows := append([]string{m.renderPaneHeader(title, focused, w)}, rows...)
 	for len(contentRows) < h {
 		contentRows = append(contentRows, m.styles.ArticleRead.Width(w-2).Render(""))
 	}
 
+	bg := BuiltinThemes[m.activeTheme].Bg
 	return lipgloss.NewStyle().
-		Background(BuiltinThemes[m.activeTheme].Bg).
+		Background(bg).
 		Border(lipgloss.NormalBorder(), false, false, true, false).
 		BorderForeground(lipgloss.Color(func() string {
 			if focused {
@@ -810,6 +811,7 @@ func (m Model) renderArticlesPane() string {
 			}
 			return string(BuiltinThemes[m.activeTheme].Border)
 		}())).
+		BorderBackground(bg).
 		Width(w).Height(h).
 		Render(strings.Join(contentRows, "\n"))
 }
@@ -826,18 +828,20 @@ func (m Model) renderContentPane() string {
 	}
 
 	vp := m.viewport
-	vp.Width = m.contentBodyWidth()
+	vp.Width = w
 	vp.Height = bodyH
+	vp.Style = lipgloss.NewStyle().Background(BuiltinThemes[m.activeTheme].Bg)
 
 	inner := m.styles.ContentPane.
-		Width(m.contentBodyWidth()).
+		Width(w).
 		Height(innerH).
-		Render(m.renderPaneHeader("Content", focused, w-2) + "\n" + vp.View())
+		Render(m.renderPaneHeader("Content", focused, w) + "\n" + vp.View())
 
 	return lipgloss.NewStyle().
 		Background(BuiltinThemes[m.activeTheme].Bg).
 		Border(lipgloss.NormalBorder(), true, false, false, false).
 		BorderForeground(borderColor).
+		BorderBackground(BuiltinThemes[m.activeTheme].Bg).
 		Width(w).Height(innerH).
 		Render(inner)
 }
@@ -854,8 +858,8 @@ func (m Model) renderPaneHeader(label string, focused bool, width int) string {
 
 func (m Model) renderArticleContent(a db.Article) string {
 	bodyWidth := m.contentBodyWidth()
-	title := m.styles.ContentTitle.Width(bodyWidth).Render(truncate(a.Title, bodyWidth))
-	meta := m.styles.ContentMeta.Width(bodyWidth).Render(truncate(a.PublishedAt.Format("Mon, 02 Jan 2006 15:04")+"  "+a.Link, bodyWidth))
+	title := m.styles.ContentTitle.Width(bodyWidth + 2).Render(truncate(a.Title, bodyWidth+2))
+	meta := m.styles.ContentMeta.Width(bodyWidth + 2).Render(truncate(a.PublishedAt.Format("Mon, 02 Jan 2006 15:04")+"  "+a.Link, bodyWidth+2))
 
 	content := a.Content
 	if content == "" {
