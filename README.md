@@ -19,7 +19,13 @@ catppuccin-mocha, catppuccin-latte, catppuccin-frappe, catppuccin-macchiato, nor
 ## Installation
 
 ```bash
-go install tide@latest
+curl -fsSL https://raw.githubusercontent.com/allisonhere/tide/main/install.sh | sh
+```
+
+Installs to `/usr/local/bin` by default. To install elsewhere:
+
+```bash
+INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/allisonhere/tide/main/install.sh | sh
 ```
 
 Or build from source:
