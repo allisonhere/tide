@@ -598,10 +598,10 @@ func renderManagerPanel(width int, content string, chrome managerChrome) string 
 
 func renderManagerInput(width int, value, placeholder string, focused, showProtocol bool, chrome managerChrome) string {
 	textW := max(1, width-1)
-	cursor := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.accent).Bold(true)
-	protocol := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.accent).Bold(true)
-	text := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.text)
-	ghost := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.highlight)
+	cursor := lipgloss.NewStyle().Background(chrome.surfaceBg).Foreground(chrome.accent).Bold(true)
+	protocol := lipgloss.NewStyle().Background(chrome.surfaceBg).Foreground(chrome.accent).Bold(true)
+	text := lipgloss.NewStyle().Background(chrome.surfaceBg).Foreground(chrome.text)
+	ghost := lipgloss.NewStyle().Background(chrome.surfaceBg).Foreground(chrome.highlight)
 
 	value = strings.TrimSpace(value)
 	var line string
@@ -618,7 +618,7 @@ func renderManagerInput(width int, value, placeholder string, focused, showProto
 	} else {
 		line = text.Render(value)
 	}
-	return lipgloss.NewStyle().Background(chrome.baseBg).Padding(0, 1).Render(clampView(line, textW, 1, chrome.baseBg))
+	return lipgloss.NewStyle().Background(chrome.surfaceBg).Padding(0, 1).Render(clampView(line, textW, 1, chrome.surfaceBg))
 }
 
 func renderManagerRow(width int, title string, chrome managerChrome) string {
