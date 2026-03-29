@@ -44,5 +44,17 @@ type FeedURLUpdatedMsg struct {
 	NewURL string
 	Err    error
 }
+type AISummaryFetchedMsg struct {
+	ArticleID int64
+	Summary   string
+	Err       error
+}
+type SummarySavedMsg struct {
+	Path string
+	Err  error
+}
+type ClipboardCopiedMsg struct {
+	Err error
+}
 type StatusClearMsg struct{}
 type ErrMsg struct{ Err error }

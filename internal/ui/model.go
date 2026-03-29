@@ -1,11 +1,15 @@
 package ui
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/charmbracelet/bubbles/key"
@@ -16,6 +20,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"tide/internal/ai"
 	"tide/internal/config"
 	"tide/internal/db"
 	"tide/internal/feed"
@@ -41,6 +46,8 @@ const (
 	overlayFeedManager
 	overlayHelp
 	overlayFetchError // fetch-error details for a single feed
+	overlaySettings
+	overlaySummary
 )
 
 // ── Model ────────────────────────────────────────────────────────────────────
@@ -100,6 +107,15 @@ type Model struct {
 	firstLoad           bool  // true until the initial FeedsLoadedMsg is processed
 	pendingSelectFeedID int64 // select this feed when FeedsLoadedMsg arrives
 	keys                KeyMap
+
+	// Settings overlay
+	settings Settings
+
+	// AI summary overlay
+	summarizer       ai.Summarizer // nil when not configured
+	summaryArticle   db.Article
+	summaryGenerating bool
+	summaryErr       string
 }
 
 type pendingURLUpdate struct {
@@ -119,6 +135,8 @@ func NewModel(database *db.DB, cfg config.Config) Model {
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#a6e3a1"))
 
+	summarizer, _ := ai.New(cfg.AI)
+
 	m := Model{
 		db:             database,
 		cfg:            cfg,
@@ -133,6 +151,7 @@ func NewModel(database *db.DB, cfg config.Config) Model {
 		mdConverter:    md.NewConverter("", true, nil),
 		firstLoad:      true,
 		keys:           DefaultKeys,
+		summarizer:     summarizer,
 	}
 	return m
 }
@@ -330,6 +349,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case AISummaryFetchedMsg:
+		m.summaryGenerating = false
+		if msg.Err != nil {
+			m.summaryErr = msg.Err.Error()
+			return m, nil
+		}
+		_ = m.db.SaveSummary(msg.ArticleID, msg.Summary)
+		for i := range m.articles {
+			if m.articles[i].ID == msg.ArticleID {
+				m.articles[i].Summary = msg.Summary
+			}
+		}
+		m.applyFilter()
+		if m.summaryArticle.ID == msg.ArticleID {
+			m.summaryArticle.Summary = msg.Summary
+		}
+		return m, nil
+
+	case SummarySavedMsg:
+		if msg.Err != nil {
+			m.setStatus(fmt.Sprintf("save failed: %v", msg.Err), true)
+		} else {
+			m.setStatus("saved → "+msg.Path, false)
+		}
+		return m, m.clearStatusCmd()
+
+	case ClipboardCopiedMsg:
+		if msg.Err != nil {
+			m.setStatus("copy failed: "+msg.Err.Error(), true)
+		} else {
+			m.setStatus("copied to clipboard", false)
+		}
+		return m, m.clearStatusCmd()
+
 	case ErrMsg:
 		m.setStatus(msg.Err.Error(), true)
 		return m, m.clearStatusCmd()
@@ -340,6 +393,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		if m.overlay == overlayFeedManager {
 			return m.handleFeedManager(msg)
+		}
+		if m.overlay == overlaySettings {
+			return m.handleSettings(msg)
 		}
 	}
 
@@ -418,7 +474,9 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, m.keys.Enter):
 		if m.focused == paneArticles && len(m.filteredArticles) > 0 {
 			m.focused = paneContent
-			return m, m.markReadCmd(m.filteredArticles[m.articleCursor].ID, true)
+			if m.cfg.Display.MarkReadOnOpen {
+				return m, m.markReadCmd(m.filteredArticles[m.articleCursor].ID, true)
+			}
 		}
 		return m, nil
 
@@ -457,8 +515,19 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, m.keys.OpenBrowser):
 		if len(m.filteredArticles) > 0 {
-			return m, openBrowserCmd(m.filteredArticles[m.articleCursor].Link)
+			return m, m.openBrowserCmd(m.filteredArticles[m.articleCursor].Link)
 		}
+		return m, nil
+
+	case keyMatches(msg, m.keys.Summary):
+		if m.focused == paneContent && len(m.filteredArticles) > 0 {
+			return m.openSummary()
+		}
+		return m, nil
+
+	case keyMatches(msg, m.keys.Settings):
+		m.settings = newSettings(m.cfg)
+		m.overlay = overlaySettings
 		return m, nil
 
 	case msg.String() == "U":
@@ -629,7 +698,6 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.overlay = overlayNone
 				m.lastFetchError = nil
 				m.pendingURLUpdate = nil
-				// find the feed ID for this URL
 				for _, f := range m.feeds {
 					if f.URL == r.OriginalURL {
 						return m, m.updateFeedURLCmd(f.ID, r.SuggestedURL)
@@ -638,8 +706,46 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+
+	case overlaySettings:
+		return m.handleSettings(msg)
+
+	case overlaySummary:
+		return m.handleSummaryKey(msg)
 	}
 
+	return m, nil
+}
+
+func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
+	newS, cmd, done := m.settings.Update(msg, m.keys)
+	m.settings = newS
+	if done {
+		if m.settings.shouldSave {
+			m.cfg = m.settings.ApplyTo(m.cfg)
+			config.Save(m.cfg)
+			m.summarizer, _ = ai.New(m.cfg.AI)
+		}
+		m.overlay = overlayNone
+		return m, nil
+	}
+	return m, cmd
+}
+
+func (m Model) handleSummaryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case keyMatches(msg, m.keys.Back), keyMatches(msg, m.keys.Summary):
+		m.overlay = overlayNone
+		return m, nil
+	case keyMatches(msg, m.keys.CopyText):
+		if !m.summaryGenerating && m.summaryErr == "" && m.summaryArticle.Summary != "" {
+			return m, copyToClipboardCmd(m.summaryArticle.Summary)
+		}
+	case keyMatches(msg, m.keys.SaveMD):
+		if !m.summaryGenerating && m.summaryErr == "" && m.summaryArticle.Summary != "" {
+			return m, saveSummaryMDCmd(m.summaryArticle, m.summaryArticle.Summary, m.cfg.AI.SavePath)
+		}
+	}
 	return m, nil
 }
 
@@ -893,7 +999,7 @@ func (m Model) renderOverlay(base string) string {
 		quitW := 40
 		qt := m.styles.Theme
 		chrome := newManagerChrome(quitW, qt)
-		header := renderManagerHeader(quitW, chrome)
+		header := renderManagerHeader("QUIT TIDE?", quitW, chrome)
 		body := lipgloss.NewStyle().
 			Background(chrome.baseBg).
 			Foreground(chrome.text).
@@ -964,9 +1070,83 @@ func (m Model) renderOverlay(base string) string {
 				Width(winW).
 				Render(inner)
 		}
+
+	case overlaySettings:
+		winW := min(m.width-4, 62)
+		winH := min(m.height-4, 26)
+		chrome := newManagerChrome(winW, m.styles.Theme)
+		inner := m.settings.View(winW, winH, chrome)
+		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
+		box = lipgloss.NewStyle().
+			Background(chrome.baseBg).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(m.styles.Theme.BorderFocus).
+			BorderBackground(chrome.baseBg).
+			Width(winW).
+			Render(inner)
+
+	case overlaySummary:
+		winW := min(m.width-8, 76)
+		winH := min(m.height-6, 20)
+		chrome := newManagerChrome(winW, m.styles.Theme)
+		inner := m.renderSummaryOverlay(winW, winH, chrome)
+		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
+		box = lipgloss.NewStyle().
+			Background(chrome.baseBg).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(m.styles.Theme.BorderFocus).
+			BorderBackground(chrome.baseBg).
+			Width(winW).
+			Render(inner)
 	}
 
 	return overlayOnBase(base, box, m.width, m.height, m.styles.Theme.Bg)
+}
+
+func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) string {
+	title := truncate(m.summaryArticle.Title, width-4)
+	header := renderManagerHeader(strings.ToUpper(title), width, chrome)
+
+	var bodyText string
+	switch {
+	case m.summaryGenerating:
+		bodyText = m.spinner.View() + " Generating summary…"
+	case m.summaryErr != "":
+		bodyText = "Error: " + m.summaryErr
+	default:
+		bodyText = wrapWords(m.summaryArticle.Summary, width-4)
+	}
+
+	body := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Foreground(chrome.text).
+		Width(width).
+		Padding(1, 2).
+		Render(bodyText)
+
+	var hints string
+	if !m.summaryGenerating && m.summaryErr == "" {
+		provider := ""
+		if m.summarizer != nil {
+			provider = "  ·  " + m.summarizer.ProviderName()
+		}
+		providerLine := lipgloss.NewStyle().
+			Background(chrome.baseBg).
+			Foreground(chrome.muted).
+			Width(width).
+			Padding(0, 2).
+			Render(provider)
+		hints = lipgloss.JoinVertical(lipgloss.Left,
+			providerLine,
+			renderManagerActions(width, chrome, "c", "copy", "m", "save .md", "esc", "close"),
+		)
+	} else {
+		hints = renderManagerActions(width, chrome, "esc", "close")
+	}
+
+	bodyH := max(1, height-lipgloss.Height(header)-lipgloss.Height(hints))
+	body = clampView(body, width, bodyH, chrome.baseBg)
+	return lipgloss.JoinVertical(lipgloss.Left, header, body, hints)
 }
 
 func overlayOnBase(base, box string, width, height int, bg lipgloss.Color) string {
@@ -1137,18 +1317,138 @@ func (m *Model) clearStatusCmd() tea.Cmd {
 	})
 }
 
-func openBrowserCmd(url string) tea.Cmd {
+func (m Model) openBrowserCmd(url string) tea.Cmd {
+	browser := m.cfg.Display.Browser
 	return func() tea.Msg {
 		var cmd *exec.Cmd
-		switch runtime.GOOS {
-		case "darwin":
-			cmd = exec.Command("open", url)
-		default:
-			cmd = exec.Command("xdg-open", url)
+		if browser != "" {
+			cmd = exec.Command(browser, url)
+		} else {
+			switch runtime.GOOS {
+			case "darwin":
+				cmd = exec.Command("open", url)
+			default:
+				cmd = exec.Command("xdg-open", url)
+			}
 		}
 		_ = cmd.Start()
 		return nil
 	}
+}
+
+func (m Model) openSummary() (tea.Model, tea.Cmd) {
+	if len(m.filteredArticles) == 0 {
+		return m, nil
+	}
+	a := m.filteredArticles[m.articleCursor]
+
+	// If we already have a cached summary, show it immediately.
+	if a.Summary != "" {
+		m.summaryArticle = a
+		m.summaryGenerating = false
+		m.summaryErr = ""
+		m.overlay = overlaySummary
+		return m, nil
+	}
+
+	// No AI provider configured — prompt the user to set one up.
+	if m.summarizer == nil {
+		m.setStatus("AI not configured — press S to open settings", false)
+		return m, m.clearStatusCmd()
+	}
+
+	m.summaryArticle = a
+	m.summaryGenerating = true
+	m.summaryErr = ""
+	m.overlay = overlaySummary
+	return m, m.aiSummarizeCmd(a)
+}
+
+func (m *Model) aiSummarizeCmd(a db.Article) tea.Cmd {
+	summarizer := m.summarizer
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		summary, err := summarizer.Summarize(ctx, a.Title, a.Content)
+		return AISummaryFetchedMsg{ArticleID: a.ID, Summary: summary, Err: err}
+	}
+}
+
+func copyToClipboardCmd(text string) tea.Cmd {
+	return func() tea.Msg {
+		candidates := [][]string{
+			{"wl-copy"},
+			{"xclip", "-selection", "clipboard"},
+			{"xsel", "--clipboard", "--input"},
+			{"pbcopy"},
+		}
+		for _, args := range candidates {
+			path, err := exec.LookPath(args[0])
+			if err != nil {
+				continue
+			}
+			cmd := exec.Command(path, args[1:]...)
+			cmd.Stdin = strings.NewReader(text)
+			if err := cmd.Run(); err == nil {
+				return ClipboardCopiedMsg{}
+			}
+		}
+		return ClipboardCopiedMsg{Err: fmt.Errorf("no clipboard tool found (wl-copy/xclip/xsel/pbcopy)")}
+	}
+}
+
+func saveSummaryMDCmd(a db.Article, summary, savePath string) tea.Cmd {
+	return func() tea.Msg {
+		if savePath == "" {
+			savePath = "~/"
+		}
+		if strings.HasPrefix(savePath, "~/") {
+			home, _ := os.UserHomeDir()
+			savePath = filepath.Join(home, savePath[2:])
+		}
+		if err := os.MkdirAll(savePath, 0o755); err != nil {
+			return SummarySavedMsg{Err: err}
+		}
+
+		filename := summaryFilename(a.Title)
+		fullPath := filepath.Join(savePath, filename)
+
+		content := fmt.Sprintf("# %s\n\n**Source:** %s\n**Published:** %s\n\n---\n\n%s\n",
+			a.Title,
+			a.Link,
+			a.PublishedAt.Format("Mon, 02 Jan 2006"),
+			summary,
+		)
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+			return SummarySavedMsg{Err: err}
+		}
+		return SummarySavedMsg{Path: fullPath}
+	}
+}
+
+func summaryFilename(title string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(title) {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+		case unicode.IsSpace(r) || r == '-':
+			if b.Len() > 0 {
+				s := b.String()
+				if s[len(s)-1] != '-' {
+					b.WriteByte('-')
+				}
+			}
+		}
+	}
+	s := strings.Trim(b.String(), "-")
+	if s == "" {
+		s = "summary"
+	}
+	if len(s) > 50 {
+		s = s[:50]
+	}
+	return s + ".md"
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1200,7 +1500,7 @@ func (m Model) renderFetchErrorOverlay(w int, chrome managerChrome) string {
 			Render(label(k) + val(v))
 	}
 
-	header := renderManagerHeader(w, chrome)
+	header := renderManagerHeader("FETCH ERROR", w, chrome)
 
 	// Title line
 	title := accentLine(r.FriendlyMessage())
