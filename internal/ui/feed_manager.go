@@ -535,6 +535,7 @@ func newManagerChrome(width int) managerChrome {
 			Foreground(text).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(border).
+			BorderBackground(surfaceBg).
 			Padding(0, 1),
 		panelSelected: lipgloss.NewStyle().
 			Background(highlight).

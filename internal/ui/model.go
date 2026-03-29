@@ -838,6 +838,7 @@ func (m Model) renderOverlay(base string) string {
 			Background(fmBg).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("#7AA2F7")).
+			BorderBackground(fmBg).
 			Width(winW).
 			Render(inner)
 
