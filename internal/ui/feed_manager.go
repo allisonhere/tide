@@ -397,6 +397,7 @@ func (fm FeedManager) viewList(width, height int, styles Styles) string {
 			listRows = append(listRows, renderManagerRow(sectionW, title, chrome))
 		}
 		content = append(content, renderManagerSection("YOUR FEEDS", lipgloss.JoinVertical(lipgloss.Left, listRows...), chrome))
+		content = append(content, "")
 
 		current := fm.feeds[fm.cursor]
 		sourceLine := renderManagerSourceLine(sectionW, strings.ToUpper(truncate(current.URL, max(8, sectionW-4))), chrome)
