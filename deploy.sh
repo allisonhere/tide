@@ -151,7 +151,7 @@ build_all() {
 
     (
       cd "$PROJECT_DIR"
-      GOOS=$goos GOARCH=$goarch go build \
+      CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build \
         -ldflags="-s -w" \
         -o "$bin_path" \
         . 2>&1
