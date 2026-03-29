@@ -353,7 +353,7 @@ func (fm *FeedManager) exportCmd() tea.Cmd {
 
 func (fm FeedManager) View(width, height int, styles Styles) string {
 	contentW := min(width, 74)
-	chrome := newManagerChrome(contentW)
+	chrome := newManagerChrome(contentW, styles.Theme)
 	header := renderManagerHeader(contentW, chrome)
 	status := ""
 	hints := ""
@@ -405,7 +405,7 @@ func (fm FeedManager) View(width, height int, styles Styles) string {
 }
 
 func (fm FeedManager) viewList(width, height int, styles Styles) string {
-	chrome := newManagerChrome(width)
+	chrome := newManagerChrome(width, styles.Theme)
 	sectionW := max(12, width-3)
 	content := []string{}
 
@@ -458,7 +458,7 @@ func renderManagerInset(spaces int, s string) string {
 }
 
 func (fm FeedManager) viewEdit(width, height int, styles Styles) string {
-	chrome := newManagerChrome(width)
+	chrome := newManagerChrome(width, styles.Theme)
 	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -471,14 +471,14 @@ func (fm FeedManager) viewEdit(width, height int, styles Styles) string {
 }
 
 func (fm FeedManager) viewImport(width, height int, styles Styles) string {
-	chrome := newManagerChrome(width)
+	chrome := newManagerChrome(width, styles.Theme)
 	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(
 		renderManagerSection("01. IMPORT OPML", renderManagerInput(width-3, fm.importInput.Value(), "PATH TO OPML FILE...", true, chrome), chrome),
 	)
 }
 
 func (fm FeedManager) viewConfirmDelete(width, height int, styles Styles) string {
-	chrome := newManagerChrome(width)
+	chrome := newManagerChrome(width, styles.Theme)
 	if len(fm.feeds) == 0 {
 		return ""
 	}
@@ -495,7 +495,7 @@ func (fm FeedManager) viewConfirmDelete(width, height int, styles Styles) string
 }
 
 func (fm FeedManager) viewHints(width int, styles Styles) string {
-	chrome := newManagerChrome(width)
+	chrome := newManagerChrome(width, styles.Theme)
 	switch fm.mode {
 	case fmEdit:
 		return renderManagerActions(width, chrome,
@@ -521,7 +521,9 @@ func (fm FeedManager) viewHints(width int, styles Styles) string {
 type managerChrome struct {
 	baseBg        lipgloss.Color
 	surfaceBg     lipgloss.Color
+	fieldBg       lipgloss.Color
 	accent        lipgloss.Color
+	accentFg      lipgloss.Color
 	highlight     lipgloss.Color
 	border        lipgloss.Color
 	text          lipgloss.Color
@@ -536,19 +538,23 @@ type managerChrome struct {
 	statusBar     lipgloss.Style
 }
 
-func newManagerChrome(width int) managerChrome {
+func newManagerChrome(width int, t Theme) managerChrome {
 	baseBg := lipgloss.Color("#0c0e14")
 	surfaceBg := lipgloss.Color("#111319")
-	accent := lipgloss.Color("#7AA2F7")
+	fieldBg := lipgloss.Color("#1e2235")
 	highlight := lipgloss.Color("#bb9af7")
 	border := lipgloss.Color("#434751")
 	text := lipgloss.Color("#c8d3f5")
 	muted := lipgloss.Color("#7f8490")
+	accent := t.BorderFocus
+	accentFg := contrastFg(accent)
 
 	return managerChrome{
 		baseBg:    baseBg,
 		surfaceBg: surfaceBg,
+		fieldBg:   fieldBg,
 		accent:    accent,
+		accentFg:  accentFg,
 		highlight: highlight,
 		border:    border,
 		text:      text,
@@ -556,7 +562,7 @@ func newManagerChrome(width int) managerChrome {
 		header: lipgloss.NewStyle().
 			Width(width).
 			Background(accent).
-			Foreground(baseBg).
+			Foreground(accentFg).
 			Bold(true).
 			Padding(0, 1),
 		sectionLabel: lipgloss.NewStyle().
@@ -581,7 +587,7 @@ func newManagerChrome(width int) managerChrome {
 			Padding(0, 1),
 		key: lipgloss.NewStyle().
 			Background(accent).
-			Foreground(baseBg).
+			Foreground(accentFg).
 			Bold(true).
 			Padding(0, 1),
 		keyLabel: lipgloss.NewStyle().
@@ -598,10 +604,9 @@ func newManagerChrome(width int) managerChrome {
 }
 
 func renderManagerHeader(width int, chrome managerChrome) string {
-	titleText := "TIDE"
-	controls := "ARCH"
-	gap := max(1, width-lipgloss.Width(titleText)-lipgloss.Width(controls)-2)
-	return chrome.header.Render(titleText + strings.Repeat(" ", gap) + controls)
+	title := "FEED LISTING"
+	gap := max(0, width-lipgloss.Width(title)-2)
+	return chrome.header.Render(title + strings.Repeat(" ", gap))
 }
 
 func renderManagerSection(label, body string, chrome managerChrome) string {
@@ -634,7 +639,7 @@ func renderManagerPanel(width int, content string, chrome managerChrome) string 
 func renderTextInput(input textinput.Model, width int, focused bool, chrome managerChrome) string {
 	// Layout: border(1) | pad(1) | content(contentW) | pad(1)  →  total = width
 	// bubbles input.Width is the text-only area (prompt "> " = 2 chars excluded).
-	const fieldBg = lipgloss.Color("#1e2235")
+	fieldBg := chrome.fieldBg
 	contentW := max(1, width-3)
 
 	input.Width = max(1, contentW-2)
@@ -645,8 +650,8 @@ func renderTextInput(input textinput.Model, width int, focused bool, chrome mana
 		placeholderFg = chrome.accent
 	}
 	input.PlaceholderStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(placeholderFg)
-	input.Cursor.Style = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
-	input.Cursor.TextStyle = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
+	input.Cursor.Style = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.accentFg)
+	input.Cursor.TextStyle = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.accentFg)
 
 	// bubbles pads input.View() with plain un-styled spaces to fill input.Width.
 	// Those spaces carry no ANSI bg code, so they show terminal bg.

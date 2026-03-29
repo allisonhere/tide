@@ -908,7 +908,8 @@ func (m Model) renderOverlay(base string) string {
 	switch m.overlay {
 	case overlayQuitConfirm:
 		quitW := 40
-		chrome := newManagerChrome(quitW)
+		qt := BuiltinThemes[m.activeTheme]
+		chrome := newManagerChrome(quitW, qt)
 		header := renderManagerHeader(quitW, chrome)
 		body := lipgloss.NewStyle().
 			Background(chrome.baseBg).
@@ -968,7 +969,8 @@ func (m Model) renderOverlay(base string) string {
 	case overlayFetchError:
 		if m.lastFetchError != nil {
 			winW := min(m.width-4, 70)
-			chrome := newManagerChrome(winW)
+			et := BuiltinThemes[m.activeTheme]
+			chrome := newManagerChrome(winW, et)
 			inner := m.renderFetchErrorOverlay(winW, chrome)
 			inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
 			box = lipgloss.NewStyle().

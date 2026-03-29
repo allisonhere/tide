@@ -3,6 +3,8 @@ package ui
 import "github.com/charmbracelet/lipgloss"
 
 type Styles struct {
+	Theme Theme
+
 	// Pane containers
 	FeedsPane          lipgloss.Style
 	ArticlesPane       lipgloss.Style
@@ -68,6 +70,8 @@ func BuildStyles(t Theme) Styles {
 		BorderForeground(t.BorderFocus)
 
 	return Styles{
+		Theme: t,
+
 		FeedsPane: paneBase.
 			Border(lipgloss.NormalBorder(), false, true, false, false).
 			AlignVertical(lipgloss.Top),
