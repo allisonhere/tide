@@ -513,6 +513,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case overlayThemePicker:
+		prevTheme := m.activeTheme
 		switch {
 		case keyMatches(msg, m.keys.Up):
 			if m.themeCursor > 0 {
@@ -531,10 +532,19 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = overlayNone
 			m.cfg.Theme = BuiltinThemes[m.confirmedTheme].Name
 			config.Save(m.cfg)
+			if len(m.filteredArticles) > 0 {
+				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+			}
 		case keyMatches(msg, m.keys.Cancel):
 			m.activeTheme = m.confirmedTheme
 			m.styles = BuildStyles(BuiltinThemes[m.activeTheme])
 			m.overlay = overlayNone
+			if len(m.filteredArticles) > 0 {
+				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+			}
+		}
+		if m.activeTheme != prevTheme {
+			return m, setTermBgCmd(BuiltinThemes[m.activeTheme].Bg)
 		}
 		return m, nil
 
@@ -612,16 +622,11 @@ func (m Model) renderFeedsPane() string {
 		refreshing := m.refreshing[f.ID]
 		prefix := "  "
 		if i == m.feedCursor {
-			rowStyle := m.styles.FeedItemActive
-			prefix = "* "
-			if focused {
-				rowStyle = m.styles.FeedItemSelected
-				prefix = "> "
-			}
+			prefix = "> "
 			if refreshing {
 				prefix = m.spinner.View() + " "
 			}
-			rows = append(rows, rowStyle.Width(innerW).Render(renderFeedRow(prefix, f.Title, badge, innerW)))
+			rows = append(rows, m.styles.FeedItemSelected.Width(innerW).Render(renderFeedRow(prefix, f.Title, badge, innerW)))
 		} else {
 			if refreshing {
 				prefix = m.spinner.View() + " "
@@ -638,7 +643,7 @@ func (m Model) renderFeedsPane() string {
 	footer := m.styles.ArticleRead.Width(innerW).Render(fmt.Sprintf("  %d feeds", len(m.feeds)))
 	bodyHeight := max(0, m.mainHeight()-1)
 	for len(rows) < bodyHeight {
-		rows = append(rows, strings.Repeat(" ", max(0, innerW)))
+		rows = append(rows, m.styles.FeedItem.Width(innerW).Render(""))
 	}
 	rows = append(rows, footer)
 
@@ -695,7 +700,7 @@ func (m Model) renderArticlesPane() string {
 
 	contentRows := append([]string{m.renderPaneHeader(title, focused, w-2)}, rows...)
 	for len(contentRows) < h {
-		contentRows = append(contentRows, strings.Repeat(" ", max(0, w-2)))
+		contentRows = append(contentRows, m.styles.ArticleRead.Width(w-2).Render(""))
 	}
 
 	return lipgloss.NewStyle().
@@ -818,13 +823,27 @@ func (m Model) renderOverlay(base string) string {
 		box = m.styles.Overlay.Render(m.renderThemePicker())
 
 	case overlayFeedManager:
-		return m.feedManager.View(m.width, m.height, m.styles)
+		winW := min(m.width-4, 74)
+		winH := min(m.height-4, 40)
+		inner := m.feedManager.View(winW, winH, m.styles)
+		box = lipgloss.NewStyle().
+			Background(lipgloss.Color("#0c0e14")).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#7AA2F7")).
+			Width(winW).
+			Render(inner)
 
 	case overlayHelp:
 		winW := min(m.width-6, 90)
 		winH := min(m.height-4, 38)
-		inner := renderHelp(winW-4, winH-2, m.styles, m.keys)
-		box = m.styles.Overlay.Width(winW).Height(winH).Render(inner)
+		t := BuiltinThemes[m.activeTheme]
+		inner := clampView(renderHelp(winW-2, winH-2, m.styles, m.keys), winW-2, winH-2, t.Bg)
+		box = lipgloss.NewStyle().
+			Background(t.Bg).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(t.BorderFocus).
+			Width(winW).Height(winH).
+			Render(inner)
 	}
 
 	return overlayOnBase(base, box, m.width, m.height, BuiltinThemes[m.activeTheme].Bg)
@@ -878,14 +897,14 @@ func normalizeLines(view string, width, height int, fill string) []string {
 func (m Model) renderThemePicker() string {
 	title := m.styles.OverlayTitle.Render("Theme")
 	rows := []string{title}
+	selected := lipgloss.NewStyle().Foreground(m.styles.FeedItemSelected.GetForeground()).Bold(true)
+	normal := lipgloss.NewStyle().Foreground(m.styles.FeedItem.GetForeground())
 	for i, t := range BuiltinThemes {
-		name := t.Name
 		if i == m.themeCursor {
-			name = m.styles.FeedItemSelected.Render("▶ " + name)
+			rows = append(rows, selected.Render("▶ "+t.Name))
 		} else {
-			name = m.styles.FeedItem.Render("  " + name)
+			rows = append(rows, normal.Render("  "+t.Name))
 		}
-		rows = append(rows, name)
 	}
 	rows = append(rows, m.styles.OverlayHint.Render("\n[enter] confirm   [esc] revert"))
 	return strings.Join(rows, "\n")

@@ -93,6 +93,9 @@ func (db *DB) migrateLegacyConfigDB(dataPath string) error {
 	if legacyPath == dataPath {
 		return nil
 	}
+	if _, err := os.Stat(legacyPath + ".migrated"); err == nil {
+		return nil
+	}
 	if _, err := os.Stat(legacyPath); err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -101,7 +104,11 @@ func (db *DB) migrateLegacyConfigDB(dataPath string) error {
 	}
 
 	if _, err := os.Stat(dataPath); os.IsNotExist(err) {
-		return copyFile(legacyPath, dataPath)
+		if err := copyFile(legacyPath, dataPath); err != nil {
+			return err
+		}
+		_ = os.Rename(legacyPath, legacyPath+".migrated")
+		return nil
 	}
 
 	legacyConn, err := sql.Open("sqlite", legacyPath)
