@@ -6,7 +6,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-func renderHelp(width, height int, styles Styles, keys KeyMap) string {
+func renderHelp(width int, styles Styles, keys KeyMap) string {
 	type entry struct{ key, desc string }
 	type section struct {
 		name    string
@@ -79,7 +79,7 @@ func renderHelp(width, height int, styles Styles, keys KeyMap) string {
 
 	content := strings.Join(lines, "\n")
 	return lipgloss.NewStyle().
-		Width(width).Height(height).
+		Width(width).
 		Padding(1, 3).
 		Render(content)
 }
