@@ -625,9 +625,10 @@ func renderManagerInput(width int, value, placeholder string, focused, showProto
 func renderManagerRow(width int, title string, chrome managerChrome) string {
 	rowW := max(1, width-4)
 	textW := max(1, rowW-2)
+	rowBg := lipgloss.Color("#1e2235")
 	row := lipgloss.NewStyle().
 		Width(rowW).
-		Background(chrome.surfaceBg).
+		Background(rowBg).
 		Foreground(chrome.text).
 		Padding(0, 1).
 		Render(truncate(title, textW))
@@ -637,9 +638,10 @@ func renderManagerRow(width int, title string, chrome managerChrome) string {
 func renderManagerSelectedRow(width int, title string, chrome managerChrome) string {
 	rowW := max(1, width-4)
 	textW := max(1, rowW-2)
+	rowBg := lipgloss.Color("#1e2235")
 	row := lipgloss.NewStyle().
 		Width(rowW).
-		Background(chrome.surfaceBg).
+		Background(rowBg).
 		Foreground(chrome.highlight).
 		Bold(true).
 		Padding(0, 1).
