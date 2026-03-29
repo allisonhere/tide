@@ -77,9 +77,9 @@ func (fm *FeedManager) focusAdd() {
 	fm.editTarget = 0
 	fm.titleInput.Reset()
 	fm.urlInput.Reset()
-	fm.focusedField = 1 // jump straight to URL for new feeds
-	fm.urlInput.Focus()
-	fm.titleInput.Blur()
+	fm.focusedField = 0
+	fm.titleInput.Focus()
+	fm.urlInput.Blur()
 }
 
 func (fm FeedManager) Update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd) {
@@ -616,19 +616,30 @@ func renderManagerPanel(width int, content string, chrome managerChrome) string 
 }
 
 func renderTextInput(input textinput.Model, width int, focused bool, chrome managerChrome) string {
-	inputBg := lipgloss.Color("#1e2235")
-	dimBg := lipgloss.Color("#13161f")
-	bg := dimBg
-	if focused {
-		bg = inputBg
-	}
-	input.Width = max(1, width-4) // leave room for prompt + padding
-	input.PromptStyle = lipgloss.NewStyle().Background(bg).Foreground(chrome.accent).Bold(true)
-	input.TextStyle = lipgloss.NewStyle().Background(bg).Foreground(chrome.text)
-	input.PlaceholderStyle = lipgloss.NewStyle().Background(bg).Foreground(chrome.muted)
+	const inputBg = lipgloss.Color("#1e2235")
+
+	// Consistent background across both states; focus is indicated by the border.
+	input.Width = max(1, width-6) // border(1) + padding(2) + prompt(2) + cursor(1)
+	input.PromptStyle = lipgloss.NewStyle().Background(inputBg).Foreground(chrome.accent).Bold(true)
+	input.TextStyle = lipgloss.NewStyle().Background(inputBg).Foreground(chrome.text)
+	input.PlaceholderStyle = lipgloss.NewStyle().Background(inputBg).Foreground(chrome.muted)
 	input.Cursor.Style = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
 	input.Cursor.TextStyle = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
-	return lipgloss.NewStyle().Background(bg).Padding(0, 1).Render(input.View())
+
+	inner := lipgloss.NewStyle().Background(inputBg).Width(width - 1).Padding(0, 1).Render(input.View())
+
+	// Focused: bright accent left bar. Unfocused: same bar in inputBg (invisible, preserves alignment).
+	barColor := inputBg
+	if focused {
+		barColor = chrome.accent
+	}
+	return lipgloss.NewStyle().
+		Background(inputBg).
+		BorderLeft(true).
+		BorderStyle(lipgloss.ThickBorder()).
+		BorderForeground(barColor).
+		BorderBackground(inputBg).
+		Render(inner)
 }
 
 func renderManagerInput(width int, value, placeholder string, focused bool, chrome managerChrome) string {
