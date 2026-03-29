@@ -617,10 +617,6 @@ func renderManagerSection(label, body string, chrome managerChrome) string {
 	return lipgloss.JoinVertical(lipgloss.Left, styledLabel, body)
 }
 
-func renderManagerSectionLabel(label string, chrome managerChrome) string {
-	return chrome.sectionLabel.Render(label)
-}
-
 func renderManagerPanel(width int, content string, chrome managerChrome) string {
 	panelW := max(1, width-4) // total width incl. padding, excl. border
 	textW := max(1, panelW-2) // subtract Padding(0,1) on each side

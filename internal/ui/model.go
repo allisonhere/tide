@@ -321,13 +321,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.articles[i].Content = msg.Content
 			}
 		}
+		m.applyFilter()
 		for i := range m.filteredArticles {
-			if m.filteredArticles[i].ID == msg.ArticleID {
-				m.filteredArticles[i].Content = msg.Content
-				if i == m.articleCursor {
-					m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[i]))
-					m.viewport.GotoTop()
-				}
+			if m.filteredArticles[i].ID == msg.ArticleID && i == m.articleCursor {
+				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[i]))
+				m.viewport.GotoTop()
 			}
 		}
 		return m, nil
@@ -603,7 +601,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if m.activeTheme != prevTheme {
-			return m, setTermBgCmd(BuiltinThemes[m.activeTheme].Bg)
+			return m, setTermBgCmd(m.styles.Theme.Bg)
 		}
 		return m, nil
 
@@ -675,11 +673,11 @@ func (m Model) View() string {
 	if m.overlay != overlayNone {
 		view = m.renderOverlay(view)
 	}
-	view = clampView(view, m.width, m.height, BuiltinThemes[m.activeTheme].Bg)
+	view = clampView(view, m.width, m.height, m.styles.Theme.Bg)
 	return lipgloss.NewStyle().
 		Width(m.width).
 		Height(m.height).
-		Background(BuiltinThemes[m.activeTheme].Bg).
+		Background(m.styles.Theme.Bg).
 		Render(view)
 }
 
@@ -716,7 +714,7 @@ func (m Model) renderFeedsPane() string {
 
 	if len(m.feeds) == 0 {
 		rows = append(rows, m.styles.FeedItem.Foreground(
-			lipgloss.Color(BuiltinThemes[m.activeTheme].Dimmed),
+			lipgloss.Color(m.styles.Theme.Dimmed),
 		).Render("  press m to add feeds"))
 	}
 	footer := m.styles.ArticleRead.Width(innerW).Render(fmt.Sprintf("  %d feeds", len(m.feeds)))
@@ -728,7 +726,7 @@ func (m Model) renderFeedsPane() string {
 
 	border := m.styles.FeedsPane
 	if focused {
-		border = border.BorderForeground(BuiltinThemes[m.activeTheme].BorderFocus)
+		border = border.BorderForeground(m.styles.Theme.BorderFocus)
 	}
 
 	content := strings.Join(rows, "\n")
@@ -770,7 +768,7 @@ func (m Model) renderArticlesPane() string {
 	focused := m.focused == paneArticles
 	border := m.styles.ArticlesPane
 	if focused {
-		border = border.BorderForeground(BuiltinThemes[m.activeTheme].BorderFocus)
+		border = border.BorderForeground(m.styles.Theme.BorderFocus)
 	}
 	title := "Articles"
 	if m.searchQuery != "" {
@@ -782,15 +780,15 @@ func (m Model) renderArticlesPane() string {
 		contentRows = append(contentRows, m.styles.ArticleRead.Width(w-2).Render(""))
 	}
 
-	bg := BuiltinThemes[m.activeTheme].Bg
+	bg := m.styles.Theme.Bg
 	return lipgloss.NewStyle().
 		Background(bg).
 		Border(lipgloss.NormalBorder(), false, false, true, false).
 		BorderForeground(lipgloss.Color(func() string {
 			if focused {
-				return string(BuiltinThemes[m.activeTheme].BorderFocus)
+				return string(m.styles.Theme.BorderFocus)
 			}
-			return string(BuiltinThemes[m.activeTheme].Border)
+			return string(m.styles.Theme.Border)
 		}())).
 		BorderBackground(bg).
 		Width(w).Height(h).
@@ -803,15 +801,15 @@ func (m Model) renderContentPane() string {
 	bodyH := m.contentBodyHeight()
 
 	focused := m.focused == paneContent
-	borderColor := BuiltinThemes[m.activeTheme].Border
+	borderColor := m.styles.Theme.Border
 	if focused {
-		borderColor = BuiltinThemes[m.activeTheme].BorderFocus
+		borderColor = m.styles.Theme.BorderFocus
 	}
 
 	vp := m.viewport
 	vp.Width = w
 	vp.Height = bodyH
-	vp.Style = lipgloss.NewStyle().Background(BuiltinThemes[m.activeTheme].Bg)
+	vp.Style = lipgloss.NewStyle().Background(m.styles.Theme.Bg)
 
 	inner := m.styles.ContentPane.
 		Width(w).
@@ -819,10 +817,10 @@ func (m Model) renderContentPane() string {
 		Render(m.renderPaneHeader("Content", focused, w) + "\n" + vp.View())
 
 	return lipgloss.NewStyle().
-		Background(BuiltinThemes[m.activeTheme].Bg).
+		Background(m.styles.Theme.Bg).
 		Border(lipgloss.NormalBorder(), true, false, false, false).
 		BorderForeground(borderColor).
-		BorderBackground(BuiltinThemes[m.activeTheme].Bg).
+		BorderBackground(m.styles.Theme.Bg).
 		Width(w).Height(innerH).
 		Render(inner)
 }
@@ -893,7 +891,7 @@ func (m Model) renderOverlay(base string) string {
 	switch m.overlay {
 	case overlayQuitConfirm:
 		quitW := 40
-		qt := BuiltinThemes[m.activeTheme]
+		qt := m.styles.Theme
 		chrome := newManagerChrome(quitW, qt)
 		header := renderManagerHeader(quitW, chrome)
 		body := lipgloss.NewStyle().
@@ -942,7 +940,7 @@ func (m Model) renderOverlay(base string) string {
 	case overlayHelp:
 		winW := min(m.width-6, 90)
 		winH := min(m.height-4, 38)
-		t := BuiltinThemes[m.activeTheme]
+		t := m.styles.Theme
 		m.helpVP.Style = lipgloss.NewStyle().Background(t.Bg)
 		box = lipgloss.NewStyle().
 			Background(t.Bg).
@@ -954,7 +952,7 @@ func (m Model) renderOverlay(base string) string {
 	case overlayFetchError:
 		if m.lastFetchError != nil {
 			winW := min(m.width-4, 70)
-			et := BuiltinThemes[m.activeTheme]
+			et := m.styles.Theme
 			chrome := newManagerChrome(winW, et)
 			inner := m.renderFetchErrorOverlay(winW, chrome)
 			inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
@@ -968,7 +966,7 @@ func (m Model) renderOverlay(base string) string {
 		}
 	}
 
-	return overlayOnBase(base, box, m.width, m.height, BuiltinThemes[m.activeTheme].Bg)
+	return overlayOnBase(base, box, m.width, m.height, m.styles.Theme.Bg)
 }
 
 func overlayOnBase(base, box string, width, height int, bg lipgloss.Color) string {
@@ -1106,11 +1104,7 @@ func (m *Model) markReadCmd(articleID int64, read bool) tea.Cmd {
 				m.articles[i].Read = read
 			}
 		}
-		for i := range m.filteredArticles {
-			if m.filteredArticles[i].ID == articleID {
-				m.filteredArticles[i].Read = read
-			}
-		}
+		m.applyFilter()
 		return m.loadFeedsCmd()()
 	}
 }
@@ -1411,19 +1405,6 @@ func clampView(view string, width, height int, bg lipgloss.Color) string {
 	return strings.Join(lines, "\n")
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
 
 func (m *Model) resetHelpVP() {
 	winW := min(m.width-6, 90)
