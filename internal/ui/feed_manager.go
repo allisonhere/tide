@@ -616,19 +616,30 @@ func renderManagerPanel(width int, content string, chrome managerChrome) string 
 }
 
 func renderTextInput(input textinput.Model, width int, focused bool, chrome managerChrome) string {
-	// Single bg for all states — sub-styles must match the container exactly so
-	// ANSI resets emitted between segments don't expose terminal bg.
-	// Focus is indicated solely by the accent left border.
+	// Layout: border(1) | pad(1) | content(contentW) | pad(1)  →  total = width
+	// bubbles input.Width is the text-only area (prompt "> " = 2 chars excluded).
 	const fieldBg = lipgloss.Color("#1e2235")
+	contentW := max(1, width-3)
 
-	input.Width = max(1, width-6) // border(1) + padding(2) + prompt(2) + cursor(1)
+	input.Width = max(1, contentW-2)
 	input.PromptStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.accent).Bold(true)
 	input.TextStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.text)
 	input.PlaceholderStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.muted)
 	input.Cursor.Style = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
 	input.Cursor.TextStyle = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
 
-	inner := lipgloss.NewStyle().Background(fieldBg).Width(width - 1).Padding(0, 1).Render(input.View())
+	// Manually pad to contentW with fieldBg-coloured spaces.
+	// Lipgloss does not re-emit the background after ANSI resets that bubbles
+	// injects between styled segments, so right-side padding would show terminal bg
+	// without this explicit fill.
+	rendered := input.View()
+	if gap := contentW - lipgloss.Width(rendered); gap > 0 {
+		rendered += lipgloss.NewStyle().Background(fieldBg).Render(strings.Repeat(" ", gap))
+	}
+
+	// Assemble: explicit bg-coloured padding on each side keeps the full row covered.
+	pad := lipgloss.NewStyle().Background(fieldBg).Render(" ")
+	inner := pad + rendered + pad
 
 	barColor := lipgloss.Color(fieldBg)
 	if focused {
