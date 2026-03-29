@@ -365,7 +365,7 @@ func (fm FeedManager) View(width, height int, styles Styles) string {
 		body = fm.viewList(contentW, bodyH, styles)
 	}
 
-	parts := []string{header, body}
+	parts := []string{header, "", body}
 	if status != "" {
 		parts = append(parts, status)
 	}
