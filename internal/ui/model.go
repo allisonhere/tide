@@ -850,48 +850,46 @@ func (m Model) renderOverlay(base string) string {
 }
 
 func overlayOnBase(base, box string, width, height int, bg lipgloss.Color) string {
-	const fill = "\uE000"
-
 	base = clampView(base, width, height, bg)
-	placed := lipgloss.Place(width, height,
-		lipgloss.Center, lipgloss.Center, box,
-		lipgloss.WithWhitespaceChars(fill),
-	)
-	baseLines := normalizeLines(base, width, height, " ")
-	overlayLines := normalizeLines(placed, width, height, fill)
 
-	lines := make([]string, 0, height)
+	boxLines := strings.Split(box, "\n")
+	boxH := len(boxLines)
+	boxW := 0
+	for _, l := range boxLines {
+		if w := lipgloss.Width(l); w > boxW {
+			boxW = w
+		}
+	}
+
+	// Center position — matches lipgloss.Center, lipgloss.Center
+	overlayX := (width - boxW) / 2
+	overlayY := (height - boxH) / 2
+	if overlayX < 0 {
+		overlayX = 0
+	}
+	if overlayY < 0 {
+		overlayY = 0
+	}
+	rightStart := overlayX + boxW
+
+	baseLines := strings.Split(base, "\n")
+	for len(baseLines) < height {
+		baseLines = append(baseLines, "")
+	}
+
+	result := make([]string, height)
 	for y := 0; y < height; y++ {
-		var line strings.Builder
-		for x := 0; x < width; x++ {
-			overlayCell := ansi.Cut(overlayLines[y], x, x+1)
-			if ansi.Strip(overlayCell) == fill {
-				line.WriteString(ansi.Cut(baseLines[y], x, x+1))
-				continue
-			}
-			line.WriteString(overlayCell)
+		baseLine := baseLines[y]
+		boxRow := y - overlayY
+		if boxRow < 0 || boxRow >= boxH {
+			result[y] = baseLine
+			continue
 		}
-		lines = append(lines, line.String())
+		left := ansi.Cut(baseLine, 0, overlayX)
+		right := ansi.Cut(baseLine, rightStart, width)
+		result[y] = left + boxLines[boxRow] + right
 	}
-	return strings.Join(lines, "\n")
-}
-
-func normalizeLines(view string, width, height int, fill string) []string {
-	lines := strings.Split(view, "\n")
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-	for i := range lines {
-		lines[i] = ansi.Truncate(lines[i], width, "")
-		pad := width - lipgloss.Width(lines[i])
-		if pad > 0 {
-			lines[i] += strings.Repeat(fill, pad)
-		}
-	}
-	for len(lines) < height {
-		lines = append(lines, strings.Repeat(fill, width))
-	}
-	return lines
+	return strings.Join(result, "\n")
 }
 
 func (m Model) renderThemePicker() string {
