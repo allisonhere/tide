@@ -831,9 +831,11 @@ func (m Model) renderOverlay(base string) string {
 	case overlayFeedManager:
 		winW := min(m.width-4, 74)
 		winH := min(m.height-4, 40)
+		fmBg := lipgloss.Color("#0c0e14")
 		inner := m.feedManager.View(winW, winH, m.styles)
+		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, fmBg)
 		box = lipgloss.NewStyle().
-			Background(lipgloss.Color("#0c0e14")).
+			Background(fmBg).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("#7AA2F7")).
 			Width(winW).
