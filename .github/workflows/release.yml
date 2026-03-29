@@ -39,7 +39,7 @@ jobs:
           )
           for entry in "${targets[@]}"; do
             read -r goos goarch name <<< "$entry"
-            GOOS=$goos GOARCH=$goarch go build \
+            CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build \
               -ldflags="-s -w" \
               -o "dist/$name" \
               .
