@@ -396,7 +396,8 @@ func (fm FeedManager) viewList(width, height int, styles Styles) string {
 			}
 			listRows = append(listRows, renderManagerRow(sectionW, title, chrome))
 		}
-		content = append(content, renderManagerSection("YOUR FEEDS", lipgloss.JoinVertical(lipgloss.Left, listRows...), chrome))
+		feedList := lipgloss.JoinVertical(lipgloss.Left, append([]string{""}, listRows...)...)
+		content = append(content, renderManagerSection("YOUR FEEDS", feedList, chrome))
 		content = append(content, "")
 
 		current := fm.feeds[fm.cursor]
