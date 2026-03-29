@@ -82,16 +82,35 @@ func (fm *FeedManager) focusAdd() {
 	fm.titleInput.Blur()
 }
 
-func (fm FeedManager) Update(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.Cmd) {
+func (fm FeedManager) Update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd) {
+	// Route non-key messages to the focused textinput (cursor blink ticks etc.)
+	if _, ok := msg.(tea.KeyMsg); !ok {
+		switch fm.mode {
+		case fmEdit:
+			var cmd tea.Cmd
+			if fm.focusedField == 0 {
+				fm.titleInput, cmd = fm.titleInput.Update(msg)
+			} else {
+				fm.urlInput, cmd = fm.urlInput.Update(msg)
+			}
+			return fm, cmd
+		case fmImport:
+			var cmd tea.Cmd
+			fm.importInput, cmd = fm.importInput.Update(msg)
+			return fm, cmd
+		}
+		return fm, nil
+	}
+	key := msg.(tea.KeyMsg)
 	switch fm.mode {
 	case fmList:
-		return fm.updateList(msg, keys)
+		return fm.updateList(key, keys)
 	case fmEdit:
-		return fm.updateEdit(msg, keys)
+		return fm.updateEdit(key, keys)
 	case fmImport:
-		return fm.updateImport(msg, keys)
+		return fm.updateImport(key, keys)
 	case fmConfirmDelete:
-		return fm.updateConfirmDelete(msg, keys)
+		return fm.updateConfirmDelete(key, keys)
 	}
 	return fm, nil
 }
@@ -430,9 +449,9 @@ func (fm FeedManager) viewEdit(width, height int, styles Styles) string {
 	chrome := newManagerChrome(width)
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
-		renderManagerSection("Title", renderManagerInput(width-3, fm.titleInput.Value(), "Title", fm.focusedField == 0, chrome), chrome),
+		renderManagerSection("Title", renderTextInput(fm.titleInput, width-3, fm.focusedField == 0, chrome), chrome),
 		"",
-		renderManagerSection("URL", renderManagerInput(width-3, fm.urlInput.Value(), "enter URL or JSON endpoint", fm.focusedField == 1, chrome), chrome),
+		renderManagerSection("URL", renderTextInput(fm.urlInput, width-3, fm.focusedField == 1, chrome), chrome),
 		"",
 	)
 	return lipgloss.NewStyle().PaddingLeft(2).Render(content)
@@ -594,6 +613,22 @@ func renderManagerPanel(width int, content string, chrome managerChrome) string 
 	}
 	panel := chrome.panel.Width(panelW).Render(strings.Join(lines, "\n"))
 	return lipgloss.NewStyle().Width(width).Background(chrome.baseBg).Render(panel)
+}
+
+func renderTextInput(input textinput.Model, width int, focused bool, chrome managerChrome) string {
+	inputBg := lipgloss.Color("#1e2235")
+	dimBg := lipgloss.Color("#13161f")
+	bg := dimBg
+	if focused {
+		bg = inputBg
+	}
+	input.Width = max(1, width-4) // leave room for prompt + padding
+	input.PromptStyle = lipgloss.NewStyle().Background(bg).Foreground(chrome.accent).Bold(true)
+	input.TextStyle = lipgloss.NewStyle().Background(bg).Foreground(chrome.text)
+	input.PlaceholderStyle = lipgloss.NewStyle().Background(bg).Foreground(chrome.muted)
+	input.Cursor.Style = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
+	input.Cursor.TextStyle = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.baseBg)
+	return lipgloss.NewStyle().Background(bg).Padding(0, 1).Render(input.View())
 }
 
 func renderManagerInput(width int, value, placeholder string, focused bool, chrome managerChrome) string {
