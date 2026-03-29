@@ -430,9 +430,9 @@ func (fm FeedManager) viewEdit(width, height int, styles Styles) string {
 	chrome := newManagerChrome(width)
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
-		renderManagerSection("Title", renderManagerInput(width-3, fm.titleInput.Value(), "Title", fm.focusedField == 0, false, chrome), chrome),
+		renderManagerSection("Title", renderManagerInput(width-3, fm.titleInput.Value(), "Title", fm.focusedField == 0, chrome), chrome),
 		"",
-		renderManagerSection("URL", renderManagerInput(width-3, fm.urlInput.Value(), "enter URL or JSON endpoint", fm.focusedField == 1, true, chrome), chrome),
+		renderManagerSection("URL", renderManagerInput(width-3, fm.urlInput.Value(), "enter URL or JSON endpoint", fm.focusedField == 1, chrome), chrome),
 		"",
 	)
 	return lipgloss.NewStyle().PaddingLeft(2).Render(content)
@@ -441,7 +441,7 @@ func (fm FeedManager) viewEdit(width, height int, styles Styles) string {
 func (fm FeedManager) viewImport(width, height int, styles Styles) string {
 	chrome := newManagerChrome(width)
 	return lipgloss.NewStyle().PaddingLeft(2).Render(
-		renderManagerSection("01. IMPORT OPML", renderManagerInput(width-3, fm.importInput.Value(), "PATH TO OPML FILE...", true, false, chrome), chrome),
+		renderManagerSection("01. IMPORT OPML", renderManagerInput(width-3, fm.importInput.Value(), "PATH TO OPML FILE...", true, chrome), chrome),
 	)
 }
 
@@ -596,7 +596,7 @@ func renderManagerPanel(width int, content string, chrome managerChrome) string 
 	return lipgloss.NewStyle().Width(width).Background(chrome.baseBg).Render(panel)
 }
 
-func renderManagerInput(width int, value, placeholder string, focused, showProtocol bool, chrome managerChrome) string {
+func renderManagerInput(width int, value, placeholder string, focused bool, chrome managerChrome) string {
 	textW := max(1, width-1)
 	inputBg := lipgloss.Color("#1e2235")
 	dimBg := lipgloss.Color("#13161f")
@@ -605,20 +605,13 @@ func renderManagerInput(width int, value, placeholder string, focused, showProto
 		bg = dimBg
 	}
 	cursor := lipgloss.NewStyle().Background(bg).Foreground(chrome.accent).Bold(true)
-	protocol := lipgloss.NewStyle().Background(bg).Foreground(chrome.accent).Bold(true)
 	text := lipgloss.NewStyle().Background(bg).Foreground(chrome.text)
 	ghost := lipgloss.NewStyle().Background(bg).Foreground(chrome.muted)
 
 	value = strings.TrimSpace(value)
 	var line string
 	if value == "" {
-		if showProtocol {
-			line = protocol.Render("https://") + ghost.Render(placeholder)
-		} else {
-			line = cursor.Render("> ") + ghost.Render(placeholder)
-		}
-	} else if showProtocol {
-		line = protocol.Render("https://") + text.Render(value)
+		line = cursor.Render("> ") + ghost.Render(placeholder)
 	} else if focused {
 		line = cursor.Render("> ") + text.Render(value)
 	} else {
