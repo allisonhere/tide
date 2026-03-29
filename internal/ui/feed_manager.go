@@ -520,9 +520,11 @@ func newManagerChrome(width int) managerChrome {
 			Bold(true).
 			Padding(0, 1),
 		sectionLabel: lipgloss.NewStyle().
+			Background(baseBg).
 			Foreground(muted).
 			Bold(true),
 		body: lipgloss.NewStyle().
+			Background(baseBg).
 			Foreground(text),
 		panel: lipgloss.NewStyle().
 			Width(max(1, width-4)).
@@ -542,6 +544,7 @@ func newManagerChrome(width int) managerChrome {
 			Bold(true).
 			Padding(0, 1),
 		keyLabel: lipgloss.NewStyle().
+			Background(baseBg).
 			Foreground(muted),
 		statusBar: lipgloss.NewStyle().
 			Width(width).
@@ -637,6 +640,7 @@ func renderManagerSelectedRow(width int, title string, chrome managerChrome) str
 func renderManagerSourceLine(width int, value string, chrome managerChrome) string {
 	return lipgloss.NewStyle().
 		Width(width).
+		Background(chrome.surfaceBg).
 		Foreground(chrome.accent).
 		Render(padRight(value, width))
 }
@@ -649,11 +653,12 @@ func renderManagerActions(width int, chrome managerChrome, pairs ...string) stri
 		BorderForeground(chrome.border).
 		Padding(0, 0)
 	parts := make([]string, 0, len(pairs)/2)
+	spacer := lipgloss.NewStyle().Background(chrome.baseBg).Render(" ")
 	for i := 0; i+1 < len(pairs); i += 2 {
 		parts = append(parts, lipgloss.JoinHorizontal(
 			lipgloss.Left,
 			chrome.key.Render(strings.ToUpper(pairs[i])),
-			" ",
+			spacer,
 			chrome.keyLabel.Render(strings.ToUpper(pairs[i+1])),
 		))
 	}
