@@ -2,8 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"log"
-	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -68,6 +66,9 @@ type Model struct {
 	// Content pane
 	viewport viewport.Model
 
+	// Help overlay
+	helpVP viewport.Model
+
 	// Overlays / inputs
 	overlay     overlayMode
 	searchInput textinput.Model
@@ -106,12 +107,6 @@ type pendingURLUpdate struct {
 	newURL string
 }
 
-var dbgLog *log.Logger
-
-func init() {
-	f, _ := os.OpenFile("/tmp/rss-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	dbgLog = log.New(f, "", log.Ltime|log.Lmicroseconds)
-}
 
 func NewModel(database *db.DB, cfg config.Config) Model {
 	_, themeIdx := ThemeByName(cfg.Theme)
@@ -159,6 +154,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.filteredArticles) > 0 {
 			m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
 		}
+		if m.overlay == overlayHelp {
+			m.resetHelpVP()
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -175,11 +173,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.feeds = msg.Feeds
 		isFirstLoad := m.firstLoad
 		m.firstLoad = false
-		dbgLog.Printf("FeedsLoadedMsg: %d feeds, isFirstLoad=%v, overlay=%v", len(m.feeds), isFirstLoad, m.overlay)
-		for _, f := range m.feeds {
-			dbgLog.Printf("  feed id=%d title=%q", f.ID, f.Title)
-		}
-
 		if len(m.feeds) == 0 {
 			return m, nil
 		}
@@ -371,6 +364,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, m.keys.Help):
 		m.overlay = overlayHelp
+		m.resetHelpVP()
 		return m, nil
 
 	case keyMatches(msg, m.keys.FeedManager):
@@ -619,8 +613,11 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case overlayHelp:
 		if keyMatches(msg, m.keys.Back, m.keys.Help, m.keys.Quit) {
 			m.overlay = overlayNone
+			return m, nil
 		}
-		return m, nil
+		var cmd tea.Cmd
+		m.helpVP, cmd = m.helpVP.Update(msg)
+		return m, cmd
 
 	case overlayFetchError:
 		switch msg.String() {
@@ -705,8 +702,6 @@ func (m Model) View() string {
 func (m Model) renderFeedsPane() string {
 	w := m.feedsPaneWidth()
 	innerW := w - 1 // account for right border
-	dbgLog.Printf("renderFeedsPane: %d feeds, overlay=%v, w=%d", len(m.feeds), m.overlay, w)
-
 	focused := m.focused == paneFeeds
 	title := m.renderPaneHeader("Feeds", focused, innerW)
 	rows := []string{title}
@@ -962,13 +957,13 @@ func (m Model) renderOverlay(base string) string {
 		winW := min(m.width-6, 90)
 		winH := min(m.height-4, 38)
 		t := BuiltinThemes[m.activeTheme]
-		inner := clampView(renderHelp(winW-2, winH-2, m.styles, m.keys), winW-2, winH-2, t.Bg)
+		m.helpVP.Style = lipgloss.NewStyle().Background(t.Bg)
 		box = lipgloss.NewStyle().
 			Background(t.Bg).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(t.BorderFocus).
 			Width(winW).Height(winH).
-			Render(inner)
+			Render(m.helpVP.View())
 
 	case overlayFetchError:
 		if m.lastFetchError != nil {
@@ -1058,7 +1053,6 @@ func (m *Model) loadFeedsCmd() tea.Cmd {
 	db := m.db
 	return func() tea.Msg {
 		feeds, err := db.ListFeeds()
-		dbgLog.Printf("loadFeedsCmd result: %d feeds, err=%v, db=%p", len(feeds), err, db)
 		if err != nil {
 			return ErrMsg{err}
 		}
@@ -1185,7 +1179,7 @@ func (m *Model) applyFilter() {
 		m.filteredArticles = m.articles
 		return
 	}
-	filtered := m.filteredArticles[:0]
+	filtered := make([]db.Article, 0, len(m.articles))
 	for _, a := range m.articles {
 		if strings.Contains(strings.ToLower(a.Title), q) {
 			filtered = append(filtered, a)
@@ -1549,6 +1543,15 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (m *Model) resetHelpVP() {
+	winW := min(m.width-6, 90)
+	winH := min(m.height-4, 38)
+	vpW := winW - 2 // inside border
+	vpH := winH - 2 // inside border
+	m.helpVP = viewport.New(vpW, vpH)
+	m.helpVP.SetContent(renderHelp(vpW, m.styles, m.keys))
 }
 
 // ── Dimension helpers ─────────────────────────────────────────────────────────
