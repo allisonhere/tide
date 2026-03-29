@@ -520,12 +520,18 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.themeCursor--
 				m.activeTheme = m.themeCursor
 				m.styles = BuildStyles(BuiltinThemes[m.activeTheme])
+				if len(m.filteredArticles) > 0 {
+					m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+				}
 			}
 		case keyMatches(msg, m.keys.Down):
 			if m.themeCursor < len(BuiltinThemes)-1 {
 				m.themeCursor++
 				m.activeTheme = m.themeCursor
 				m.styles = BuildStyles(BuiltinThemes[m.activeTheme])
+				if len(m.filteredArticles) > 0 {
+					m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+				}
 			}
 		case keyMatches(msg, m.keys.Confirm):
 			m.confirmedTheme = m.themeCursor
