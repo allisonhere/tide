@@ -432,7 +432,7 @@ func (s Settings) viewBody(width int, chrome managerChrome) string {
 		blank,
 	}
 	lines = addToggle(lines, "Icons", s.icons, sfIcons)
-	lines = addToggle(lines, "Dates — "+s.dateLabel(), !s.dateAbsolute, sfDateFormat)
+	lines = addToggle(lines, "Use relative dates", !s.dateAbsolute, sfDateFormat)
 	lines = addToggle(lines, "Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
 	lines = addInput(lines, "Browser command", s.browserInput, sfBrowser)
 	lines = append(lines,

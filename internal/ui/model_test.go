@@ -331,6 +331,51 @@ func TestSettingsViewShowsFeedMaxSizeField(t *testing.T) {
 	}
 }
 
+func TestRightKeyReachesContentPane(t *testing.T) {
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig())
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	m = m2.(Model)
+	if m.focused != paneArticles {
+		t.Fatalf("expected first l to focus articles, got %v", m.focused)
+	}
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	m = m2.(Model)
+	if m.focused != paneContent {
+		t.Fatalf("expected second l to focus content, got %v", m.focused)
+	}
+}
+
+func TestQuitOverlayDoesNotCloseOnQ(t *testing.T) {
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig())
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m = m2.(Model)
+	if m.overlay != overlayQuitConfirm {
+		t.Fatalf("expected quit confirm overlay, got %v", m.overlay)
+	}
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m = m2.(Model)
+	if m.overlay != overlayQuitConfirm {
+		t.Fatalf("expected q to leave quit confirm open, got %v", m.overlay)
+	}
+}
+
 func TestSummaryUnavailableFromFeedsPane(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
