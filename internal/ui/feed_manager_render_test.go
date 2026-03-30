@@ -166,6 +166,62 @@ func TestFeedManagerEditViewShowsFolderPickerAndNewField(t *testing.T) {
 	}
 }
 
+func TestFeedManagerEditUsesPickedFolderColorInsteadOfSelectedRow(t *testing.T) {
+	fm := FeedManager{
+		mode:         fmEdit,
+		folders:      []db.Folder{{ID: 1, Name: "One", Color: "#7aa2f7"}, {ID: 2, Name: "Two", Color: "#f7768e"}},
+		rows:         []fmRow{{kind: fmRowFolder, folderID: 1}, {kind: fmRowFolder, folderID: 2}},
+		cursor:       0,
+		folderCursor: 2, // picks folder ID 2
+	}
+
+	fm.syncFolderPicker()
+
+	if got := string(fm.currentColorOption().Color); got != "#f7768e" {
+		t.Fatalf("expected picked folder color #f7768e, got %q", got)
+	}
+}
+
+func TestFeedManagerDisplayedColorTracksPickedFolderWhileBrowsing(t *testing.T) {
+	fm := FeedManager{
+		mode:         fmEdit,
+		folders:      []db.Folder{{ID: 1, Name: "One", Color: "#7aa2f7"}, {ID: 2, Name: "Two", Color: "#f7768e"}},
+		folderCursor: 1,
+		focusedField: 2,
+		colorCursor:  0,
+	}
+
+	fm.syncFolderPicker()
+	if got := string(fm.displayedColorOption().Color); got != "#7aa2f7" {
+		t.Fatalf("expected first picked folder color #7aa2f7, got %q", got)
+	}
+
+	fm.folderCursor = 2
+	fm.syncFolderPicker()
+	if got := string(fm.displayedColorOption().Color); got != "#f7768e" {
+		t.Fatalf("expected second picked folder color #f7768e, got %q", got)
+	}
+}
+
+func TestFeedManagerExistingFolderColorIsReadOnlyInFeedEdit(t *testing.T) {
+	fm := FeedManager{
+		mode:         fmEdit,
+		folders:      []db.Folder{{ID: 1, Name: "One", Color: "#7aa2f7"}, {ID: 2, Name: "Two", Color: "#f7768e"}},
+		folderCursor: 1,
+		focusedField: 4,
+		colorCursor:  0,
+	}
+
+	fm.syncFolderPicker()
+	before := string(fm.displayedColorOption().Color)
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyRight}, DefaultKeys)
+	after := string(next.displayedColorOption().Color)
+
+	if before != "#7aa2f7" || after != "#7aa2f7" {
+		t.Fatalf("expected existing folder color to stay #7aa2f7, got before=%q after=%q", before, after)
+	}
+}
+
 func TestFeedManagerListShowsFoldersBeforeFeeds(t *testing.T) {
 	fm := FeedManager{
 		folders: []db.Folder{{ID: 1, Name: "Tech", Color: "#7aa2f7"}},
@@ -236,5 +292,25 @@ func TestFeedManagerFolderEditViewShowsNameAndColor(t *testing.T) {
 	}
 	if !strings.Contains(view, "Name") || !strings.Contains(view, "Color") {
 		t.Fatalf("expected folder edit fields, got %q", view)
+	}
+}
+
+func TestFeedManagerAddFolderCanFocusColorField(t *testing.T) {
+	fm := FeedManager{}
+	fm.titleInput = textinput.New()
+
+	fm.focusAddFolder()
+	if fm.focusedField != 0 {
+		t.Fatalf("expected add-folder flow to start on name field, got %d", fm.focusedField)
+	}
+
+	next, _ := fm.updateFolderEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
+	if next.focusedField != 4 {
+		t.Fatalf("expected tab to move focus to color field, got %d", next.focusedField)
+	}
+
+	next, _ = next.updateFolderEdit(tea.KeyMsg{Type: tea.KeyDown}, DefaultKeys)
+	if next.focusedField != 0 {
+		t.Fatalf("expected down from color field to wrap to name field, got %d", next.focusedField)
 	}
 }
