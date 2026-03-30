@@ -152,7 +152,7 @@ build_all() {
     (
       cd "$PROJECT_DIR"
       CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build \
-        -ldflags="-s -w" \
+        -ldflags="-s -w -X main.version=$VERSION" \
         -o "$bin_path" \
         . 2>&1
     ) &
