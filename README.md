@@ -75,15 +75,53 @@ Tide can summarize the currently selected article when focus is in the `Articles
 - Press `m` in the summary dialog to save it as `.md`
 - If AI is not configured, Tide shows a prompt to open Settings with `S`
 
-Supported providers:
+Supported providers and current built-in models:
 - OpenAI
+  Uses `gpt-4o-mini`
 - Claude
+  Uses `claude-haiku-4-5-20251001`
 - Gemini
+  Uses `gemini-1.5-flash`
 - Ollama
+  Uses your configured local model, default `llama3.2`
+
+Provider requirements:
+- OpenAI: set an OpenAI API key
+- Claude: set an Anthropic API key
+- Gemini: set a Google AI Studio API key
+- Ollama: run a local Ollama server and choose a model
+
+Summary behavior:
+- Tide sends the article title and up to the first 4000 characters of article content
+- The app asks the provider for a concise 3-5 sentence summary
+- Requests use a 30 second timeout
+- Generated summaries are cached per article and can be reopened without regenerating them
+- Saved summaries are written as Markdown files to your configured save path
 
 Default Ollama settings:
 - URL: `http://localhost:11434`
 - Model: `llama3.2`
+
+Example `config.toml`:
+
+```toml
+theme = "catppuccin-mocha"
+
+[display]
+icons = false
+date_format = "relative"
+mark_read_on_open = true
+browser = ""
+
+[ai]
+provider = "ollama" # openai | claude | gemini | ollama | ""
+openai_key = ""
+claude_key = ""
+gemini_key = ""
+ollama_url = "http://localhost:11434"
+ollama_model = "llama3.2"
+save_path = "~/"
+```
 
 ## Keyboard Shortcuts
 
