@@ -25,7 +25,7 @@ type KeyMap struct {
 	Help        key.Binding
 	Quit        key.Binding
 
-	Summary  key.Binding // fetch/show AI summary (content pane)
+	Summary  key.Binding // fetch/show AI summary (articles or content pane)
 	CopyText key.Binding // copy summary to clipboard
 	SaveMD   key.Binding // save summary as .md file
 

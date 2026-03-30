@@ -520,7 +520,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case keyMatches(msg, m.keys.Summary):
-		if len(m.filteredArticles) > 0 {
+		if m.focused != paneFeeds && len(m.filteredArticles) > 0 {
 			return m.openSummary()
 		}
 		return m, nil
@@ -1122,7 +1122,7 @@ func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) str
 	case m.summaryErr != "":
 		bodyText = "Error: " + m.summaryErr
 	default:
-		bodyText = wrapWords(m.summaryArticle.Summary, width-4)
+		bodyText = formatSummaryBody(m.summaryArticle.Summary, width-4)
 	}
 
 	body := lipgloss.NewStyle().

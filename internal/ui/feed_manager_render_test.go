@@ -41,9 +41,10 @@ func TestFeedManagerListViewGeometry(t *testing.T) {
 
 func TestManagerChromeUsesThemeOverlaySurface(t *testing.T) {
 	chrome := newManagerChrome(80, CatppuccinMocha)
+	wantBase := adjustLightness(CatppuccinMocha.Bg, 0.06)
 
-	if chrome.baseBg != CatppuccinMocha.Overlay {
-		t.Fatalf("expected modal base to use theme overlay, got %q want %q", chrome.baseBg, CatppuccinMocha.Overlay)
+	if chrome.baseBg != wantBase {
+		t.Fatalf("expected modal base to be raised from theme bg, got %q want %q", chrome.baseBg, wantBase)
 	}
 	if chrome.border != CatppuccinMocha.OverlayBorder {
 		t.Fatalf("expected modal border to use theme overlay border, got %q want %q", chrome.border, CatppuccinMocha.OverlayBorder)
@@ -61,9 +62,10 @@ func TestManagerChromeUsesThemeOverlaySurface(t *testing.T) {
 
 func TestManagerChromeKeepsReadableLightThemeContrast(t *testing.T) {
 	chrome := newManagerChrome(80, CatppuccinLatte)
+	wantBase := adjustLightness(CatppuccinLatte.Bg, -0.06)
 
-	if chrome.baseBg != CatppuccinLatte.Overlay {
-		t.Fatalf("expected light modal base to use theme overlay, got %q want %q", chrome.baseBg, CatppuccinLatte.Overlay)
+	if chrome.baseBg != wantBase {
+		t.Fatalf("expected light modal base to be lowered from theme bg, got %q want %q", chrome.baseBg, wantBase)
 	}
 	if chrome.baseBg == CatppuccinLatte.Bg {
 		t.Fatal("expected modal base to remain distinct from main background")

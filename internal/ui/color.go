@@ -70,9 +70,6 @@ func readableText(preferred, bg lipgloss.Color, minRatio float64) lipgloss.Color
 }
 
 func modalSurface(t Theme) lipgloss.Color {
-	if t.Overlay != "" {
-		return t.Overlay
-	}
 	if isDark(t.Bg) {
 		return adjustLightness(t.Bg, 0.06)
 	}
