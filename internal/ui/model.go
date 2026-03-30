@@ -1104,8 +1104,7 @@ func (m Model) renderOverlay(base string) string {
 }
 
 func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) string {
-	title := truncate(m.summaryArticle.Title, width-4)
-	header := renderManagerHeader(strings.ToUpper(title), width, chrome)
+	header := renderManagerHeader("AI SUMMARY", width, chrome)
 
 	var bodyText string
 	switch {
