@@ -30,14 +30,18 @@ const (
 type FeedManager struct {
 	db         *db.DB
 	feeds      []db.Feed
+	folders    []db.Folder
 	cursor     int
 	mode       fmMode
 	editTarget int64 // 0 = new feed
 
-	titleInput   textinput.Model
-	urlInput     textinput.Model
-	importInput  textinput.Model
-	focusedField int // 0=title, 1=url
+	titleInput     textinput.Model
+	urlInput       textinput.Model
+	importInput    textinput.Model
+	newFolderInput textinput.Model
+	focusedField   int // 0=title, 1=url, 2=folder, 3=new folder
+	folderCursor   int
+	showNewFolder  bool
 
 	shouldExit bool
 	statusMsg  string
@@ -58,11 +62,16 @@ func NewFeedManager(database *db.DB) FeedManager {
 	imp.Placeholder = "path to .opml file"
 	imp.CharLimit = 500
 
+	newFolder := textinput.New()
+	newFolder.Placeholder = "Folder name"
+	newFolder.CharLimit = 120
+
 	fm := FeedManager{
-		db:          database,
-		titleInput:  title,
-		urlInput:    u,
-		importInput: imp,
+		db:             database,
+		titleInput:     title,
+		urlInput:       u,
+		importInput:    imp,
+		newFolderInput: newFolder,
 	}
 	fm.reload()
 	return fm
@@ -70,8 +79,11 @@ func NewFeedManager(database *db.DB) FeedManager {
 
 func (fm *FeedManager) reload() {
 	feeds, _ := fm.db.ListFeeds()
+	folders, _ := fm.db.ListFolders()
 	fm.feeds = feeds
+	fm.folders = folders
 	fm.cursor = clamp(fm.cursor, 0, max(0, len(feeds)-1))
+	fm.folderCursor = clamp(fm.folderCursor, 0, max(0, len(fm.folderOptions())-1))
 }
 
 func (fm *FeedManager) focusAdd() {
@@ -79,12 +91,84 @@ func (fm *FeedManager) focusAdd() {
 	fm.editTarget = 0
 	fm.titleInput.Reset()
 	fm.urlInput.Reset()
+	fm.newFolderInput.Reset()
 	fm.focusedField = 0
+	fm.folderCursor = 0
+	fm.showNewFolder = false
 	fm.statusMsg = ""
 	fm.busy = false
 	fm.busyMsg = ""
 	fm.titleInput.Focus()
 	fm.urlInput.Blur()
+	fm.newFolderInput.Blur()
+}
+
+func (fm FeedManager) folderOptions() []string {
+	options := make([]string, 0, len(fm.folders)+2)
+	options = append(options, "(no folder)")
+	for _, folder := range fm.folders {
+		options = append(options, folder.Name)
+	}
+	options = append(options, "+ New folder")
+	return options
+}
+
+func (fm FeedManager) currentFolderID() int64 {
+	if fm.folderCursor <= 0 || fm.folderCursor > len(fm.folders) {
+		return 0
+	}
+	return fm.folders[fm.folderCursor-1].ID
+}
+
+func (fm *FeedManager) syncFolderPicker() {
+	maxIdx := max(0, len(fm.folderOptions())-1)
+	fm.folderCursor = clamp(fm.folderCursor, 0, maxIdx)
+	fm.showNewFolder = fm.folderCursor == len(fm.folderOptions())-1
+	if fm.showNewFolder && fm.focusedField == 3 {
+		fm.newFolderInput.Focus()
+	} else {
+		fm.newFolderInput.Blur()
+	}
+}
+
+func (fm *FeedManager) setFolderCursorForID(folderID int64) {
+	fm.folderCursor = 0
+	for i, folder := range fm.folders {
+		if folder.ID == folderID {
+			fm.folderCursor = i + 1
+			break
+		}
+	}
+	fm.syncFolderPicker()
+}
+
+func (fm *FeedManager) focusCurrentEditField() {
+	fm.titleInput.Blur()
+	fm.urlInput.Blur()
+	fm.newFolderInput.Blur()
+
+	switch fm.focusedField {
+	case 0:
+		fm.titleInput.Focus()
+	case 1:
+		fm.urlInput.Focus()
+	case 3:
+		if fm.showNewFolder {
+			fm.newFolderInput.Focus()
+		} else {
+			fm.focusedField = 0
+			fm.titleInput.Focus()
+		}
+	}
+}
+
+func (fm *FeedManager) advanceEditField() {
+	fieldCount := 3
+	if fm.showNewFolder {
+		fieldCount = 4
+	}
+	fm.focusedField = (fm.focusedField + 1) % fieldCount
+	fm.focusCurrentEditField()
 }
 
 func (fm FeedManager) Update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd, bool) {
@@ -105,8 +189,10 @@ func (fm FeedManager) update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd) {
 			var cmd tea.Cmd
 			if fm.focusedField == 0 {
 				fm.titleInput, cmd = fm.titleInput.Update(msg)
-			} else {
+			} else if fm.focusedField == 1 {
 				fm.urlInput, cmd = fm.urlInput.Update(msg)
+			} else if fm.focusedField == 3 && fm.showNewFolder {
+				fm.newFolderInput, cmd = fm.newFolderInput.Update(msg)
 			}
 			return fm, cmd
 		case fmImport:
@@ -162,9 +248,10 @@ func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 			fm.titleInput.SetValue(f.Title)
 			fm.urlInput.Reset()
 			fm.urlInput.SetValue(f.URL)
+			fm.newFolderInput.Reset()
 			fm.focusedField = 0
-			fm.titleInput.Focus()
-			fm.urlInput.Blur()
+			fm.setFolderCursorForID(f.FolderID)
+			fm.focusCurrentEditField()
 			fm.mode = fmEdit
 		}
 
@@ -196,15 +283,34 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		fm.mode = fmList
 		fm.titleInput.Blur()
 		fm.urlInput.Blur()
+		fm.newFolderInput.Blur()
 
-	case keyMatches(msg, keys.Tab), keyMatches(msg, keys.Up), keyMatches(msg, keys.Down):
-		fm.focusedField = 1 - fm.focusedField
-		if fm.focusedField == 0 {
-			fm.titleInput.Focus()
-			fm.urlInput.Blur()
-		} else {
-			fm.urlInput.Focus()
-			fm.titleInput.Blur()
+	case keyMatches(msg, keys.Tab), keyMatches(msg, keys.Down):
+		fm.advanceEditField()
+
+	case keyMatches(msg, keys.Up):
+		fieldCount := 3
+		if fm.showNewFolder {
+			fieldCount = 4
+		}
+		fm.focusedField = (fm.focusedField + fieldCount - 1) % fieldCount
+		fm.focusCurrentEditField()
+
+	case fm.focusedField == 2 && keyMatches(msg, keys.Left):
+		if fm.folderCursor > 0 {
+			fm.folderCursor--
+			fm.syncFolderPicker()
+			if !fm.showNewFolder && fm.focusedField == 3 {
+				fm.focusedField = 2
+			}
+			fm.focusCurrentEditField()
+		}
+
+	case fm.focusedField == 2 && keyMatches(msg, keys.Right):
+		if fm.folderCursor < len(fm.folderOptions())-1 {
+			fm.folderCursor++
+			fm.syncFolderPicker()
+			fm.focusCurrentEditField()
 		}
 
 	case keyMatches(msg, keys.Confirm):
@@ -221,8 +327,10 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		var cmd tea.Cmd
 		if fm.focusedField == 0 {
 			fm.titleInput, cmd = fm.titleInput.Update(msg)
-		} else {
+		} else if fm.focusedField == 1 {
 			fm.urlInput, cmd = fm.urlInput.Update(msg)
+		} else if fm.focusedField == 3 && fm.showNewFolder {
+			fm.newFolderInput, cmd = fm.newFolderInput.Update(msg)
 		}
 		return fm, cmd
 	}
@@ -277,7 +385,10 @@ func (fm FeedManager) updateConfirmDelete(msg tea.KeyMsg, _ KeyMap) (FeedManager
 func (fm *FeedManager) saveCmd() tea.Cmd {
 	rawURL := strings.TrimSpace(fm.urlInput.Value())
 	title := strings.TrimSpace(fm.titleInput.Value())
+	newFolderName := strings.TrimSpace(fm.newFolderInput.Value())
 	editTarget := fm.editTarget
+	folderID := fm.currentFolderID()
+	createFolder := fm.showNewFolder
 	database := fm.db
 
 	return func() tea.Msg {
@@ -286,9 +397,21 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 			return FeedSavedMsg{Err: fmt.Errorf("invalid URL: %s", rawURL)}
 		}
 
+		if createFolder && newFolderName != "" {
+			folderID, err = database.AddFolder(newFolderName)
+			if err != nil {
+				return FeedSavedMsg{Err: err}
+			}
+		} else if createFolder {
+			folderID = 0
+		}
+
 		if editTarget != 0 {
 			// Edit existing
 			if err := database.UpdateFeed(editTarget, title, rawURL); err != nil {
+				return FeedSavedMsg{Err: err}
+			}
+			if err := database.SetFeedFolder(editTarget, folderID); err != nil {
 				return FeedSavedMsg{Err: err}
 			}
 			f, _ := database.GetFeed(editTarget)
@@ -311,6 +434,9 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 
 		id, err := database.AddFeed(rawURL, feedTitle, parsed.Description)
 		if err != nil {
+			return FeedSavedMsg{Err: err}
+		}
+		if err := database.SetFeedFolder(id, folderID); err != nil {
 			return FeedSavedMsg{Err: err}
 		}
 
@@ -509,13 +635,20 @@ func renderManagerInset(spaces int, s string) string {
 
 func (fm FeedManager) viewEdit(width, height int, chrome managerChrome) string {
 	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
+	contentRows := []string{
 		renderManagerSection("Title", renderTextInput(fm.titleInput, width-3, fm.focusedField == 0, false, chrome), chrome),
 		gap,
 		renderManagerSection("URL", renderTextInput(fm.urlInput, width-3, fm.focusedField == 1, false, chrome), chrome),
 		gap,
-	)
+		renderManagerSection("Folder", renderManagerPicker(width-3, fm.folderOptions()[fm.folderCursor], fm.focusedField == 2, chrome), chrome),
+	}
+	if fm.showNewFolder {
+		contentRows = append(contentRows,
+			gap,
+			renderManagerSection("New", renderTextInput(fm.newFolderInput, width-3, fm.focusedField == 3, false, chrome), chrome),
+		)
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, contentRows...)
 	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(content)
 }
 
@@ -549,6 +682,7 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 	case fmEdit:
 		return renderManagerActions(width, chrome,
 			"tab", "next field",
+			"←/→", "folder",
 			"enter", "save feed",
 			"esc", "cancel",
 		)
@@ -781,6 +915,21 @@ func renderManagerInput(width int, value, placeholder string, focused bool, chro
 	} else {
 		line = text.Render(value)
 	}
+	return lipgloss.NewStyle().Background(bg).Padding(0, 1).Render(clampView(line, textW, 1, bg))
+}
+
+func renderManagerPicker(width int, value string, focused bool, chrome managerChrome) string {
+	textW := max(1, width-1)
+	bg := chrome.surfaceBg
+	if focused {
+		bg = chrome.fieldBg
+	}
+	text := lipgloss.NewStyle().Background(bg).Foreground(chrome.text)
+	if focused {
+		text = text.Bold(true)
+	}
+	accent := lipgloss.NewStyle().Background(bg).Foreground(chrome.accent).Bold(true)
+	line := accent.Render("◀ ") + text.Render(truncate(value, max(1, textW-4))) + accent.Render(" ▶")
 	return lipgloss.NewStyle().Background(bg).Padding(0, 1).Render(clampView(line, textW, 1, bg))
 }
 

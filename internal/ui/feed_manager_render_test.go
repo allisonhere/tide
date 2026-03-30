@@ -137,3 +137,27 @@ func TestFeedManagerDeleteRequiresY(t *testing.T) {
 		t.Fatalf("expected delete confirm to close on y, got %v", next.mode)
 	}
 }
+
+func TestFeedManagerEditViewShowsFolderPickerAndNewField(t *testing.T) {
+	fm := FeedManager{
+		mode:          fmEdit,
+		folders:       []db.Folder{{ID: 1, Name: "Tech"}},
+		folderCursor:  2,
+		showNewFolder: true,
+		focusedField:  3,
+	}
+	fm.newFolderInput = textinput.New()
+	fm.newFolderInput.SetValue("Infra")
+
+	view := ansi.Strip(fm.View(80, 20, BuildStyles(CatppuccinMocha)))
+
+	if !strings.Contains(view, "Folder") {
+		t.Fatalf("expected folder picker label, got %q", view)
+	}
+	if !strings.Contains(view, "+ New folder") {
+		t.Fatalf("expected new folder option, got %q", view)
+	}
+	if !strings.Contains(view, "New") || !strings.Contains(view, "Infra") {
+		t.Fatalf("expected new folder input row, got %q", view)
+	}
+}

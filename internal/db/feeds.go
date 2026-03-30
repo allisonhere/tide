@@ -1,7 +1,9 @@
 package db
 
 import (
+	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -13,11 +15,18 @@ type Feed struct {
 	FaviconURL  string
 	LastFetched time.Time
 	UnreadCount int64
+	FolderID    int64
+}
+
+type Folder struct {
+	ID       int64
+	Name     string
+	Position int
 }
 
 func (db *DB) ListFeeds() ([]Feed, error) {
 	rows, err := db.Query(`
-		SELECT f.id, f.url, f.title, f.description, f.favicon_url, f.last_fetched,
+		SELECT f.id, f.url, f.title, f.description, f.favicon_url, f.last_fetched, f.folder_id,
 		       COUNT(CASE WHEN a.read = 0 THEN 1 END) AS unread_count
 		FROM feeds f
 		LEFT JOIN articles a ON a.feed_id = f.id
@@ -33,10 +42,14 @@ func (db *DB) ListFeeds() ([]Feed, error) {
 	for rows.Next() {
 		var f Feed
 		var lastFetched int64
-		if err := rows.Scan(&f.ID, &f.URL, &f.Title, &f.Description, &f.FaviconURL, &lastFetched, &f.UnreadCount); err != nil {
+		var folderID sql.NullInt64
+		if err := rows.Scan(&f.ID, &f.URL, &f.Title, &f.Description, &f.FaviconURL, &lastFetched, &folderID, &f.UnreadCount); err != nil {
 			return nil, err
 		}
 		f.LastFetched = time.Unix(lastFetched, 0)
+		if folderID.Valid {
+			f.FolderID = folderID.Int64
+		}
 		feeds = append(feeds, f)
 	}
 	return feeds, rows.Err()
@@ -45,13 +58,17 @@ func (db *DB) ListFeeds() ([]Feed, error) {
 func (db *DB) GetFeed(id int64) (Feed, error) {
 	var f Feed
 	var lastFetched int64
+	var folderID sql.NullInt64
 	err := db.QueryRow(
-		`SELECT id, url, title, description, favicon_url, last_fetched FROM feeds WHERE id = ?`, id,
-	).Scan(&f.ID, &f.URL, &f.Title, &f.Description, &f.FaviconURL, &lastFetched)
+		`SELECT id, url, title, description, favicon_url, last_fetched, folder_id FROM feeds WHERE id = ?`, id,
+	).Scan(&f.ID, &f.URL, &f.Title, &f.Description, &f.FaviconURL, &lastFetched, &folderID)
 	if err != nil {
 		return Feed{}, err
 	}
 	f.LastFetched = time.Unix(lastFetched, 0)
+	if folderID.Valid {
+		f.FolderID = folderID.Int64
+	}
 	return f, nil
 }
 
@@ -68,6 +85,11 @@ func (db *DB) AddFeed(url, title, description string) (int64, error) {
 
 func (db *DB) UpdateFeed(id int64, title, url string) error {
 	_, err := db.Exec(`UPDATE feeds SET title = ?, url = ? WHERE id = ?`, title, url, id)
+	return err
+}
+
+func (db *DB) UpdateFeedURL(id int64, url string) error {
+	_, err := db.Exec(`UPDATE feeds SET url = ? WHERE id = ?`, url, id)
 	return err
 }
 
@@ -94,4 +116,106 @@ func (db *DB) DeleteFeed(id int64) error {
 		return fmt.Errorf("feed %d not found", id)
 	}
 	return nil
+}
+
+func (db *DB) ListFolders() ([]Folder, error) {
+	rows, err := db.Query(`
+		SELECT id, name, position
+		FROM folders
+		ORDER BY position, name COLLATE NOCASE
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var folders []Folder
+	for rows.Next() {
+		var f Folder
+		if err := rows.Scan(&f.ID, &f.Name, &f.Position); err != nil {
+			return nil, err
+		}
+		folders = append(folders, f)
+	}
+	return folders, rows.Err()
+}
+
+func normalizeFolderName(name string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(name)), " "))
+}
+
+func (db *DB) AddFolder(name string) (int64, error) {
+	name = strings.Join(strings.Fields(strings.TrimSpace(name)), " ")
+	if name == "" {
+		return 0, fmt.Errorf("folder name is required")
+	}
+
+	folders, err := db.ListFolders()
+	if err != nil {
+		return 0, err
+	}
+	normalized := normalizeFolderName(name)
+	for _, folder := range folders {
+		if normalizeFolderName(folder.Name) == normalized {
+			return folder.ID, nil
+		}
+	}
+
+	var position int
+	if err := db.QueryRow(`SELECT COALESCE(MAX(position), -1) + 1 FROM folders`).Scan(&position); err != nil {
+		return 0, err
+	}
+
+	res, err := db.Exec(`INSERT INTO folders (name, position) VALUES (?, ?)`, name, position)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (db *DB) RenameFolder(id int64, name string) error {
+	name = strings.Join(strings.Fields(strings.TrimSpace(name)), " ")
+	if name == "" {
+		return fmt.Errorf("folder name is required")
+	}
+
+	folders, err := db.ListFolders()
+	if err != nil {
+		return err
+	}
+	normalized := normalizeFolderName(name)
+	for _, folder := range folders {
+		if folder.ID != id && normalizeFolderName(folder.Name) == normalized {
+			return fmt.Errorf("folder %q already exists", name)
+		}
+	}
+
+	_, err = db.Exec(`UPDATE folders SET name = ? WHERE id = ?`, name, id)
+	return err
+}
+
+func (db *DB) DeleteFolder(id int64) error {
+	res, err := db.Exec(`DELETE FROM folders WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("folder %d not found", id)
+	}
+	return nil
+}
+
+func (db *DB) SetFeedFolder(feedID, folderID int64) error {
+	if folderID == 0 {
+		_, err := db.Exec(`UPDATE feeds SET folder_id = NULL WHERE id = ?`, feedID)
+		return err
+	}
+	_, err := db.Exec(`UPDATE feeds SET folder_id = ? WHERE id = ?`, folderID, feedID)
+	return err
+}
+
+func (db *DB) ReorderFolder(id int64, position int) error {
+	_, err := db.Exec(`UPDATE folders SET position = ? WHERE id = ?`, position, id)
+	return err
 }

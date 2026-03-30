@@ -71,6 +71,128 @@ func TestOpenMigratesLegacyConfigDB(t *testing.T) {
 	}
 }
 
+func TestDBFoldersCRUDAndFeedAssignment(t *testing.T) {
+	tmp := t.TempDir()
+	db, err := openSQLite(filepath.Join(tmp, "rss.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.init(); err != nil {
+		t.Fatal(err)
+	}
+
+	folderID, err := db.AddFolder("Tech")
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicateID, err := db.AddFolder(" tech ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duplicateID != folderID {
+		t.Fatalf("expected duplicate folder create to reuse %d, got %d", folderID, duplicateID)
+	}
+
+	feedID, err := db.AddFeed("https://example.com/feed.xml", "Example Feed", "desc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetFeedFolder(feedID, folderID); err != nil {
+		t.Fatal(err)
+	}
+
+	feed, err := db.GetFeed(feedID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if feed.FolderID != folderID {
+		t.Fatalf("expected feed folder %d, got %d", folderID, feed.FolderID)
+	}
+
+	if err := db.DeleteFolder(folderID); err != nil {
+		t.Fatal(err)
+	}
+	feed, err = db.GetFeed(feedID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if feed.FolderID != 0 {
+		t.Fatalf("expected deleted folder to clear feed assignment, got %d", feed.FolderID)
+	}
+}
+
+func TestOpenMigratesFolderSchemaToVersion2(t *testing.T) {
+	tmp := t.TempDir()
+	db, err := openSQLite(filepath.Join(tmp, "rss.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE feeds (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			url          TEXT    NOT NULL UNIQUE,
+			title        TEXT    NOT NULL DEFAULT '',
+			description  TEXT    NOT NULL DEFAULT '',
+			favicon_url  TEXT    NOT NULL DEFAULT '',
+			last_fetched INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE TABLE articles (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			feed_id      INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+			guid         TEXT    NOT NULL,
+			title        TEXT    NOT NULL DEFAULT '',
+			link         TEXT    NOT NULL DEFAULT '',
+			content      TEXT    NOT NULL DEFAULT '',
+			published_at INTEGER NOT NULL DEFAULT 0,
+			read         INTEGER NOT NULL DEFAULT 0,
+			UNIQUE(feed_id, guid)
+		);
+		PRAGMA user_version = 1;
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.migrateSchema(); err != nil {
+		t.Fatal(err)
+	}
+
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 2 {
+		t.Fatalf("expected schema version 2, got %d", version)
+	}
+
+	rows, err := db.Query(`PRAGMA table_info(feeds)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	foundFolderID := false
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			t.Fatal(err)
+		}
+		if name == "folder_id" {
+			foundFolderID = true
+			break
+		}
+	}
+	if !foundFolderID {
+		t.Fatal("expected feeds.folder_id column after migration")
+	}
+}
+
 func openSQLite(path string) (*DB, error) {
 	conn, err := sql.Open("sqlite", path)
 	if err != nil {
