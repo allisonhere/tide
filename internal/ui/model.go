@@ -279,7 +279,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case FeedSavedMsg:
+		m.feedManager.busy = false
+		m.feedManager.busyMsg = ""
 		if msg.Err != nil {
+			m.feedManager.statusMsg = fmt.Sprintf("SAVE FAILED: %v", msg.Err)
 			m.setStatus(fmt.Sprintf("save failed: %v", msg.Err), true)
 			return m, m.clearStatusCmd()
 		}
@@ -291,7 +294,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
 
 	case FeedDeletedMsg:
+		m.feedManager.busy = false
+		m.feedManager.busyMsg = ""
 		if msg.Err != nil {
+			m.feedManager.statusMsg = fmt.Sprintf("DELETE FAILED: %v", msg.Err)
 			m.setStatus(fmt.Sprintf("delete failed: %v", msg.Err), true)
 			return m, m.clearStatusCmd()
 		}
@@ -312,7 +318,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
 
 	case OPMLImportedMsg:
+		m.feedManager.busy = false
+		m.feedManager.busyMsg = ""
 		if msg.Err != nil {
+			m.feedManager.statusMsg = fmt.Sprintf("IMPORT FAILED: %v", msg.Err)
 			m.setStatus(fmt.Sprintf("import failed: %v", msg.Err), true)
 		} else {
 			m.setStatus(fmt.Sprintf("imported %d feeds", msg.Count), false)
