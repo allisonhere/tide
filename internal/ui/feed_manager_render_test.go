@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"tide/internal/db"
@@ -35,5 +36,42 @@ func TestFeedManagerListViewGeometry(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(lines, "\n"), "HTTPS://WWW.HOWTOGEEK.COM/FEED/CATEGORY/LINUX/") {
 		t.Fatalf("source URL missing from rendered view")
+	}
+}
+
+func TestManagerChromeUsesThemeOverlaySurface(t *testing.T) {
+	chrome := newManagerChrome(80, CatppuccinMocha)
+
+	if chrome.baseBg != CatppuccinMocha.Overlay {
+		t.Fatalf("expected modal base to use theme overlay, got %q want %q", chrome.baseBg, CatppuccinMocha.Overlay)
+	}
+	if chrome.border != CatppuccinMocha.OverlayBorder {
+		t.Fatalf("expected modal border to use theme overlay border, got %q want %q", chrome.border, CatppuccinMocha.OverlayBorder)
+	}
+	if chrome.accent != CatppuccinMocha.BorderFocus {
+		t.Fatalf("expected modal accent to use theme focus border, got %q want %q", chrome.accent, CatppuccinMocha.BorderFocus)
+	}
+	if chrome.baseBg == lipgloss.Color("#0c0e14") || chrome.surfaceBg == lipgloss.Color("#111319") || chrome.fieldBg == lipgloss.Color("#1e2235") {
+		t.Fatal("manager chrome still uses hard-coded dark modal colors")
+	}
+	if contrastRatio(chrome.text, chrome.baseBg) < 4.5 {
+		t.Fatalf("expected accessible text contrast on modal base, got %.2f", contrastRatio(chrome.text, chrome.baseBg))
+	}
+}
+
+func TestManagerChromeKeepsReadableLightThemeContrast(t *testing.T) {
+	chrome := newManagerChrome(80, CatppuccinLatte)
+
+	if chrome.baseBg != CatppuccinLatte.Overlay {
+		t.Fatalf("expected light modal base to use theme overlay, got %q want %q", chrome.baseBg, CatppuccinLatte.Overlay)
+	}
+	if chrome.baseBg == CatppuccinLatte.Bg {
+		t.Fatal("expected modal base to remain distinct from main background")
+	}
+	if contrastRatio(chrome.text, chrome.baseBg) < 4.5 {
+		t.Fatalf("expected readable text on light modal base, got %.2f", contrastRatio(chrome.text, chrome.baseBg))
+	}
+	if contrastRatio(chrome.muted, chrome.baseBg) < 3 {
+		t.Fatalf("expected readable muted text on light modal base, got %.2f", contrastRatio(chrome.muted, chrome.baseBg))
 	}
 }

@@ -64,6 +64,8 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 			name: "Content",
 			entries: []entry{
 				bind(keys.Summary),
+				bind(keys.CopyText),
+				bind(keys.SaveMD),
 			},
 		},
 		{
@@ -91,7 +93,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 		lines = append(lines, "")
 	}
 
-	lines = append(lines, styles.OverlayHint.Render("[esc / ? / q] close"))
+	lines = append(lines, styles.OverlayHint.Render("[esc / ? / q / s] close current overlay"))
 
 	content := strings.Join(lines, "\n")
 	return lipgloss.NewStyle().

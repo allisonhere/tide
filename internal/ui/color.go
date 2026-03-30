@@ -53,6 +53,47 @@ func contrastFg(bg lipgloss.Color) lipgloss.Color {
 	return lipgloss.Color("#0f141c")
 }
 
+func contrastRatio(a, b lipgloss.Color) float64 {
+	la := luminance(a)
+	lb := luminance(b)
+	if la < lb {
+		la, lb = lb, la
+	}
+	return (la + 0.05) / (lb + 0.05)
+}
+
+func readableText(preferred, bg lipgloss.Color, minRatio float64) lipgloss.Color {
+	if preferred != "" && contrastRatio(preferred, bg) >= minRatio {
+		return preferred
+	}
+	return contrastFg(bg)
+}
+
+func modalSurface(t Theme) lipgloss.Color {
+	if t.Overlay != "" {
+		return t.Overlay
+	}
+	if isDark(t.Bg) {
+		return adjustLightness(t.Bg, 0.06)
+	}
+	return adjustLightness(t.Bg, -0.06)
+}
+
+func mutedText(text, bg lipgloss.Color) lipgloss.Color {
+	if isDark(bg) {
+		candidate := adjustLightness(text, -0.20)
+		if contrastRatio(candidate, bg) >= 3 {
+			return candidate
+		}
+		return adjustLightness(text, -0.12)
+	}
+	candidate := adjustLightness(text, 0.20)
+	if contrastRatio(candidate, bg) >= 3 {
+		return candidate
+	}
+	return adjustLightness(text, 0.12)
+}
+
 func rgbToHSL(r, g, b float64) (h, s, l float64) {
 	hi := math.Max(r, math.Max(g, b))
 	lo := math.Min(r, math.Min(g, b))

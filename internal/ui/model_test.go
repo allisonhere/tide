@@ -239,6 +239,20 @@ func TestFeedSelectionChangeWithArticlesKeepsFrameStable(t *testing.T) {
 	}
 }
 
+func TestBuildStylesUsesThemeOverlayColors(t *testing.T) {
+	styles := BuildStyles(CatppuccinMocha)
+
+	if got := styles.Overlay.GetBackground(); got != CatppuccinMocha.Overlay {
+		t.Fatalf("expected overlay background %q, got %q", CatppuccinMocha.Overlay, got)
+	}
+	if got := styles.Overlay.GetBorderTopForeground(); got != CatppuccinMocha.OverlayBorder {
+		t.Fatalf("expected overlay border color %q, got %q", CatppuccinMocha.OverlayBorder, got)
+	}
+	if got := styles.OverlayTitle.GetBackground(); got != CatppuccinMocha.BorderFocus {
+		t.Fatalf("expected overlay title accent %q, got %q", CatppuccinMocha.BorderFocus, got)
+	}
+}
+
 func TestArticleCursorMoveKeepsFrameStable(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
