@@ -254,6 +254,73 @@ func TestBuildStylesUsesThemeOverlayColors(t *testing.T) {
 	}
 }
 
+func TestIconsToggleChangesRenderedPaneMarkers(t *testing.T) {
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.Display.Icons = true
+	m := NewModel(database, cfg)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feeds := []db.Feed{{ID: 1, Title: "Feed One", URL: "https://example.com/feed", UnreadCount: 2}}
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: feeds})
+	m = m2.(Model)
+	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: []db.Article{
+		{ID: 1, FeedID: 1, Title: "Unread Article", PublishedAt: unixTestTime(1710000000), Read: false},
+		{ID: 2, FeedID: 1, Title: "Read Article", PublishedAt: unixTestTime(1710000100), Read: true},
+	}})
+	m = m2.(Model)
+
+	view := m.View()
+	if !containsString(view, "◉ Feeds") {
+		t.Fatalf("expected feeds header icon when icons are enabled: %q", view)
+	}
+	if !containsString(view, "≣ Articles") {
+		t.Fatalf("expected articles header icon when icons are enabled: %q", view)
+	}
+	if !containsString(view, "● Unread Article") {
+		t.Fatalf("expected unread article icon when icons are enabled: %q", view)
+	}
+	if !containsString(view, "· Read Article") {
+		t.Fatalf("expected read article marker when icons are enabled: %q", view)
+	}
+}
+
+func TestSettingsCanReopenAfterSave(t *testing.T) {
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig())
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	m = m2.(Model)
+	if m.overlay != overlaySettings {
+		t.Fatalf("expected settings overlay to open, got %v", m.overlay)
+	}
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	m = m2.(Model)
+	if m.overlay != overlayNone {
+		t.Fatalf("expected settings overlay to close on save, got %v", m.overlay)
+	}
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	m = m2.(Model)
+	if m.overlay != overlaySettings {
+		t.Fatalf("expected settings overlay to reopen after save, got %v", m.overlay)
+	}
+}
+
 func TestSummaryUnavailableFromFeedsPane(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {

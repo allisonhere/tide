@@ -53,7 +53,7 @@ Config and database are stored in `~/.config/rss/`.
 Open settings with `S`.
 
 Display options:
-- Toggle icons
+- Toggle Unicode icons for pane headers and item state markers
 - Switch between relative and absolute dates
 - Toggle mark-read-on-open
 - Set a custom browser command
