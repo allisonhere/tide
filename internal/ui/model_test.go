@@ -514,6 +514,52 @@ func TestContentPaneClampsViewportOutputToPaneSize(t *testing.T) {
 	}
 }
 
+func TestRenderArticleContentFillsPaneWidth(t *testing.T) {
+	m := Model{
+		width:  120,
+		height: 30,
+		styles: BuildStyles(GruvboxLight),
+	}
+
+	got := m.renderArticleContent(db.Article{
+		Title:       "Short title",
+		Link:        "https://example.com/a",
+		Content:     "one short line",
+		PublishedAt: unixTestTime(1710000000),
+	})
+
+	for i, line := range strings.Split(got, "\n") {
+		if lipgloss.Width(line) != m.articlesPaneWidth() {
+			t.Fatalf("expected article content line %d to fill pane width %d, got %d", i+1, m.articlesPaneWidth(), lipgloss.Width(line))
+		}
+	}
+}
+
+func TestThemePickerUsesFullWidthChromeRows(t *testing.T) {
+	m := Model{
+		width:       120,
+		height:      30,
+		themeCursor: 7,
+		styles:      BuildStyles(GruvboxLight),
+	}
+
+	chrome := newManagerChrome(40, m.styles.Theme)
+	got := m.renderThemePicker(40, chrome)
+	lines := strings.Split(got, "\n")
+
+	if !containsString(got, "THEME") {
+		t.Fatalf("expected theme picker header, got %q", got)
+	}
+	if !containsString(got, "gruvbox-light") {
+		t.Fatalf("expected theme picker to include current selection row, got %q", got)
+	}
+	for i, line := range lines {
+		if lipgloss.Width(line) != 40 {
+			t.Fatalf("expected theme picker line %d to fill width 40, got %d", i+1, lipgloss.Width(line))
+		}
+	}
+}
+
 func TestFeedsPaneRendersFoldersAndUncategorized(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {

@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime/debug"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,7 +21,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch strings.TrimSpace(os.Args[1]) {
 		case "--version", "-version", "-v":
-			fmt.Printf("tide %s\n", version)
+			fmt.Printf("tide %s\n", resolvedVersion())
 			return
 		}
 	}
@@ -61,4 +63,46 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+func resolvedVersion() string {
+	if version != "" && version != "dev" {
+		return version
+	}
+
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return version
+	}
+
+	revision := ""
+	modified := false
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			modified = setting.Value == "true"
+		}
+	}
+	if revision != "" {
+		if len(revision) > 7 {
+			revision = revision[:7]
+		}
+		if modified {
+			revision += "-dirty"
+		}
+		return revision
+	}
+	if info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+
+	if out, err := exec.Command("git", "describe", "--always", "--dirty").Output(); err == nil {
+		if desc := strings.TrimSpace(string(out)); desc != "" {
+			return desc
+		}
+	}
+
+	return version
 }

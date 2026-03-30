@@ -1042,7 +1042,7 @@ func (m Model) renderArticleContent(a db.Article) string {
 	}
 	body := m.styles.ContentBody.Width(bodyWidth).Render(formatArticleBody(content, bodyWidth))
 
-	return title + "\n" + meta + "\n\n" + body
+	return fillViewWidth(title+"\n"+meta+"\n\n"+body, m.articlesPaneWidth(), m.styles.Theme.Bg)
 }
 
 func (m Model) renderStatusBar() string {
@@ -1115,7 +1115,11 @@ func (m Model) renderOverlay(base string) string {
 		box = m.renderSearchOverlay()
 
 	case overlayThemePicker:
-		box = renderStyledOverlayBox(m.renderThemePicker(), 36, m.styles)
+		winW := min(m.width-4, 40)
+		chrome := newManagerChrome(winW, m.styles.Theme)
+		inner := m.renderThemePicker(winW, chrome)
+		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
+		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
 
 	case overlayFeedManager:
 		winW := min(m.width-4, 74)
@@ -1298,23 +1302,28 @@ func overlayOnBase(base, box string, width, height int, bg lipgloss.Color) strin
 	return strings.Join(result, "\n")
 }
 
-func (m Model) renderThemePicker() string {
-	title := m.styles.OverlayTitle.Render("Theme")
-	rows := []string{title}
-	selected := lipgloss.NewStyle().Foreground(m.styles.FeedItemSelected.GetForeground()).Bold(true)
-	normal := lipgloss.NewStyle().Foreground(m.styles.FeedItem.GetForeground())
+func (m Model) renderThemePicker(width int, chrome managerChrome) string {
+	header := renderManagerHeader("THEME", width, chrome)
+	rows := make([]string, 0, len(BuiltinThemes))
 	for i, t := range BuiltinThemes {
 		if i == m.themeCursor {
-			rows = append(rows, selected.Render("▶ "+t.Name))
+			rows = append(rows, renderManagerSelectedRow(width, "▶ "+t.Name, chrome, m.styles))
 		} else {
-			rows = append(rows, normal.Render("  "+t.Name))
+			rows = append(rows, clampView(
+				lipgloss.NewStyle().
+					Background(chrome.baseBg).
+					Foreground(chrome.text).
+					Padding(0, 1).
+					Render("  "+t.Name),
+				width,
+				1,
+				chrome.baseBg,
+			))
 		}
 	}
-	hintStyle := lipgloss.NewStyle().
-		Foreground(m.styles.OverlayHint.GetForeground()).
-		Background(m.styles.Overlay.GetBackground())
-	rows = append(rows, "", hintStyle.Render("[enter] confirm   [esc] revert"))
-	return strings.Join(rows, "\n")
+	body := clampView(lipgloss.JoinVertical(lipgloss.Left, rows...), width, len(rows), chrome.baseBg)
+	hints := renderManagerActions(width, chrome, "enter", "confirm", "esc", "revert")
+	return lipgloss.JoinVertical(lipgloss.Left, header, body, hints)
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────
@@ -2180,6 +2189,13 @@ func clampView(view string, width, height int, bg lipgloss.Color) string {
 		lines = append(lines, bgStyle.Render(strings.Repeat(" ", width)))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func fillViewWidth(view string, width int, bg lipgloss.Color) string {
+	if width <= 0 || view == "" {
+		return view
+	}
+	return clampView(view, width, strings.Count(view, "\n")+1, bg)
 }
 
 func (m *Model) resetHelpVP() {
