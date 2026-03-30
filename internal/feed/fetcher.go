@@ -2,6 +2,7 @@ package feed
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +22,8 @@ var feedHTTPClient = &http.Client{
 
 // articleHTTPClient is a plain client for article text fetching.
 var articleHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
+var errFeedBodyTooLarge = errors.New("feed body exceeds size limit")
 
 // FetchFeed performs a robust fetch of the feed at originalURL.
 // It follows redirects manually (up to maxRedirects), detects loops,
@@ -104,11 +107,22 @@ func FetchFeed(originalURL string) *FetchResult {
 			return r
 		}
 
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20)) // 2 MB cap
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, int64(maxFeedBodyBytes+1)))
 		resp.Body.Close()
 		if readErr != nil {
 			r.Kind = KindNetworkError
 			r.Err = fmt.Errorf("read body: %w", readErr)
+			return r
+		}
+		if len(body) > maxFeedBodyBytes {
+			body = body[:maxFeedBodyBytes]
+			end := snippetLen
+			if len(body) < end {
+				end = len(body)
+			}
+			r.Snippet = string(body[:end])
+			r.Kind = KindFeedTooLarge
+			r.Err = fmt.Errorf("%w (> %d bytes)", errFeedBodyTooLarge, maxFeedBodyBytes)
 			return r
 		}
 

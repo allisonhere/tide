@@ -8,6 +8,19 @@ const maxRedirects = 10
 // snippetLen is the number of body bytes captured in FetchResult.Snippet.
 const snippetLen = 300
 
+// defaultMaxFeedBodyBytes is the default feed body size accepted for parsing.
+const defaultMaxFeedBodyBytes = 10 << 20 // 10 MiB
+
+var maxFeedBodyBytes = defaultMaxFeedBodyBytes
+
+func SetMaxFeedBodyBytes(limit int) {
+	if limit <= 0 {
+		maxFeedBodyBytes = defaultMaxFeedBodyBytes
+		return
+	}
+	maxFeedBodyBytes = limit
+}
+
 // FetchErrorKind classifies the outcome of a FetchFeed call.
 type FetchErrorKind int
 
@@ -19,7 +32,8 @@ const (
 	KindRedirectLoop                         // same URL appeared twice in the chain
 	KindHttpError                            // non-2xx final status code
 	KindHtmlInsteadOfFeed                    // 200 HTML page, no feed auto-discovered
-	KindBotProtectionDetected               // JS challenge, captcha, Cloudflare wall
+	KindBotProtectionDetected                // JS challenge, captcha, Cloudflare wall
+	KindFeedTooLarge                         // body exceeds maxFeedBodyBytes
 	KindInvalidFeedFormat                    // body is neither HTML nor valid feed XML
 	KindParseError                           // gofeed parse failure
 )
@@ -30,7 +44,7 @@ type FetchResult struct {
 	OriginalURL   string
 	RedirectChain []string // every URL visited, including OriginalURL; len >= 1
 	FinalURL      string
-	StatusCode    int    // 0 when no HTTP response was received (e.g. network error)
+	StatusCode    int // 0 when no HTTP response was received (e.g. network error)
 	ContentType   string
 	Snippet       string // up to snippetLen bytes of the response body
 	Err           error
@@ -76,6 +90,8 @@ func (r *FetchResult) FriendlyMessage() string {
 		return "URL returned an HTML page, not a feed"
 	case KindBotProtectionDetected:
 		return "bot protection or login wall detected"
+	case KindFeedTooLarge:
+		return fmt.Sprintf("feed is too large to parse (>%d MB)", maxFeedBodyBytes>>20)
 	case KindInvalidFeedFormat:
 		return "response is not valid RSS/Atom/JSON"
 	case KindParseError:
@@ -90,7 +106,7 @@ func (r *FetchResult) FriendlyMessage() string {
 func (r *FetchResult) HasDetails() bool {
 	switch r.Kind {
 	case KindHttpError, KindHtmlInsteadOfFeed, KindBotProtectionDetected,
-		KindTooManyRedirects, KindRedirectLoop, KindInvalidFeedFormat, KindParseError:
+		KindTooManyRedirects, KindRedirectLoop, KindFeedTooLarge, KindInvalidFeedFormat, KindParseError:
 		return true
 	}
 	return false

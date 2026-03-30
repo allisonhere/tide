@@ -52,11 +52,16 @@ Config and database are stored in `~/.config/rss/`.
 
 Open settings with `S`.
 
+The settings modal is organized into compact `DISPLAY`, `FEEDS`, and `AI SUMMARIES` sections with shorter input fields and inline hints for fields that benefit from extra context.
+
 Display options:
 - Toggle Unicode icons for pane headers and item state markers
 - Switch between relative and absolute dates
 - Toggle mark-read-on-open
 - Set a custom browser command
+
+Feed options:
+- Set the maximum feed body size accepted during parsing
 
 AI summary options:
 - Provider: `none`, `OpenAI`, `Claude`, `Gemini`, or `Ollama`
@@ -113,6 +118,9 @@ date_format = "relative"
 mark_read_on_open = true
 browser = ""
 
+[feed]
+max_body_mib = 10
+
 [ai]
 provider = "ollama" # openai | claude | gemini | ollama | ""
 openai_key = ""
@@ -122,6 +130,11 @@ ollama_url = "http://localhost:11434"
 ollama_model = "llama3.2"
 save_path = "~/"
 ```
+
+Feed fetch limits:
+- `feed.max_body_mib` controls the maximum feed response size accepted for parsing
+- Default is `10`
+- If a feed exceeds this limit, Tide returns a clear “feed is too large to parse” error instead of a misleading XML syntax error
 
 ## Keyboard Shortcuts
 
