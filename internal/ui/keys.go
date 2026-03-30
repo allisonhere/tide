@@ -30,11 +30,12 @@ type KeyMap struct {
 	SaveMD   key.Binding // save summary as .md file
 
 	// Feed manager specific
-	Add    key.Binding
-	Edit   key.Binding
-	Delete key.Binding
-	Import key.Binding
-	Export key.Binding
+	Add       key.Binding
+	AddFolder key.Binding
+	Edit      key.Binding
+	Delete    key.Binding
+	Import    key.Binding
+	Export    key.Binding
 
 	// Overlay / input
 	Confirm   key.Binding
@@ -70,11 +71,12 @@ var DefaultKeys = KeyMap{
 	CopyText: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
 	SaveMD:   key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "save .md")),
 
-	Add:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
-	Edit:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
-	Delete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
-	Import: key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "import OPML")),
-	Export: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "export OPML")),
+	Add:       key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
+	AddFolder: key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "add folder")),
+	Edit:      key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
+	Delete:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	Import:    key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "import OPML")),
+	Export:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "export OPML")),
 
 	Confirm:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
 	Cancel:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),

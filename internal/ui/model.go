@@ -322,10 +322,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(fmt.Sprintf("save failed: %v", msg.Err), true)
 			return m, m.clearStatusCmd()
 		}
-		m.overlay = overlayNone
-		m.focused = paneArticles
-		m.setStatus(fmt.Sprintf("saved: %s", msg.Feed.Title), false)
 		m.feedManager = NewFeedManager(m.db)
+		m.feedManager.mode = fmList
+		m.feedManager.selectFeed(msg.Feed.ID)
+		m.feedManager.statusMsg = fmt.Sprintf("SAVED: %s", strings.ToUpper(msg.Feed.Title))
+		m.setStatus(fmt.Sprintf("saved: %s", msg.Feed.Title), false)
 		m.pendingSelectFeedID = msg.Feed.ID
 		return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
 
@@ -341,6 +342,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.articleCursor = 0
 		m.clearArticles()
 		m.feedManager = NewFeedManager(m.db)
+		m.feedManager.mode = fmList
+		m.feedManager.statusMsg = "DELETED FEED"
 		return m, m.loadFeedsCmd()
 
 	case FolderSavedMsg:
@@ -351,9 +354,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(fmt.Sprintf("save failed: %v", msg.Err), true)
 			return m, m.clearStatusCmd()
 		}
-		m.overlay = overlayNone
 		m.setStatus(fmt.Sprintf("saved folder: %s", msg.Folder.Name), false)
 		m.feedManager = NewFeedManager(m.db)
+		m.feedManager.mode = fmList
+		m.feedManager.selectFolder(msg.Folder.ID)
+		m.feedManager.statusMsg = fmt.Sprintf("SAVED FOLDER: %s", strings.ToUpper(msg.Folder.Name))
 		return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
 
 	case FolderDeletedMsg:
@@ -365,6 +370,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.clearStatusCmd()
 		}
 		m.feedManager = NewFeedManager(m.db)
+		m.feedManager.mode = fmList
+		m.feedManager.statusMsg = "DELETED FOLDER"
 		return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
 
 	case FeedURLUpdatedMsg:
@@ -382,10 +389,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.feedManager.statusMsg = fmt.Sprintf("IMPORT FAILED: %v", msg.Err)
 			m.setStatus(fmt.Sprintf("import failed: %v", msg.Err), true)
-		} else {
-			m.setStatus(fmt.Sprintf("imported %d feeds", msg.Count), false)
 		}
 		m.feedManager = NewFeedManager(m.db)
+		m.feedManager.mode = fmList
+		if msg.Err == nil {
+			m.setStatus(fmt.Sprintf("imported %d feeds", msg.Count), false)
+			m.feedManager.statusMsg = fmt.Sprintf("IMPORTED %d FEEDS", msg.Count)
+		}
 		return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
 
 	case OPMLExportedMsg:
