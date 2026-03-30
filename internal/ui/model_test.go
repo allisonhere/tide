@@ -545,6 +545,76 @@ func TestFolderSelectionClearsArticlesAndToggleCollapses(t *testing.T) {
 	}
 }
 
+func TestFolderAccentStylesPropagateToFeedsAndArticles(t *testing.T) {
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig())
+	m.folders = []db.Folder{{ID: 10, Name: "Tech", Color: "#f7768e"}}
+	m.feeds = []db.Feed{{ID: 1, Title: "Feed One", URL: "https://example.com/1", FolderID: 10, UnreadCount: 3}}
+	m.sidebarRows = []sidebarRow{{kind: rowKindFolder, folderID: 10}, {kind: rowKindFeed, feedID: 1}}
+	m.sidebarCursor = 1
+
+	feedStyle := m.feedAccentStyle(m.feeds[0], false)
+	if got := feedStyle.GetForeground(); got != lipgloss.Color("#f7768e") {
+		t.Fatalf("expected feed accent foreground, got %q", got)
+	}
+	badgeStyle := m.feedBadgeStyle(m.feeds[0], false)
+	if got := badgeStyle.GetForeground(); got != lipgloss.Color("#f7768e") {
+		t.Fatalf("expected feed badge accent, got %q", got)
+	}
+
+	articleUnread, _, articleSelected, headerActive, _, borderFocus := m.articleRowStyles()
+	if got := articleUnread.GetForeground(); got != lipgloss.Color("#f7768e") {
+		t.Fatalf("expected article unread accent, got %q", got)
+	}
+	if got := articleSelected.GetForeground(); got != lipgloss.Color("#f7768e") {
+		t.Fatalf("expected article selected accent, got %q", got)
+	}
+	if got := headerActive.GetBackground(); got != lipgloss.Color("#f7768e") {
+		t.Fatalf("expected article header accent background, got %q", got)
+	}
+	if borderFocus != lipgloss.Color("#f7768e") {
+		t.Fatalf("expected article border focus accent, got %q", borderFocus)
+	}
+}
+
+func TestSidebarSelectedStyleUsesFilledBackground(t *testing.T) {
+	m := Model{styles: BuildStyles(CatppuccinMocha), focused: paneFeeds}
+
+	selected := m.sidebarSelectedStyle("")
+	if got := selected.GetBackground(); got == CatppuccinMocha.Bg {
+		t.Fatalf("expected selected feed background to differ from theme bg, got %q", got)
+	}
+	if got := selected.GetBackground(); got != m.styles.FeedItemSelectedFocused.GetBackground() {
+		t.Fatalf("expected focused sidebar selection background, got %q", got)
+	}
+}
+
+func TestSidebarSelectedStyleSoftensWhenFeedsPaneUnfocused(t *testing.T) {
+	m := Model{styles: BuildStyles(CatppuccinMocha), focused: paneArticles}
+
+	selected := m.sidebarSelectedStyle("")
+	if got := selected.GetBackground(); got != m.styles.FeedItemSelectedUnfocused.GetBackground() {
+		t.Fatalf("expected unfocused sidebar selection background, got %q", got)
+	}
+	if got := selected.GetBackground(); got == m.styles.FeedItemSelectedFocused.GetBackground() {
+		t.Fatalf("expected unfocused selection to differ from focused selection background, got %q", got)
+	}
+}
+
+func TestSidebarSelectedStyleUsesFolderAccentAsFocusedBackground(t *testing.T) {
+	m := Model{styles: BuildStyles(CatppuccinMocha), focused: paneFeeds}
+
+	selected := m.sidebarSelectedStyle(lipgloss.Color("#f7768e"))
+	if got := selected.GetBackground(); got != lipgloss.Color("#f7768e") {
+		t.Fatalf("expected focused folder accent background, got %q", got)
+	}
+}
+
 func containsString(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsSubstring(s, sub))
 }

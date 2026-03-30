@@ -83,11 +83,11 @@ func TestDBFoldersCRUDAndFeedAssignment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	folderID, err := db.AddFolder("Tech")
+	folderID, err := db.AddFolder("Tech", "#7aa2f7")
 	if err != nil {
 		t.Fatal(err)
 	}
-	duplicateID, err := db.AddFolder(" tech ")
+	duplicateID, err := db.AddFolder(" tech ", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,6 +110,24 @@ func TestDBFoldersCRUDAndFeedAssignment(t *testing.T) {
 	if feed.FolderID != folderID {
 		t.Fatalf("expected feed folder %d, got %d", folderID, feed.FolderID)
 	}
+	folders, err := db.ListFolders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(folders) != 1 || folders[0].Color != "#7aa2f7" {
+		t.Fatalf("expected stored folder color, got %+v", folders)
+	}
+
+	if err := db.SetFolderColor(folderID, "#f7768e"); err != nil {
+		t.Fatal(err)
+	}
+	folders, err = db.ListFolders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if folders[0].Color != "#f7768e" {
+		t.Fatalf("expected updated folder color, got %q", folders[0].Color)
+	}
 
 	if err := db.DeleteFolder(folderID); err != nil {
 		t.Fatal(err)
@@ -123,7 +141,7 @@ func TestDBFoldersCRUDAndFeedAssignment(t *testing.T) {
 	}
 }
 
-func TestOpenMigratesFolderSchemaToVersion2(t *testing.T) {
+func TestOpenMigratesFolderSchemaToVersion3(t *testing.T) {
 	tmp := t.TempDir()
 	db, err := openSQLite(filepath.Join(tmp, "rss.db"))
 	if err != nil {
@@ -164,8 +182,8 @@ func TestOpenMigratesFolderSchemaToVersion2(t *testing.T) {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Fatalf("expected schema version 2, got %d", version)
+	if version != 3 {
+		t.Fatalf("expected schema version 3, got %d", version)
 	}
 
 	rows, err := db.Query(`PRAGMA table_info(feeds)`)
@@ -191,6 +209,31 @@ func TestOpenMigratesFolderSchemaToVersion2(t *testing.T) {
 	if !foundFolderID {
 		t.Fatal("expected feeds.folder_id column after migration")
 	}
+	rows.Close()
+
+	rows, err = db.Query(`PRAGMA table_info(folders)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	foundColor := false
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			t.Fatal(err)
+		}
+		if name == "color" {
+			foundColor = true
+			break
+		}
+	}
+	if !foundColor {
+		t.Fatal("expected folders.color column after migration")
+	}
+	rows.Close()
 }
 
 func openSQLite(path string) (*DB, error) {

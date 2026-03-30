@@ -22,6 +22,7 @@ type Folder struct {
 	ID       int64
 	Name     string
 	Position int
+	Color    string
 }
 
 func (db *DB) ListFeeds() ([]Feed, error) {
@@ -120,7 +121,7 @@ func (db *DB) DeleteFeed(id int64) error {
 
 func (db *DB) ListFolders() ([]Folder, error) {
 	rows, err := db.Query(`
-		SELECT id, name, position
+		SELECT id, name, position, color
 		FROM folders
 		ORDER BY position, name COLLATE NOCASE
 	`)
@@ -132,7 +133,7 @@ func (db *DB) ListFolders() ([]Folder, error) {
 	var folders []Folder
 	for rows.Next() {
 		var f Folder
-		if err := rows.Scan(&f.ID, &f.Name, &f.Position); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.Position, &f.Color); err != nil {
 			return nil, err
 		}
 		folders = append(folders, f)
@@ -144,11 +145,12 @@ func normalizeFolderName(name string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(name)), " "))
 }
 
-func (db *DB) AddFolder(name string) (int64, error) {
+func (db *DB) AddFolder(name, color string) (int64, error) {
 	name = strings.Join(strings.Fields(strings.TrimSpace(name)), " ")
 	if name == "" {
 		return 0, fmt.Errorf("folder name is required")
 	}
+	color = strings.TrimSpace(color)
 
 	folders, err := db.ListFolders()
 	if err != nil {
@@ -157,6 +159,11 @@ func (db *DB) AddFolder(name string) (int64, error) {
 	normalized := normalizeFolderName(name)
 	for _, folder := range folders {
 		if normalizeFolderName(folder.Name) == normalized {
+			if color != "" && folder.Color != color {
+				if err := db.SetFolderColor(folder.ID, color); err != nil {
+					return 0, err
+				}
+			}
 			return folder.ID, nil
 		}
 	}
@@ -166,7 +173,7 @@ func (db *DB) AddFolder(name string) (int64, error) {
 		return 0, err
 	}
 
-	res, err := db.Exec(`INSERT INTO folders (name, position) VALUES (?, ?)`, name, position)
+	res, err := db.Exec(`INSERT INTO folders (name, position, color) VALUES (?, ?, ?)`, name, position, color)
 	if err != nil {
 		return 0, err
 	}
@@ -204,6 +211,11 @@ func (db *DB) DeleteFolder(id int64) error {
 		return fmt.Errorf("folder %d not found", id)
 	}
 	return nil
+}
+
+func (db *DB) SetFolderColor(id int64, color string) error {
+	_, err := db.Exec(`UPDATE folders SET color = ? WHERE id = ?`, strings.TrimSpace(color), id)
+	return err
 }
 
 func (db *DB) SetFeedFolder(feedID, folderID int64) error {

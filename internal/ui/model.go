@@ -343,6 +343,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.feedManager = NewFeedManager(m.db)
 		return m, m.loadFeedsCmd()
 
+	case FolderSavedMsg:
+		m.feedManager.busy = false
+		m.feedManager.busyMsg = ""
+		if msg.Err != nil {
+			m.feedManager.statusMsg = fmt.Sprintf("SAVE FAILED: %v", msg.Err)
+			m.setStatus(fmt.Sprintf("save failed: %v", msg.Err), true)
+			return m, m.clearStatusCmd()
+		}
+		m.overlay = overlayNone
+		m.setStatus(fmt.Sprintf("saved folder: %s", msg.Folder.Name), false)
+		m.feedManager = NewFeedManager(m.db)
+		return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
+
+	case FolderDeletedMsg:
+		m.feedManager.busy = false
+		m.feedManager.busyMsg = ""
+		if msg.Err != nil {
+			m.feedManager.statusMsg = fmt.Sprintf("DELETE FAILED: %v", msg.Err)
+			m.setStatus(fmt.Sprintf("delete failed: %v", msg.Err), true)
+			return m, m.clearStatusCmd()
+		}
+		m.feedManager = NewFeedManager(m.db)
+		return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
+
 	case FeedURLUpdatedMsg:
 		if msg.Err != nil {
 			m.setStatus(fmt.Sprintf("URL update failed: %v", msg.Err), true)
@@ -898,6 +922,7 @@ func (m Model) renderFeedsPane() string {
 func (m Model) renderArticlesPane() string {
 	w := m.articlesPaneWidth()
 	h := m.articlesPaneContentHeight()
+	articleUnread, articleRead, articleSelected, headerActive, borderColor, borderFocus := m.articleRowStyles()
 
 	rows := []string{}
 	visible := m.filteredArticles
@@ -907,12 +932,12 @@ func (m Model) renderArticlesPane() string {
 		age := relativeTime(a.PublishedAt)
 
 		dot := m.articleRowPrefix(a.Read)
-		style := m.styles.ArticleRead
+		style := articleRead
 		if !a.Read {
-			style = m.styles.ArticleUnread
+			style = articleUnread
 		}
 		if i == m.articleCursor {
-			style = m.styles.ArticleSelected
+			style = articleSelected
 		}
 
 		rows = append(rows, style.Width(w-2).Render(renderArticleRow(dot, a.Title, age, w-2)))
@@ -920,25 +945,25 @@ func (m Model) renderArticlesPane() string {
 
 	if len(m.filteredArticles) == 0 {
 		if m.searchQuery != "" {
-			rows = append(rows, m.styles.ArticleRead.Render("  no results"))
+			rows = append(rows, articleRead.Render("  no results"))
 		} else {
-			rows = append(rows, m.styles.ArticleRead.Render("  no articles"))
+			rows = append(rows, articleRead.Render("  no articles"))
 		}
 	}
 
 	focused := m.focused == paneArticles
 	border := m.styles.ArticlesPane
 	if focused {
-		border = border.BorderForeground(m.styles.Theme.BorderFocus)
+		border = border.BorderForeground(borderFocus)
 	}
 	title := "Articles"
 	if m.searchQuery != "" {
 		title = fmt.Sprintf("Articles [/%s]", m.searchQuery)
 	}
 
-	contentRows := append([]string{m.renderPaneHeader(title, focused, w)}, rows...)
+	contentRows := append([]string{m.renderPaneHeaderWithAccent(title, focused, w, headerActive)}, rows...)
 	for len(contentRows) < h {
-		contentRows = append(contentRows, m.styles.ArticleRead.Width(w-2).Render(""))
+		contentRows = append(contentRows, articleRead.Width(w-2).Render(""))
 	}
 
 	bg := m.styles.Theme.Bg
@@ -947,9 +972,9 @@ func (m Model) renderArticlesPane() string {
 		Border(lipgloss.NormalBorder(), false, false, true, false).
 		BorderForeground(lipgloss.Color(func() string {
 			if focused {
-				return string(m.styles.Theme.BorderFocus)
+				return string(borderFocus)
 			}
-			return string(m.styles.Theme.Border)
+			return string(borderColor)
 		}())).
 		BorderBackground(bg).
 		Width(w).Height(h).
@@ -962,10 +987,6 @@ func (m Model) renderContentPane() string {
 	bodyH := m.contentBodyHeight()
 
 	focused := m.focused == paneContent
-	borderColor := m.styles.Theme.Border
-	if focused {
-		borderColor = m.styles.Theme.BorderFocus
-	}
 
 	vp := m.viewport
 	vp.Width = w
@@ -979,19 +1000,20 @@ func (m Model) renderContentPane() string {
 
 	return lipgloss.NewStyle().
 		Background(m.styles.Theme.Bg).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(borderColor).
-		BorderBackground(m.styles.Theme.Bg).
 		Width(w).Height(innerH).
 		Render(inner)
 }
 
 func (m Model) renderPaneHeader(label string, focused bool, width int) string {
+	return m.renderPaneHeaderWithAccent(label, focused, width, m.styles.PaneHeaderActive)
+}
+
+func (m Model) renderPaneHeaderWithAccent(label string, focused bool, width int, activeStyle lipgloss.Style) string {
 	style := m.styles.PaneHeaderInactive
 	prefix := "    "
 	title := m.headerLabel(label)
 	if focused {
-		style = m.styles.PaneHeaderActive
+		style = activeStyle
 		prefix = "> "
 	}
 	return style.Width(width).Render(renderFeedRow(prefix, title, "", width))
@@ -1087,7 +1109,8 @@ func (m Model) renderOverlay(base string) string {
 		winW := min(m.width-4, 74)
 		winH := min(m.height-4, 40)
 		chrome := newManagerChrome(winW, m.styles.Theme)
-		inner := m.feedManager.View(winW, winH, m.styles)
+		m.feedManager.collapsedFolders = m.collapsedFolders
+		inner := m.feedManager.View(winW, winH, m.styles, m.iconsEnabled())
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
 		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
 
@@ -1642,6 +1665,25 @@ func (m Model) folderName(folderID int64) string {
 	return "Folder"
 }
 
+func (m Model) folderColor(folderID int64) lipgloss.Color {
+	if folderID == 0 {
+		return ""
+	}
+	for _, folder := range m.folders {
+		if folder.ID == folderID && folder.Color != "" {
+			return lipgloss.Color(folder.Color)
+		}
+	}
+	return ""
+}
+
+func (m Model) selectedFeedFolderColor() lipgloss.Color {
+	if feed := m.selectedFeed(); feed != nil {
+		return m.folderColor(feed.FolderID)
+	}
+	return ""
+}
+
 func (m Model) folderUnreadCount(folderID int64) int64 {
 	var total int64
 	for _, feed := range m.feeds {
@@ -1650,6 +1692,100 @@ func (m Model) folderUnreadCount(folderID int64) int64 {
 		}
 	}
 	return total
+}
+
+func (m Model) folderHeaderStyle(folderID int64, selected bool) lipgloss.Style {
+	accent := m.folderColor(folderID)
+	style := m.styles.FeedItem.Copy().Foreground(lipgloss.Color(m.styles.Theme.Dimmed)).Bold(true)
+	if accent != "" {
+		style = style.Foreground(accent)
+	}
+	if selected {
+		style = m.sidebarSelectedStyle(accent).Copy().Bold(true)
+	}
+	return style
+}
+
+func (m Model) folderBadgeStyle(folderID int64, selected bool) lipgloss.Style {
+	accent := m.folderColor(folderID)
+	if selected {
+		return m.sidebarSelectedBadgeStyle(accent)
+	}
+	if accent == "" {
+		return m.styles.UnreadBadge
+	}
+	return m.styles.UnreadBadge.Copy().Foreground(accent)
+}
+
+func (m Model) feedAccentStyle(feed db.Feed, selected bool) lipgloss.Style {
+	style := m.styles.FeedItem
+	accent := m.folderColor(feed.FolderID)
+	if accent != "" {
+		style = style.Copy().Foreground(accent)
+	}
+	if selected {
+		style = m.sidebarSelectedStyle(accent)
+	}
+	return style
+}
+
+func (m Model) feedBadgeStyle(feed db.Feed, selected bool) lipgloss.Style {
+	accent := m.folderColor(feed.FolderID)
+	if selected {
+		return m.sidebarSelectedBadgeStyle(accent)
+	}
+	if accent == "" {
+		return m.styles.UnreadBadge
+	}
+	return m.styles.UnreadBadge.Copy().Foreground(accent)
+}
+
+func (m Model) sidebarSelectedStyle(accent lipgloss.Color) lipgloss.Style {
+	if m.focused == paneFeeds {
+		if accent != "" {
+			return m.styles.FeedItemSelectedFocused.Copy().
+				Background(accent).
+				Foreground(readableText(m.styles.Theme.Fg, accent, 4.5))
+		}
+		return m.styles.FeedItemSelectedFocused
+	}
+
+	style := m.styles.FeedItemSelectedUnfocused
+	if accent != "" && contrastRatio(accent, terminalColorAsColor(style.GetBackground())) >= 3 {
+		style = style.Copy().Foreground(accent)
+	}
+	return style
+}
+
+func (m Model) sidebarSelectedBadgeStyle(accent lipgloss.Color) lipgloss.Style {
+	style := m.sidebarSelectedStyle(accent)
+	return m.styles.UnreadBadge.Copy().Foreground(terminalColorAsColor(style.GetForeground()))
+}
+
+func terminalColorAsColor(c lipgloss.TerminalColor) lipgloss.Color {
+	if c == nil {
+		return ""
+	}
+	return lipgloss.Color(fmt.Sprint(c))
+}
+
+func (m Model) articleRowStyles() (lipgloss.Style, lipgloss.Style, lipgloss.Style, lipgloss.Style, lipgloss.Color, lipgloss.Color) {
+	accent := m.selectedFeedFolderColor()
+	unread := m.styles.ArticleUnread
+	read := m.styles.ArticleRead
+	selected := m.styles.ArticleSelected
+	headerActive := m.styles.PaneHeaderActive
+	border := m.styles.Theme.Border
+	borderFocus := m.styles.Theme.BorderFocus
+	if accent != "" {
+		unread = unread.Copy().Foreground(accent)
+		selected = selected.Copy().Foreground(accent)
+		headerActive = headerActive.Copy().
+			Background(accent).
+			Foreground(readableText(m.styles.Theme.Fg, accent, 4.5))
+		borderFocus = accent
+	}
+	return unread, read, selected, headerActive, border, borderFocus
 }
 
 func (m *Model) toggleSelectedFolder() bool {
@@ -1874,42 +2010,56 @@ func renderFeedRow(prefix, title, badge string, width int) string {
 	return padRight(row, width)
 }
 
+func folderDisplayLabel(name string, collapsed, icons bool) string {
+	if !icons {
+		return name
+	}
+	if collapsed {
+		return "󰉖 " + name
+	}
+	return "󰉋 " + name
+}
+
+func feedDisplayLabel(name string, icons bool) string {
+	if !icons {
+		return name
+	}
+	return "\U000f046b " + name
+}
+
 func (m Model) renderFolderHeader(folderID int64, selected bool, width int) string {
 	icon := "v "
 	label := m.folderName(folderID)
 	if m.iconsEnabled() {
 		icon = "▾ "
-		label = "󰉋 " + label
+		label = folderDisplayLabel(label, false, true)
 	}
 	if m.collapsedFolders[folderID] {
 		icon = "> "
 		if m.iconsEnabled() {
 			icon = "▸ "
-			label = "󰉖 " + m.folderName(folderID)
+			label = folderDisplayLabel(m.folderName(folderID), true, true)
 		}
 	}
 	badge := ""
 	if unread := m.folderUnreadCount(folderID); unread > 0 {
-		badge = m.styles.UnreadBadge.Render(fmt.Sprintf("(%d)", unread))
+		badge = m.folderBadgeStyle(folderID, selected).Render(fmt.Sprintf("(%d)", unread))
 	}
 	row := renderFeedRow(icon, label, badge, width)
-	style := m.styles.FeedItem.Copy().Foreground(lipgloss.Color(m.styles.Theme.Dimmed)).Bold(true)
-	if selected {
-		style = m.styles.FeedItemSelected.Copy().Bold(true)
-	}
+	style := m.folderHeaderStyle(folderID, selected)
 	return style.Width(width).Render(row)
 }
 
 func (m Model) renderSidebarFeedRow(feed db.Feed, selected bool, width int) string {
 	badge := ""
 	if feed.UnreadCount > 0 {
-		badge = m.styles.UnreadBadge.Render(fmt.Sprintf("(%d)", feed.UnreadCount))
+		badge = m.feedBadgeStyle(feed, selected).Render(fmt.Sprintf("(%d)", feed.UnreadCount))
 	}
 
 	prefix := "    "
 	title := feed.Title
 	if m.iconsEnabled() {
-		title = "\U000f046b " + title
+		title = feedDisplayLabel(title, true)
 	} else {
 		prefix = "    " + m.feedRowPrefix(selected)
 	}
@@ -1917,10 +2067,7 @@ func (m Model) renderSidebarFeedRow(feed db.Feed, selected bool, width int) stri
 		prefix = "    " + m.spinner.View() + " "
 	}
 	row := renderFeedRow(prefix, title, badge, width)
-	style := m.styles.FeedItem
-	if selected {
-		style = m.styles.FeedItemSelected
-	}
+	style := m.feedAccentStyle(feed, selected)
 	return style.Width(width).Render(row)
 }
 
