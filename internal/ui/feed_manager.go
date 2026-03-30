@@ -168,6 +168,18 @@ func (fm *FeedManager) focusFolderEdit(folder db.Folder) {
 	}
 }
 
+func (fm *FeedManager) focusAddFolder() {
+	fm.mode = fmFolderEdit
+	fm.folderEditTarget = 0
+	fm.titleInput.Reset()
+	fm.focusedField = 0
+	fm.statusMsg = ""
+	fm.busy = false
+	fm.busyMsg = ""
+	fm.titleInput.Focus()
+	fm.colorCursor = 0
+}
+
 func (fm FeedManager) folderOptions() []string {
 	options := make([]string, 0, len(fm.folders)+2)
 	options = append(options, "(no folder)")
@@ -229,6 +241,24 @@ func (fm FeedManager) selectedFolder() *db.Folder {
 		}
 	}
 	return nil
+}
+
+func (fm *FeedManager) selectFeed(feedID int64) {
+	for i, row := range fm.managerRows() {
+		if row.kind == fmRowFeed && row.feedID == feedID {
+			fm.cursor = i
+			return
+		}
+	}
+}
+
+func (fm *FeedManager) selectFolder(folderID int64) {
+	for i, row := range fm.managerRows() {
+		if row.kind == fmRowFolder && row.folderID == folderID {
+			fm.cursor = i
+			return
+		}
+	}
 }
 
 func (fm FeedManager) shouldShowColorPicker() bool {
@@ -394,6 +424,9 @@ func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 
 	case keyMatches(msg, keys.Add):
 		fm.focusAdd()
+
+	case keyMatches(msg, keys.AddFolder):
+		fm.focusAddFolder()
 
 	case keyMatches(msg, keys.Edit), keyMatches(msg, keys.Enter):
 		if row := fm.selectedRow(); row != nil {
@@ -722,6 +755,22 @@ func (fm *FeedManager) saveFolderCmd() tea.Cmd {
 	database := fm.db
 
 	return func() tea.Msg {
+		if folderID == 0 {
+			id, err := database.AddFolder(name, color)
+			if err != nil {
+				return FolderSavedMsg{Err: err}
+			}
+			folders, err := database.ListFolders()
+			if err != nil {
+				return FolderSavedMsg{Err: err}
+			}
+			for _, folder := range folders {
+				if folder.ID == id {
+					return FolderSavedMsg{Folder: folder}
+				}
+			}
+			return FolderSavedMsg{Err: fmt.Errorf("folder %d not found", id)}
+		}
 		if err := database.RenameFolder(folderID, name); err != nil {
 			return FolderSavedMsg{Err: err}
 		}
@@ -806,27 +855,11 @@ func (fm *FeedManager) exportCmd() tea.Cmd {
 func (fm FeedManager) View(width, height int, styles Styles, icons bool) string {
 	contentW := min(width, 74)
 	chrome := newManagerChrome(contentW, styles.Theme)
-	header := renderManagerHeader("FEED LISTING", contentW, chrome)
+	header := renderManagerHeader("MANAGER", contentW, chrome)
 	status := ""
 	hints := ""
 
-	var body string
-	switch fm.mode {
-	case fmEdit:
-		title := "ADD FEED"
-		if fm.editTarget != 0 {
-			title = "EDIT FEED"
-		}
-		header = renderManagerHeader(title, contentW, chrome)
-		hints = fm.viewHints(contentW, chrome)
-	case fmFolderEdit:
-		header = renderManagerHeader("EDIT FOLDER", contentW, chrome)
-		hints = fm.viewHints(contentW, chrome)
-	case fmImport:
-		header = renderManagerHeader("IMPORT FEEDS", contentW, chrome)
-		hints = fm.viewHints(contentW, chrome)
-	case fmConfirmDelete:
-		header = renderManagerHeader("DELETE FEED", contentW, chrome)
+	if fm.mode != fmList {
 		hints = fm.viewHints(contentW, chrome)
 	}
 
@@ -843,18 +876,10 @@ func (fm FeedManager) View(width, height int, styles Styles, icons bool) string 
 	}
 	spacerH := 1
 	bodyH := max(1, height-lipgloss.Height(header)-spacerH-statusH-hintsH)
-	switch fm.mode {
-	case fmEdit:
-		body = fm.viewEdit(contentW, bodyH, chrome, styles)
-	case fmFolderEdit:
-		body = fm.viewFolderEdit(contentW, bodyH, chrome, styles)
-	case fmImport:
-		body = fm.viewImport(contentW, bodyH, chrome)
-	case fmConfirmDelete:
-		body = fm.viewConfirmDelete(contentW, bodyH, chrome)
-	default:
-		body = fm.viewList(contentW, bodyH, chrome, styles, icons)
+	if fm.mode == fmList {
+		bodyH = max(1, bodyH-lipgloss.Height(fm.viewListActions(contentW, chrome)))
 	}
+	body := fm.viewSplit(contentW, bodyH, chrome, styles, icons)
 
 	spacer := lipgloss.NewStyle().Background(chrome.baseBg).Width(contentW).Render("")
 	parts := []string{header, spacer, body}
@@ -868,59 +893,58 @@ func (fm FeedManager) View(width, height int, styles Styles, icons bool) string 
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
-func (fm FeedManager) viewList(width, height int, chrome managerChrome, styles Styles, icons bool) string {
-	sectionW := max(12, width-3)
-	content := []string{}
-	rows := fm.managerRows()
-
-	if len(rows) == 0 {
-		content = append(content,
-			renderManagerSection("MANAGER", renderManagerPanel(sectionW, "NO FEEDS OR FOLDERS CONFIGURED", chrome), chrome),
-			renderManagerSection("DETAILS", chrome.body.Copy().Render("PRESS A TO ADD A FEED OR CREATE A FOLDER WHILE ASSIGNING A FEED."), chrome),
-		)
-	} else {
-		listRows := make([]string, 0, len(rows))
-		for i, row := range rows {
-			switch row.kind {
-			case fmRowFolder:
-				folder := fm.folderByID(row.folderID)
-				if folder == nil {
-					continue
-				}
-				label := strings.ToUpper(truncate(folder.Name, max(8, sectionW-6)))
-				rendered := renderManagerFolderRow(sectionW, label, folder.Color, fm.collapsedFolders[folder.ID], chrome, styles, i == fm.cursor, icons)
-				listRows = append(listRows, rendered)
-			case fmRowFeed:
-				feed := fm.feedByID(row.feedID)
-				if feed == nil {
-					continue
-				}
-				title := strings.ToUpper(truncate(feed.Title, max(8, sectionW-6)))
-				if i == fm.cursor {
-					listRows = append(listRows, renderManagerSelectedRow(sectionW, feedDisplayLabel(title, icons), chrome, styles))
-					continue
-				}
-				color := ""
-				if folder := fm.folderByID(feed.FolderID); folder != nil {
-					color = folder.Color
-				}
-				listRows = append(listRows, renderManagerFeedRow(sectionW, title, color, chrome, icons))
-			}
-		}
-		feedList := lipgloss.JoinVertical(lipgloss.Left, append([]string{""}, listRows...)...)
-		content = append(content, renderManagerSection("FOLDERS + FEEDS", feedList, chrome))
-		content = append(content, "")
-		content = append(content, renderManagerSection("DETAILS", fm.viewListDetails(sectionW, chrome), chrome))
+func (fm FeedManager) viewSplit(width, height int, chrome managerChrome, styles Styles, icons bool) string {
+	leftW := clamp(width/4, 18, 20)
+	if width-leftW-1 < 24 {
+		leftW = max(18, width-25)
 	}
+	rightW := max(18, width-leftW-1)
+	left := fm.viewListPane(leftW, height, chrome, styles, icons)
+	right := fm.viewWorkspacePane(rightW, height, chrome, styles)
+	separator := lipgloss.NewStyle().Background(chrome.baseBg).Render(" ")
+	main := lipgloss.JoinHorizontal(lipgloss.Top, left, separator, right)
+	if fm.mode == fmList {
+		return lipgloss.JoinVertical(lipgloss.Left, main, fm.viewListActions(width, chrome))
+	}
+	return main
+}
 
-	footer := fm.viewListActions(width, chrome)
-	maxMainH := max(1, height-lipgloss.Height(footer))
-	rawMain := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(
-		lipgloss.JoinVertical(lipgloss.Left, content...),
-	)
-	actualH := strings.Count(rawMain, "\n") + 1
-	main := clampView(rawMain, width, min(actualH, maxMainH), chrome.baseBg)
-	return lipgloss.JoinVertical(lipgloss.Left, main, footer)
+func (fm FeedManager) viewListPane(width, height int, chrome managerChrome, styles Styles, icons bool) string {
+	rows := fm.managerRows()
+	if len(rows) == 0 {
+		body := renderManagerPanel(width, "NO FEEDS OR FOLDERS CONFIGURED", chrome)
+		section := clampView(renderManagerSection("FOLDERS + FEEDS", body, chrome), width, height, chrome.baseBg)
+		return lipgloss.NewStyle().Width(width).Height(height).Background(chrome.baseBg).Render(section)
+	}
+	listRows := make([]string, 0, len(rows))
+	for i, row := range rows {
+		switch row.kind {
+		case fmRowFolder:
+			folder := fm.folderByID(row.folderID)
+			if folder == nil {
+				continue
+			}
+			label := strings.ToUpper(truncate(folder.Name, max(8, width-6)))
+			listRows = append(listRows, renderManagerFolderRow(width, label, folder.Color, fm.collapsedFolders[folder.ID], chrome, styles, i == fm.cursor, icons))
+		case fmRowFeed:
+			feed := fm.feedByID(row.feedID)
+			if feed == nil {
+				continue
+			}
+			title := strings.ToUpper(truncate(feed.Title, max(8, width-6)))
+			if i == fm.cursor {
+				listRows = append(listRows, renderManagerSelectedRow(width, feedDisplayLabel(title, icons), chrome, styles))
+				continue
+			}
+			color := ""
+			if folder := fm.folderByID(feed.FolderID); folder != nil {
+				color = folder.Color
+			}
+			listRows = append(listRows, renderManagerFeedRow(width, title, color, chrome, icons))
+		}
+	}
+	section := clampView(renderManagerSection("FOLDERS + FEEDS", lipgloss.JoinVertical(lipgloss.Left, listRows...), chrome), width, height, chrome.baseBg)
+	return lipgloss.NewStyle().Width(width).Height(height).Background(chrome.baseBg).Render(section)
 }
 
 func (fm FeedManager) viewListDetails(width int, chrome managerChrome) string {
@@ -935,7 +959,7 @@ func (fm FeedManager) viewListDetails(width int, chrome managerChrome) string {
 					colorName = strings.ToUpper(folder.Color)
 				}
 				body := strings.ToUpper(truncate(folder.Name, max(8, width-4))) + "\n" +
-					"COLOR: " + colorName
+					fmt.Sprintf("FEEDS: %d\nUNREAD: %d\nCOLOR: %s", fm.folderFeedCount(folder.ID), fm.folderUnreadCount(folder.ID), colorName)
 				return renderManagerPanel(width, body, chrome)
 			}
 		case fmRowFeed:
@@ -951,24 +975,37 @@ func (fm FeedManager) viewListDetails(width int, chrome managerChrome) string {
 	return renderManagerPanel(width, "NO SELECTION", chrome)
 }
 
-func (fm FeedManager) viewListActions(width int, chrome managerChrome) string {
-	if row := fm.selectedRow(); row != nil && row.kind == fmRowFolder {
-		return renderManagerActions(width, chrome,
-			"a", "add feed",
-			"e", "edit",
-			"d", "delete",
-			"i", "import",
-			"x", "export",
-			"esc", "back",
-		)
+func (fm FeedManager) viewWorkspacePane(width, height int, chrome managerChrome, styles Styles) string {
+	title := "DETAILS"
+	body := fm.viewListDetails(width, chrome)
+	switch fm.mode {
+	case fmEdit:
+		title = "ADD FEED"
+		if fm.editTarget != 0 {
+			title = "EDIT FEED"
+		}
+		body = fm.viewEdit(width, height, chrome, styles)
+	case fmFolderEdit:
+		title = "ADD FOLDER"
+		if fm.folderEditTarget != 0 {
+			title = "EDIT FOLDER"
+		}
+		body = fm.viewFolderEdit(width, height, chrome, styles)
+	case fmImport:
+		title = "IMPORT OPML"
+		body = fm.viewImport(width, height, chrome)
+	case fmConfirmDelete:
+		title = fm.confirmDeleteTitle()
+		body = fm.viewConfirmDelete(width, height, chrome)
 	}
-	return renderManagerActions(width, chrome,
-		"a", "add feed",
-		"e", "edit",
-		"d", "delete",
-		"i", "import",
-		"x", "export",
-		"esc", "back",
+	section := clampView(renderManagerSection(title, body, chrome), width, height, chrome.baseBg)
+	return lipgloss.NewStyle().Width(width).Height(height).Background(chrome.baseBg).Render(section)
+}
+
+func (fm FeedManager) viewListActions(width int, chrome managerChrome) string {
+	return renderManagerActionGroups(width, chrome,
+		[]string{"a", "add feed", "n", "add folder", "e", "edit", "d", "delete"},
+		[]string{"i", "import", "x", "export", "esc", "back"},
 	)
 }
 
@@ -1034,25 +1071,36 @@ func (fm FeedManager) viewFolderEdit(width, height int, chrome managerChrome, st
 }
 
 func (fm FeedManager) viewImport(width, height int, chrome managerChrome) string {
-	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(
-		renderManagerSection("01. IMPORT OPML", renderManagerInput(width-3, fm.importInput.Value(), "PATH TO OPML FILE...", true, chrome), chrome),
+	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render(
+		renderManagerSection("PATH", renderManagerInput(width-1, fm.importInput.Value(), "PATH TO OPML FILE...", true, chrome), chrome),
 	)
 }
 
 func (fm FeedManager) viewConfirmDelete(width, height int, chrome managerChrome) string {
-	if len(fm.feeds) == 0 {
-		return ""
+	row := fm.selectedRow()
+	if row == nil {
+		return renderManagerPanel(width, "NO SELECTION", chrome)
 	}
-	name := fm.feeds[fm.cursor].Title
+	name := ""
+	warning := ""
+	if row.kind == fmRowFolder {
+		if folder := fm.folderByID(row.folderID); folder != nil {
+			name = folder.Name
+			warning = "FEEDS IN THIS FOLDER WILL BE KEPT AND MOVED TO UNCATEGORIZED."
+		}
+	} else if feed := fm.feedByID(row.feedID); feed != nil {
+		name = feed.Title
+		warning = "ALL ARTICLES FROM THIS FEED WILL BE REMOVED."
+	}
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
-		renderManagerSection("01. DELETE FEED", renderManagerPanel(width-3, strings.ToUpper(truncate(name, width-7)), chrome), chrome),
+		renderManagerSection("TARGET", renderManagerPanel(width, strings.ToUpper(truncate(name, width-4)), chrome), chrome),
 		lipgloss.JoinVertical(lipgloss.Left,
-			lipgloss.NewStyle().Background(chrome.baseBg).Foreground(lipgloss.Color("#f7768e")).Bold(true).Width(max(12, width-3)).Render("WARNING"),
-			chrome.body.Width(max(12, width-3)).Render("ALL ARTICLES FROM THIS FEED WILL BE REMOVED."),
+			lipgloss.NewStyle().Background(chrome.baseBg).Foreground(lipgloss.Color("#f7768e")).Bold(true).Width(max(12, width)).Render("WARNING"),
+			chrome.body.Width(max(12, width)).Render(warning),
 		),
 	)
-	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(content)
+	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render(content)
 }
 
 func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
@@ -1344,24 +1392,21 @@ func renderManagerColorPicker(width int, option folderColorOption, focused bool,
 }
 
 func renderManagerRow(width int, title string, chrome managerChrome) string {
-	rowW := max(1, width-4)
-	textW := max(1, rowW-2)
+	textW := max(1, width-2)
 	rowBg := chrome.baseBg
-	row := lipgloss.NewStyle().
-		Width(rowW).
+	row := padRight(truncate(title, textW), textW)
+	rendered := lipgloss.NewStyle().
 		Background(rowBg).
 		Foreground(chrome.text).
 		Padding(0, 1).
-		Render(truncate(title, textW))
-	return lipgloss.NewStyle().Width(width).Background(chrome.baseBg).Render(row)
+		Render(row)
+	return clampView(rendered, width, 1, rowBg)
 }
 
 func renderManagerFeedRow(width int, title, color string, chrome managerChrome, icons bool) string {
-	rowW := max(1, width-4)
-	textW := max(1, rowW-2)
+	textW := max(1, width-2)
 	rowBg := chrome.baseBg
 	style := lipgloss.NewStyle().
-		Width(rowW).
 		Background(rowBg).
 		Padding(0, 1)
 	icon := ""
@@ -1378,20 +1423,27 @@ func renderManagerFeedRow(width int, title, color string, chrome managerChrome, 
 		iconStyle = iconStyle.Foreground(accent)
 		nameStyle = nameStyle.Foreground(accent)
 	}
-	row := padRight(iconStyle.Render(icon)+nameStyle.Render(name), textW)
-	return lipgloss.NewStyle().Width(width).Background(chrome.baseBg).Render(style.Render(row))
+	content := iconStyle.Render(icon) + nameStyle.Render(name)
+	fillW := max(0, textW-lipgloss.Width(icon)-lipgloss.Width(name))
+	filler := lipgloss.NewStyle().Background(rowBg).Render(strings.Repeat(" ", fillW))
+	row := content + filler
+	return clampView(style.Render(row), width, 1, rowBg)
 }
 
 func renderManagerFolderRow(width int, title, color string, collapsed bool, chrome managerChrome, styles Styles, selected, icons bool) string {
-	rowW := max(1, width-4)
-	textW := max(1, rowW-2)
+	textW := max(1, width-2)
 	rowBg := chrome.baseBg
 	style := lipgloss.NewStyle().
-		Width(rowW).
 		Background(rowBg).
 		Padding(0, 1)
 	if selected {
-		style = managerSelectedListStyle(rowW, styles)
+		style = managerSelectedListStyle(styles)
+	}
+	contentBg := rowBg
+	contentFg := chrome.text
+	if selected {
+		contentBg = terminalColorAsColor(style.GetBackground())
+		contentFg = terminalColorAsColor(style.GetForeground())
 	}
 	icon := ""
 	if icons {
@@ -1403,25 +1455,32 @@ func renderManagerFolderRow(width int, title, color string, collapsed bool, chro
 	iconW := lipgloss.Width(icon)
 	nameW := max(1, textW-iconW)
 	name := truncate(title, nameW)
-	iconStyle := lipgloss.NewStyle().Foreground(chrome.text).Background(rowBg)
-	nameStyle := lipgloss.NewStyle().Foreground(chrome.text).Background(rowBg)
-	if color != "" && !selected {
+	if selected {
+		row := padRight(icon+name, textW)
+		return clampView(style.Render(row), width, 1, contentBg)
+	}
+	iconStyle := lipgloss.NewStyle().Foreground(contentFg).Background(contentBg)
+	nameStyle := lipgloss.NewStyle().Foreground(contentFg).Background(contentBg)
+	if color != "" {
 		accent := lipgloss.Color(color)
 		iconStyle = iconStyle.Foreground(accent)
 		nameStyle = nameStyle.Foreground(accent)
 	}
-	row := padRight(iconStyle.Render(icon)+nameStyle.Render(name), textW)
-	return lipgloss.NewStyle().Width(width).Background(chrome.baseBg).Render(style.Render(row))
+	content := iconStyle.Render(icon) + nameStyle.Render(name)
+	fillW := max(0, textW-lipgloss.Width(icon)-lipgloss.Width(name))
+	filler := lipgloss.NewStyle().Background(contentBg).Render(strings.Repeat(" ", fillW))
+	row := content + filler
+	return clampView(style.Render(row), width, 1, contentBg)
 }
 
 func renderManagerSelectedRow(width int, title string, chrome managerChrome, styles Styles) string {
-	rowW := max(1, width-4)
-	textW := max(1, rowW-2)
-	row := managerSelectedListStyle(rowW, styles).Render(truncate(title, textW))
-	return lipgloss.NewStyle().Width(width).Background(chrome.baseBg).Render(row)
+	textW := max(1, width-2)
+	row := padRight(truncate(title, textW), textW)
+	bg := terminalColorAsColor(managerSelectedListStyle(styles).GetBackground())
+	return clampView(managerSelectedListStyle(styles).Render(row), width, 1, bg)
 }
 
-func managerSelectedListStyle(width int, styles Styles) lipgloss.Style {
+func managerSelectedListStyle(styles Styles) lipgloss.Style {
 	bg := terminalColorAsColor(styles.FeedItemSelectedFocused.GetBackground())
 	if bg != "" {
 		if isDark(bg) {
@@ -1431,7 +1490,6 @@ func managerSelectedListStyle(width int, styles Styles) lipgloss.Style {
 		}
 	}
 	return lipgloss.NewStyle().
-		Width(width).
 		Background(bg).
 		Foreground(readableText(styles.Theme.Fg, bg, 4.5)).
 		Bold(true).
@@ -1444,6 +1502,14 @@ func renderManagerSourceLine(width int, value string, chrome managerChrome) stri
 		Background(chrome.surfaceBg).
 		Foreground(chrome.accent).
 		Render(padRight(value, width))
+}
+
+func renderManagerActionGroups(width int, chrome managerChrome, primaryPairs, secondaryPairs []string) string {
+	rows := []string{renderManagerActions(width, chrome, primaryPairs...)}
+	if len(secondaryPairs) > 0 {
+		rows = append(rows, renderManagerActions(width, chrome, secondaryPairs...))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
 func renderManagerActions(width int, chrome managerChrome, pairs ...string) string {
@@ -1473,4 +1539,31 @@ func renderManagerActions(width int, chrome managerChrome, pairs ...string) stri
 	gap := max(1, width-lipgloss.Width(left)-lipgloss.Width(right))
 	row := clampView(left+bg.Render(strings.Repeat(" ", gap))+right, width, 1, chrome.baseBg)
 	return bar.Render(row)
+}
+
+func (fm FeedManager) folderFeedCount(folderID int64) int {
+	total := 0
+	for _, feed := range fm.feeds {
+		if feed.FolderID == folderID {
+			total++
+		}
+	}
+	return total
+}
+
+func (fm FeedManager) folderUnreadCount(folderID int64) int64 {
+	var total int64
+	for _, feed := range fm.feeds {
+		if feed.FolderID == folderID {
+			total += feed.UnreadCount
+		}
+	}
+	return total
+}
+
+func (fm FeedManager) confirmDeleteTitle() string {
+	if row := fm.selectedRow(); row != nil && row.kind == fmRowFolder {
+		return "DELETE FOLDER"
+	}
+	return "DELETE FEED"
 }
