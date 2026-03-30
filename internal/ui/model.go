@@ -995,21 +995,23 @@ func (m Model) renderContentPane() string {
 	w := m.articlesPaneWidth()
 	innerH := m.contentViewportHeight()
 	bodyH := m.contentBodyHeight()
+	bg := m.styles.Theme.Bg
 
 	focused := m.focused == paneContent
 
 	vp := m.viewport
 	vp.Width = w
 	vp.Height = bodyH
-	vp.Style = lipgloss.NewStyle().Background(m.styles.Theme.Bg)
+	vp.Style = lipgloss.NewStyle().Background(bg)
+	body := clampView(vp.View(), w, bodyH, bg)
 
 	inner := m.styles.ContentPane.
 		Width(w).
 		Height(innerH).
-		Render(m.renderPaneHeader("Content", focused, w) + "\n" + vp.View())
+		Render(m.renderPaneHeader("Content", focused, w) + "\n" + body)
 
 	return lipgloss.NewStyle().
-		Background(m.styles.Theme.Bg).
+		Background(bg).
 		Width(w).Height(innerH).
 		Render(inner)
 }

@@ -201,6 +201,17 @@ func (fm FeedManager) currentColorOption() folderColorOption {
 	return folderColorOptions[clamp(fm.colorCursor, 0, len(folderColorOptions)-1)]
 }
 
+func (fm FeedManager) displayedColorOption() folderColorOption {
+	if fm.mode == fmEdit && !fm.showNewFolder {
+		if folder := fm.pickedFolder(); folder != nil {
+			if option, _, ok := folderColorByValue(folder.Color); ok {
+				return option
+			}
+		}
+	}
+	return fm.currentColorOption()
+}
+
 func (fm FeedManager) selectedRow() *fmRow {
 	rows := fm.managerRows()
 	if fm.cursor < 0 || fm.cursor >= len(rows) {
@@ -243,6 +254,19 @@ func (fm FeedManager) selectedFolder() *db.Folder {
 	return nil
 }
 
+func (fm FeedManager) pickedFolder() *db.Folder {
+	id := fm.currentFolderID()
+	if id == 0 {
+		return nil
+	}
+	for i := range fm.folders {
+		if fm.folders[i].ID == id {
+			return &fm.folders[i]
+		}
+	}
+	return nil
+}
+
 func (fm *FeedManager) selectFeed(feedID int64) {
 	for i, row := range fm.managerRows() {
 		if row.kind == fmRowFeed && row.feedID == feedID {
@@ -262,6 +286,12 @@ func (fm *FeedManager) selectFolder(folderID int64) {
 }
 
 func (fm FeedManager) shouldShowColorPicker() bool {
+	if fm.mode == fmEdit {
+		return fm.showNewFolder || fm.pickedFolder() != nil
+	}
+	if fm.mode == fmFolderEdit {
+		return true
+	}
 	return fm.showNewFolder || fm.selectedFolder() != nil
 }
 
@@ -343,7 +373,7 @@ func (fm *FeedManager) setColorCursorFromCurrentFolder() {
 	var color string
 	if fm.showNewFolder {
 		color = string(folderColorOptions[0].Color)
-	} else if folder := fm.selectedFolder(); folder != nil {
+	} else if folder := fm.pickedFolder(); folder != nil {
 		color = folder.Color
 	}
 	if _, idx, ok := folderColorByValue(color); ok {
@@ -517,12 +547,12 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		}
 
 	case fm.focusedField == 4 && keyMatches(msg, keys.Left):
-		if fm.colorCursor > 0 {
+		if fm.showNewFolder && fm.colorCursor > 0 {
 			fm.colorCursor--
 		}
 
 	case fm.focusedField == 4 && keyMatches(msg, keys.Right):
-		if fm.colorCursor < len(folderColorOptions)-1 {
+		if fm.showNewFolder && fm.colorCursor < len(folderColorOptions)-1 {
 			fm.colorCursor++
 		}
 
@@ -685,7 +715,7 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 			if err := database.SetFeedFolder(editTarget, folderID); err != nil {
 				return FeedSavedMsg{Err: err}
 			}
-			if folderID != 0 && fm.shouldShowColorPicker() {
+			if folderID != 0 && createFolder {
 				if err := database.SetFolderColor(folderID, selectedColor); err != nil {
 					return FeedSavedMsg{Err: err}
 				}
@@ -715,7 +745,7 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 		if err := database.SetFeedFolder(id, folderID); err != nil {
 			return FeedSavedMsg{Err: err}
 		}
-		if folderID != 0 && fm.shouldShowColorPicker() {
+		if folderID != 0 && createFolder {
 			if err := database.SetFolderColor(folderID, selectedColor); err != nil {
 				return FeedSavedMsg{Err: err}
 			}
@@ -1052,7 +1082,7 @@ func (fm FeedManager) viewEdit(width, height int, chrome managerChrome, styles S
 	if fm.shouldShowColorPicker() {
 		contentRows = append(contentRows,
 			gap,
-			renderManagerSection("Color", renderManagerColorPicker(width-3, fm.currentColorOption(), fm.focusedField == 4, chrome, styles), chrome),
+			renderManagerSection("Color", renderManagerColorPicker(width-3, fm.displayedColorOption(), fm.focusedField == 4, chrome, styles), chrome),
 		)
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, contentRows...)

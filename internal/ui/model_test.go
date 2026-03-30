@@ -477,6 +477,43 @@ func TestArticleCursorMoveKeepsFrameStable(t *testing.T) {
 	}
 }
 
+func TestContentPaneClampsViewportOutputToPaneSize(t *testing.T) {
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig())
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feeds := []db.Feed{{ID: 1, Title: "Feed One", URL: "https://example.com/1"}}
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: feeds})
+	m = m2.(Model)
+
+	articles := []db.Article{
+		{ID: 1, FeedID: 1, Title: "Short title", Link: "https://example.com/a", Content: "one short line", PublishedAt: unixTestTime(1710000000)},
+	}
+	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: articles})
+	m = m2.(Model)
+
+	w := m.articlesPaneWidth()
+	bodyH := m.contentBodyHeight()
+	bg := m.styles.Theme.Bg
+
+	vp := m.viewport
+	vp.Width = w
+	vp.Height = bodyH
+	vp.Style = lipgloss.NewStyle().Background(bg)
+	wantBody := clampView(vp.View(), w, bodyH, bg)
+
+	got := m.renderContentPane()
+	if !strings.Contains(got, wantBody) {
+		t.Fatalf("expected content pane to include clamped viewport body")
+	}
+}
+
 func TestFeedsPaneRendersFoldersAndUncategorized(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
