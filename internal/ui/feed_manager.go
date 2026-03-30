@@ -541,15 +541,33 @@ type managerChrome struct {
 }
 
 func newManagerChrome(width int, t Theme) managerChrome {
-	baseBg := lipgloss.Color("#0c0e14")
-	surfaceBg := lipgloss.Color("#111319")
-	fieldBg := lipgloss.Color("#1e2235")
-	highlight := lipgloss.Color("#bb9af7")
-	border := lipgloss.Color("#434751")
-	text := lipgloss.Color("#c8d3f5")
-	muted := lipgloss.Color("#7f8490")
+	baseBg := modalSurface(t)
+	surfaceDelta := 0.04
+	fieldDelta := 0.08
+	if !isDark(baseBg) {
+		surfaceDelta = -surfaceDelta
+		fieldDelta = -fieldDelta
+	}
+	surfaceBg := adjustLightness(baseBg, surfaceDelta)
+	fieldBg := adjustLightness(baseBg, fieldDelta)
 	accent := t.BorderFocus
+	if accent == "" {
+		accent = t.OverlayBorder
+	}
+	if accent == "" {
+		accent = t.Border
+	}
 	accentFg := contrastFg(accent)
+	text := readableText(t.Fg, baseBg, 4.5)
+	muted := mutedText(text, baseBg)
+	highlight := accent
+	border := t.OverlayBorder
+	if border == "" {
+		border = t.Border
+	}
+	if border == "" {
+		border = accent
+	}
 
 	return managerChrome{
 		baseBg:    baseBg,
@@ -598,7 +616,7 @@ func newManagerChrome(width int, t Theme) managerChrome {
 		statusBar: lipgloss.NewStyle().
 			Width(width).
 			Background(surfaceBg).
-			Foreground(accent).
+			Foreground(readableText(accent, surfaceBg, 3)).
 			Border(lipgloss.NormalBorder(), true, false, false, false).
 			BorderForeground(border).
 			Padding(0, 1),
@@ -677,8 +695,8 @@ func renderTextInput(input textinput.Model, width int, focused bool, chrome mana
 
 func renderManagerInput(width int, value, placeholder string, focused bool, chrome managerChrome) string {
 	textW := max(1, width-1)
-	inputBg := lipgloss.Color("#1e2235")
-	dimBg := lipgloss.Color("#13161f")
+	inputBg := chrome.fieldBg
+	dimBg := chrome.surfaceBg
 	bg := inputBg
 	if !focused {
 		bg = dimBg
@@ -702,7 +720,7 @@ func renderManagerInput(width int, value, placeholder string, focused bool, chro
 func renderManagerRow(width int, title string, chrome managerChrome) string {
 	rowW := max(1, width-4)
 	textW := max(1, rowW-2)
-	rowBg := lipgloss.Color("#1e2235")
+	rowBg := chrome.surfaceBg
 	row := lipgloss.NewStyle().
 		Width(rowW).
 		Background(rowBg).
@@ -715,7 +733,7 @@ func renderManagerRow(width int, title string, chrome managerChrome) string {
 func renderManagerSelectedRow(width int, title string, chrome managerChrome) string {
 	rowW := max(1, width-4)
 	textW := max(1, rowW-2)
-	rowBg := lipgloss.Color("#1e2235")
+	rowBg := chrome.surfaceBg
 	row := lipgloss.NewStyle().
 		Width(rowW).
 		Background(rowBg).

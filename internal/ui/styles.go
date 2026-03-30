@@ -55,11 +55,18 @@ type Styles struct {
 }
 
 func BuildStyles(t Theme) Styles {
-	modalBg := lipgloss.Color("#1f2330")
-	modalFg := lipgloss.Color("#e8ecf3")
-	modalMuted := lipgloss.Color("#9aa4b2")
-	modalBorder := lipgloss.Color("#4c5a70")
-	modalAccent := lipgloss.Color("#7fb2ff")
+	modalBg := modalSurface(t)
+	modalBorder := t.OverlayBorder
+	if modalBorder == "" {
+		modalBorder = t.Border
+	}
+	modalAccent := t.BorderFocus
+	if modalAccent == "" {
+		modalAccent = modalBorder
+	}
+	modalFg := readableText(t.Fg, modalBg, 4.5)
+	modalMuted := mutedText(modalFg, modalBg)
+	accentFg := readableText(t.Fg, modalAccent, 4.5)
 
 	paneBase := lipgloss.NewStyle().
 		Background(t.Bg).
@@ -161,12 +168,13 @@ func BuildStyles(t Theme) Styles {
 			BorderForeground(modalBorder).
 			Padding(1, 2),
 		OverlayTitle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#0f141c")).
+			Foreground(accentFg).
 			Background(modalAccent).
 			Bold(true).
 			Padding(0, 1).
 			MarginBottom(1),
 		OverlayHint: lipgloss.NewStyle().
+			Background(modalBg).
 			Foreground(modalMuted).
 			MarginTop(1),
 

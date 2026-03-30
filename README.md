@@ -8,9 +8,11 @@ A terminal RSS reader built with [Bubble Tea](https://github.com/charmbracelet/b
 
 - Three-pane layout: feeds, articles, content
 - Live theme switching with full preview
+- Theme-aware dialogs and overlays
 - Feed manager: add, edit, delete, import/export OPML
 - Article search and filter
 - Mark read/unread, open in browser
+- AI summaries with copy and save-to-Markdown actions
 - 17 built-in themes
 - Terminal background sync (OSC 11)
 
@@ -65,6 +67,13 @@ Config and database are stored in `~/.config/rss/`.
 | `o` | Open in browser |
 | `/` | Search |
 
+### Content
+| Key | Action |
+|-----|--------|
+| `s` | AI summary |
+| `c` | Copy summary |
+| `m` | Save summary as `.md` |
+
 ### Feeds
 | Key | Action |
 |-----|--------|
@@ -85,5 +94,6 @@ Config and database are stored in `~/.config/rss/`.
 | Key | Action |
 |-----|--------|
 | `T` | Theme picker |
+| `S` | Settings |
 | `?` | Help |
 | `q` | Quit |

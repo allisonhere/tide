@@ -1012,46 +1012,36 @@ func (m Model) renderOverlay(base string) string {
 		)
 		inner := lipgloss.JoinVertical(lipgloss.Left, header, body, actions)
 		inner = clampView(inner, quitW, strings.Count(inner, "\n")+1, chrome.baseBg)
-		box = lipgloss.NewStyle().
-			Background(chrome.baseBg).
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#7AA2F7")).
-			BorderBackground(chrome.baseBg).
-			Width(quitW).
-			Render(inner)
+		box = renderChromeOverlayBox(inner, quitW, chrome, chrome.accent)
 
 	case overlaySearch:
-		content := m.styles.OverlayTitle.Render("Search Articles") + "\n\n" +
-			m.searchInput.View() + "\n" +
-			m.styles.OverlayHint.Render("[enter] apply   [esc] clear")
-		box = m.styles.Overlay.Width(50).Render(content)
+		box = m.renderSearchOverlay()
 
 	case overlayThemePicker:
-		box = m.styles.Overlay.Render(m.renderThemePicker())
+		box = renderStyledOverlayBox(m.renderThemePicker(), 36, m.styles)
 
 	case overlayFeedManager:
 		winW := min(m.width-4, 74)
 		winH := min(m.height-4, 40)
-		fmBg := lipgloss.Color("#0c0e14")
+		chrome := newManagerChrome(winW, m.styles.Theme)
 		inner := m.feedManager.View(winW, winH, m.styles)
-		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, fmBg)
-		box = lipgloss.NewStyle().
-			Background(fmBg).
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#7AA2F7")).
-			BorderBackground(fmBg).
-			Width(winW).
-			Render(inner)
+		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
+		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
 
 	case overlayHelp:
 		winW := min(m.width-6, 90)
 		winH := min(m.height-4, 38)
 		t := m.styles.Theme
-		m.helpVP.Style = lipgloss.NewStyle().Background(t.Bg)
+		surface := modalSurface(t)
+		border := t.OverlayBorder
+		if border == "" {
+			border = t.BorderFocus
+		}
+		m.helpVP.Style = lipgloss.NewStyle().Background(surface)
 		box = lipgloss.NewStyle().
-			Background(t.Bg).
+			Background(surface).
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(t.BorderFocus).
+			BorderForeground(border).
 			Width(winW).Height(winH).
 			Render(m.helpVP.View())
 
@@ -1062,13 +1052,7 @@ func (m Model) renderOverlay(base string) string {
 			chrome := newManagerChrome(winW, et)
 			inner := m.renderFetchErrorOverlay(winW, chrome)
 			inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
-			box = lipgloss.NewStyle().
-				Background(chrome.baseBg).
-				Border(lipgloss.NormalBorder()).
-				BorderForeground(lipgloss.Color("#7AA2F7")).
-				BorderBackground(chrome.baseBg).
-				Width(winW).
-				Render(inner)
+			box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
 		}
 
 	case overlaySettings:
@@ -1077,13 +1061,7 @@ func (m Model) renderOverlay(base string) string {
 		chrome := newManagerChrome(winW, m.styles.Theme)
 		inner := m.settings.View(winW, winH, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
-		box = lipgloss.NewStyle().
-			Background(chrome.baseBg).
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(m.styles.Theme.BorderFocus).
-			BorderBackground(chrome.baseBg).
-			Width(winW).
-			Render(inner)
+		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
 
 	case overlaySummary:
 		winW := min(m.width-8, 76)
@@ -1091,16 +1069,47 @@ func (m Model) renderOverlay(base string) string {
 		chrome := newManagerChrome(winW, m.styles.Theme)
 		inner := m.renderSummaryOverlay(winW, winH, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
-		box = lipgloss.NewStyle().
-			Background(chrome.baseBg).
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(m.styles.Theme.BorderFocus).
-			BorderBackground(chrome.baseBg).
-			Width(winW).
-			Render(inner)
+		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
 	}
 
 	return overlayOnBase(base, box, m.width, m.height, m.styles.Theme.Bg)
+}
+
+func renderChromeOverlayBox(inner string, width int, chrome managerChrome, border lipgloss.Color) string {
+	return lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(border).
+		BorderBackground(chrome.baseBg).
+		Width(width).
+		Render(inner)
+}
+
+func renderStyledOverlayBox(inner string, width int, styles Styles) string {
+	return styles.Overlay.Width(width).Render(inner)
+}
+
+func (m Model) renderSearchOverlay() string {
+	surface := modalSurface(m.styles.Theme)
+	accent := m.styles.Theme.BorderFocus
+	if accent == "" {
+		accent = m.styles.Theme.OverlayBorder
+	}
+	text := readableText(m.styles.Theme.Fg, surface, 4.5)
+	muted := mutedText(text, surface)
+
+	input := m.searchInput
+	input.Width = 42
+	input.PromptStyle = lipgloss.NewStyle().Background(surface).Foreground(accent).Bold(true)
+	input.TextStyle = lipgloss.NewStyle().Background(surface).Foreground(text)
+	input.PlaceholderStyle = lipgloss.NewStyle().Background(surface).Foreground(muted)
+	input.Cursor.Style = lipgloss.NewStyle().Background(accent).Foreground(contrastFg(accent))
+	input.Cursor.TextStyle = lipgloss.NewStyle().Background(accent).Foreground(contrastFg(accent))
+
+	content := m.styles.OverlayTitle.Render("Search Articles") + "\n\n" +
+		input.View() + "\n" +
+		m.styles.OverlayHint.Render("[enter] apply   [esc] clear")
+	return renderStyledOverlayBox(content, 50, m.styles)
 }
 
 func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) string {
