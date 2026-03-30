@@ -5,7 +5,10 @@ import (
 	"tide/internal/feed"
 )
 
-type FeedsLoadedMsg struct{ Feeds []db.Feed }
+type FeedsLoadedMsg struct {
+	Feeds   []db.Feed
+	Folders []db.Folder
+}
 type ArticlesLoadedMsg struct {
 	FeedID   int64
 	Articles []db.Article

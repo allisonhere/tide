@@ -78,6 +78,25 @@ func (db *DB) migrateSchema() error {
 			return err
 		}
 	}
+	if version < 2 {
+		if _, err := db.Exec(`
+			CREATE TABLE IF NOT EXISTS folders (
+				id       INTEGER PRIMARY KEY AUTOINCREMENT,
+				name     TEXT    NOT NULL UNIQUE,
+				position INTEGER NOT NULL DEFAULT 0
+			)
+		`); err != nil {
+			return err
+		}
+		if _, err := db.Exec(`ALTER TABLE feeds ADD COLUMN folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL`); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return err
+			}
+		}
+		if _, err := db.Exec(`PRAGMA user_version = 2`); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

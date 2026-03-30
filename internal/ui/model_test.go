@@ -270,6 +270,8 @@ func TestIconsToggleChangesRenderedPaneMarkers(t *testing.T) {
 	feeds := []db.Feed{{ID: 1, Title: "Feed One", URL: "https://example.com/feed", UnreadCount: 2}}
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: feeds})
 	m = m2.(Model)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = m2.(Model)
 	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: []db.Article{
 		{ID: 1, FeedID: 1, Title: "Unread Article", PublishedAt: unixTestTime(1710000000), Read: false},
 		{ID: 2, FeedID: 1, Title: "Read Article", PublishedAt: unixTestTime(1710000100), Read: true},
@@ -472,6 +474,74 @@ func TestArticleCursorMoveKeepsFrameStable(t *testing.T) {
 		if lipgloss.Width(beforeLines[i]) != lipgloss.Width(afterLines[i]) {
 			t.Fatalf("frame width changed at line %d after article cursor move", i+1)
 		}
+	}
+}
+
+func TestFeedsPaneRendersFoldersAndUncategorized(t *testing.T) {
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig())
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feeds := []db.Feed{
+		{ID: 1, Title: "Alpha", URL: "https://example.com/1", FolderID: 10, UnreadCount: 2},
+		{ID: 2, Title: "Beta", URL: "https://example.com/2"},
+	}
+	folders := []db.Folder{{ID: 10, Name: "Tech", Position: 0}}
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: feeds, Folders: folders})
+	m = m2.(Model)
+
+	pane := m.renderFeedsPane()
+	if !containsString(pane, "Tech") {
+		t.Fatalf("expected folder name in feed pane: %q", pane)
+	}
+	if !containsString(pane, "Uncategorized") {
+		t.Fatalf("expected uncategorized group in feed pane: %q", pane)
+	}
+	if !containsString(pane, "1 folders · 2 feeds") {
+		t.Fatalf("expected folder/feed footer in pane: %q", pane)
+	}
+}
+
+func TestFolderSelectionClearsArticlesAndToggleCollapses(t *testing.T) {
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig())
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feeds := []db.Feed{
+		{ID: 1, Title: "Alpha", URL: "https://example.com/1", FolderID: 10},
+		{ID: 2, Title: "Beta", URL: "https://example.com/2", FolderID: 10},
+	}
+	folders := []db.Folder{{ID: 10, Name: "Tech", Position: 0}}
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: feeds, Folders: folders})
+	m = m2.(Model)
+
+	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: []db.Article{
+		{ID: 1, FeedID: 1, Title: "Article", PublishedAt: unixTestTime(1710000000)},
+	}})
+	m = m2.(Model)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = m2.(Model)
+	if len(m.filteredArticles) != 0 {
+		t.Fatalf("expected folder selection to clear articles, got %d", len(m.filteredArticles))
+	}
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	if len(m.sidebarRows) != 1 {
+		t.Fatalf("expected collapsed folder to hide feed rows, got %d sidebar rows", len(m.sidebarRows))
 	}
 }
 

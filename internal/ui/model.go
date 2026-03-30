@@ -36,6 +36,19 @@ const (
 	paneContent
 )
 
+type sidebarRowKind int
+
+const (
+	rowKindFolder sidebarRowKind = iota
+	rowKindFeed
+)
+
+type sidebarRow struct {
+	kind     sidebarRowKind
+	folderID int64
+	feedID   int64
+}
+
 type overlayMode int
 
 const (
@@ -60,8 +73,11 @@ type Model struct {
 	focused       pane
 
 	// Feed pane
-	feeds      []db.Feed
-	feedCursor int
+	feeds            []db.Feed
+	folders          []db.Folder
+	sidebarRows      []sidebarRow
+	sidebarCursor    int
+	collapsedFolders map[int64]bool
 
 	// Article pane
 	articles         []db.Article
@@ -137,20 +153,21 @@ func NewModel(database *db.DB, cfg config.Config) Model {
 	summarizer, _ := ai.New(cfg.AI)
 
 	m := Model{
-		db:             database,
-		cfg:            cfg,
-		focused:        paneFeeds,
-		confirmedTheme: themeIdx,
-		activeTheme:    themeIdx,
-		styles:         BuildStyles(BuiltinThemes[themeIdx]),
-		feedManager:    NewFeedManager(database),
-		searchInput:    si,
-		spinner:        sp,
-		refreshing:     make(map[int64]bool),
-		mdConverter:    md.NewConverter("", true, nil),
-		firstLoad:      true,
-		keys:           DefaultKeys,
-		summarizer:     summarizer,
+		db:               database,
+		cfg:              cfg,
+		focused:          paneFeeds,
+		confirmedTheme:   themeIdx,
+		activeTheme:      themeIdx,
+		styles:           BuildStyles(BuiltinThemes[themeIdx]),
+		feedManager:      NewFeedManager(database),
+		searchInput:      si,
+		spinner:          sp,
+		refreshing:       make(map[int64]bool),
+		collapsedFolders: map[int64]bool{},
+		mdConverter:      md.NewConverter("", true, nil),
+		firstLoad:        true,
+		keys:             DefaultKeys,
+		summarizer:       summarizer,
 	}
 	return m
 }
@@ -188,25 +205,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case FeedsLoadedMsg:
+		prevKind, prevID := m.currentSidebarSelection()
 		m.feeds = msg.Feeds
+		m.folders = msg.Folders
+		m.rebuildSidebar()
 		isFirstLoad := m.firstLoad
 		m.firstLoad = false
-		if len(m.feeds) == 0 {
-			return m, nil
-		}
-
-		// If we just saved a new feed, select it in the list.
 		if m.pendingSelectFeedID != 0 {
-			for i, f := range m.feeds {
-				if f.ID == m.pendingSelectFeedID {
-					m.feedCursor = i
+			for i, row := range m.sidebarRows {
+				if row.kind == rowKindFeed && row.feedID == m.pendingSelectFeedID {
+					m.sidebarCursor = i
 					break
 				}
 			}
 			m.pendingSelectFeedID = 0
+		} else if prevID != 0 {
+			for i, row := range m.sidebarRows {
+				if row.kind == prevKind {
+					if row.kind == rowKindFeed && row.feedID == prevID {
+						m.sidebarCursor = i
+						break
+					}
+					if row.kind == rowKindFolder && row.folderID == prevID {
+						m.sidebarCursor = i
+						break
+					}
+				}
+			}
 		}
-		m.feedCursor = clamp(m.feedCursor, 0, len(m.feeds)-1)
-		cmds := []tea.Cmd{m.loadArticlesCmd(m.feeds[m.feedCursor].ID)}
+		m.sidebarCursor = clamp(m.sidebarCursor, 0, max(0, len(m.sidebarRows)-1))
+		if len(m.feeds) == 0 {
+			m.clearArticles()
+			return m, nil
+		}
+		cmds := []tea.Cmd{}
+		if selected := m.selectedFeed(); selected != nil {
+			cmds = append(cmds, m.loadArticlesCmd(selected.ID))
+		} else {
+			m.clearArticles()
+		}
 		// Only auto-refresh on startup — manual refresh uses f/F keys.
 		if isFirstLoad {
 			for _, f := range m.feeds {
@@ -216,7 +253,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case ArticlesLoadedMsg:
-		if len(m.feeds) > 0 && msg.FeedID == m.feeds[m.feedCursor].ID {
+		if selected := m.selectedFeed(); selected != nil && msg.FeedID == selected.ID {
 			m.articles = msg.Articles
 			m.applyFilter()
 			m.articleCursor = clamp(m.articleCursor, 0, max(0, len(m.filteredArticles)-1))
@@ -268,7 +305,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.db.TouchFeedFetched(msg.FeedID, time.Now()) //nolint:errcheck
 		}
-		if len(m.feeds) > 0 && msg.FeedID == m.feeds[m.feedCursor].ID {
+		if selected := m.selectedFeed(); selected != nil && msg.FeedID == selected.ID {
 			cmds = append(cmds, m.loadArticlesCmd(msg.FeedID))
 		}
 		cmds = append(cmds, m.loadFeedsCmd())
@@ -300,10 +337,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(fmt.Sprintf("delete failed: %v", msg.Err), true)
 			return m, m.clearStatusCmd()
 		}
-		m.feedCursor = 0
+		m.sidebarCursor = 0
 		m.articleCursor = 0
-		m.articles = nil
-		m.filteredArticles = nil
+		m.clearArticles()
 		m.feedManager = NewFeedManager(m.db)
 		return m, m.loadFeedsCmd()
 
@@ -480,6 +516,9 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDown()
 
 	case keyMatches(msg, m.keys.Enter):
+		if m.focused == paneFeeds && m.toggleSelectedFolder() {
+			return m, nil
+		}
 		if m.focused == paneArticles && len(m.filteredArticles) > 0 {
 			m.focused = paneContent
 			if m.cfg.Display.MarkReadOnOpen {
@@ -495,9 +534,8 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case keyMatches(msg, m.keys.Refresh):
-		if len(m.feeds) > 0 {
-			f := m.feeds[m.feedCursor]
-			return m, m.refreshFeedCmd(f.ID, f.URL, true)
+		if selected := m.selectedFeed(); selected != nil {
+			return m, m.refreshFeedCmd(selected.ID, selected.URL, true)
 		}
 		return m, nil
 
@@ -516,8 +554,11 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case keyMatches(msg, m.keys.MarkAllRead):
-		if len(m.feeds) > 0 {
-			return m, m.markAllReadCmd(m.feeds[m.feedCursor].ID)
+		if feed := m.selectedFeed(); feed != nil {
+			return m, m.markAllReadCmd(feed.ID)
+		}
+		if folderID, ok := m.selectedFolderID(); ok {
+			return m, m.markFolderReadCmd(folderID)
 		}
 		return m, nil
 
@@ -545,6 +586,12 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.updateFeedURLCmd(p.feedID, p.newURL)
 		}
 		return m, nil
+
+	case msg.String() == " ":
+		if m.focused == paneFeeds && m.toggleSelectedFolder() {
+			return m, nil
+		}
+		return m, nil
 	}
 
 	// Forward scroll keys to viewport when content is focused
@@ -560,9 +607,12 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleUp() (tea.Model, tea.Cmd) {
 	switch m.focused {
 	case paneFeeds:
-		if m.feedCursor > 0 {
-			m.feedCursor--
-			return m, m.loadArticlesCmd(m.feeds[m.feedCursor].ID)
+		if m.sidebarCursor > 0 {
+			m.sidebarCursor--
+			if selected := m.selectedFeed(); selected != nil {
+				return m, m.loadArticlesCmd(selected.ID)
+			}
+			m.clearArticles()
 		}
 	case paneArticles:
 		if m.articleCursor > 0 {
@@ -585,9 +635,12 @@ func (m Model) handleUp() (tea.Model, tea.Cmd) {
 func (m Model) handleDown() (tea.Model, tea.Cmd) {
 	switch m.focused {
 	case paneFeeds:
-		if m.feedCursor < len(m.feeds)-1 {
-			m.feedCursor++
-			return m, m.loadArticlesCmd(m.feeds[m.feedCursor].ID)
+		if m.sidebarCursor < len(m.sidebarRows)-1 {
+			m.sidebarCursor++
+			if selected := m.selectedFeed(); selected != nil {
+				return m, m.loadArticlesCmd(selected.ID)
+			}
+			m.clearArticles()
 		}
 	case paneArticles:
 		if m.articleCursor < len(m.filteredArticles)-1 {
@@ -805,34 +858,28 @@ func (m Model) renderFeedsPane() string {
 	title := m.renderPaneHeader("Feeds", focused, innerW)
 	rows := []string{title}
 
-	for i, f := range m.feeds {
-		badge := ""
-		if f.UnreadCount > 0 {
-			badge = m.styles.UnreadBadge.Render(fmt.Sprintf("(%d)", f.UnreadCount))
-		}
-
-		refreshing := m.refreshing[f.ID]
-		prefix := m.feedRowPrefix(false)
-		if i == m.feedCursor {
-			prefix = m.feedRowPrefix(true)
-			if refreshing {
-				prefix = m.spinner.View() + " "
+	for i, row := range m.sidebarRows {
+		selected := i == m.sidebarCursor
+		switch row.kind {
+		case rowKindFolder:
+			rows = append(rows, m.renderFolderHeader(row.folderID, selected, innerW))
+		case rowKindFeed:
+			if feed := m.feedByID(row.feedID); feed != nil {
+				rows = append(rows, m.renderSidebarFeedRow(*feed, selected, innerW))
 			}
-			rows = append(rows, m.styles.FeedItemSelected.Width(innerW).Render(renderFeedRow(prefix, f.Title, badge, innerW)))
-		} else {
-			if refreshing {
-				prefix = m.spinner.View() + " "
-			}
-			rows = append(rows, m.styles.FeedItem.Width(innerW).Render(renderFeedRow(prefix, f.Title, badge, innerW)))
 		}
 	}
 
-	if len(m.feeds) == 0 {
+	if len(m.sidebarRows) == 0 {
 		rows = append(rows, m.styles.FeedItem.Foreground(
 			lipgloss.Color(m.styles.Theme.Dimmed),
 		).Render(m.emptyFeedsHint()))
 	}
-	footer := m.styles.ArticleRead.Width(innerW).Render(fmt.Sprintf("  %d feeds", len(m.feeds)))
+	footer := fmt.Sprintf("  %d feeds", len(m.feeds))
+	if len(m.folders) > 0 {
+		footer = fmt.Sprintf("  %d folders · %d feeds", len(m.folders), len(m.feeds))
+	}
+	footer = m.styles.ArticleRead.Width(innerW).Render(footer)
 	bodyHeight := max(0, m.mainHeight()-1)
 	for len(rows) < bodyHeight {
 		rows = append(rows, m.styles.FeedItem.Width(innerW).Render(""))
@@ -941,7 +988,7 @@ func (m Model) renderContentPane() string {
 
 func (m Model) renderPaneHeader(label string, focused bool, width int) string {
 	style := m.styles.PaneHeaderInactive
-	prefix := "  "
+	prefix := "    "
 	title := m.headerLabel(label)
 	if focused {
 		style = m.styles.PaneHeaderActive
@@ -979,13 +1026,20 @@ func (m Model) renderStatusBar() string {
 	parts := []string{}
 
 	if len(m.feeds) > 0 {
-		f := m.feeds[m.feedCursor]
-		parts = append(parts, f.Title)
-		if f.UnreadCount > 0 {
-			parts = append(parts, fmt.Sprintf("%d unread", f.UnreadCount))
-		}
-		if !f.LastFetched.IsZero() && f.LastFetched.Unix() > 0 {
-			parts = append(parts, "updated "+relativeTime(f.LastFetched))
+		f := m.selectedFeed()
+		if f != nil {
+			parts = append(parts, f.Title)
+			if f.UnreadCount > 0 {
+				parts = append(parts, fmt.Sprintf("%d unread", f.UnreadCount))
+			}
+			if !f.LastFetched.IsZero() && f.LastFetched.Unix() > 0 {
+				parts = append(parts, "updated "+relativeTime(f.LastFetched))
+			}
+		} else if folderID, ok := m.selectedFolderID(); ok {
+			parts = append(parts, m.folderName(folderID))
+			if unread := m.folderUnreadCount(folderID); unread > 0 {
+				parts = append(parts, fmt.Sprintf("%d unread", unread))
+			}
 		}
 	}
 
@@ -1237,7 +1291,11 @@ func (m *Model) loadFeedsCmd() tea.Cmd {
 		if err != nil {
 			return ErrMsg{err}
 		}
-		return FeedsLoadedMsg{feeds}
+		folders, err := db.ListFolders()
+		if err != nil {
+			return ErrMsg{err}
+		}
+		return FeedsLoadedMsg{Feeds: feeds, Folders: folders}
 	}
 }
 
@@ -1285,7 +1343,7 @@ func (m *Model) refreshFeedCmd(feedID int64, feedURL string, manual bool) tea.Cm
 
 func (m *Model) updateFeedURLCmd(feedID int64, newURL string) tea.Cmd {
 	return func() tea.Msg {
-		err := m.db.UpdateFeed(feedID, "", newURL)
+		err := m.db.UpdateFeedURL(feedID, newURL)
 		return FeedURLUpdatedMsg{FeedID: feedID, NewURL: newURL, Err: err}
 	}
 }
@@ -1324,7 +1382,30 @@ func (m *Model) markAllReadCmd(feedID int64) tea.Cmd {
 		if err := m.db.MarkAllRead(feedID); err != nil {
 			return ErrMsg{err}
 		}
-		return m.loadArticlesCmd(feedID)()
+		for i := range m.articles {
+			if m.articles[i].FeedID == feedID {
+				m.articles[i].Read = true
+			}
+		}
+		m.applyFilter()
+		return m.loadFeedsCmd()()
+	}
+}
+
+func (m *Model) markFolderReadCmd(folderID int64) tea.Cmd {
+	feedIDs := make([]int64, 0)
+	for _, feed := range m.feeds {
+		if feed.FolderID == folderID {
+			feedIDs = append(feedIDs, feed.ID)
+		}
+	}
+	return func() tea.Msg {
+		for _, feedID := range feedIDs {
+			if err := m.db.MarkAllRead(feedID); err != nil {
+				return ErrMsg{err}
+			}
+		}
+		return m.loadFeedsCmd()()
 	}
 }
 
@@ -1469,6 +1550,124 @@ func summaryFilename(title string) string {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+func (m *Model) rebuildSidebar() {
+	byFolder := make(map[int64][]int64)
+	for _, feed := range m.feeds {
+		byFolder[feed.FolderID] = append(byFolder[feed.FolderID], feed.ID)
+	}
+
+	rows := make([]sidebarRow, 0, len(m.feeds)+len(m.folders)+1)
+	for _, folder := range m.folders {
+		rows = append(rows, sidebarRow{kind: rowKindFolder, folderID: folder.ID})
+		if m.collapsedFolders[folder.ID] {
+			continue
+		}
+		for _, feedID := range byFolder[folder.ID] {
+			rows = append(rows, sidebarRow{kind: rowKindFeed, feedID: feedID})
+		}
+	}
+	if uncategorized := byFolder[0]; len(uncategorized) > 0 {
+		rows = append(rows, sidebarRow{kind: rowKindFolder, folderID: 0})
+		if !m.collapsedFolders[0] {
+			for _, feedID := range uncategorized {
+				rows = append(rows, sidebarRow{kind: rowKindFeed, feedID: feedID})
+			}
+		}
+	}
+	m.sidebarRows = rows
+	m.sidebarCursor = clamp(m.sidebarCursor, 0, max(0, len(m.sidebarRows)-1))
+}
+
+func (m *Model) clearArticles() {
+	m.articles = nil
+	m.filteredArticles = nil
+	m.articleCursor = 0
+	m.listOffset = 0
+	m.viewport.SetContent("")
+	m.viewport.GotoTop()
+}
+
+func (m Model) currentSidebarSelection() (sidebarRowKind, int64) {
+	if m.sidebarCursor < 0 || m.sidebarCursor >= len(m.sidebarRows) {
+		return rowKindFeed, 0
+	}
+	row := m.sidebarRows[m.sidebarCursor]
+	if row.kind == rowKindFolder {
+		return rowKindFolder, row.folderID
+	}
+	return rowKindFeed, row.feedID
+}
+
+func (m Model) selectedFeed() *db.Feed {
+	if m.sidebarCursor < 0 || m.sidebarCursor >= len(m.sidebarRows) {
+		return nil
+	}
+	row := m.sidebarRows[m.sidebarCursor]
+	if row.kind != rowKindFeed {
+		return nil
+	}
+	return m.feedByID(row.feedID)
+}
+
+func (m Model) selectedFolderID() (int64, bool) {
+	if m.sidebarCursor < 0 || m.sidebarCursor >= len(m.sidebarRows) {
+		return 0, false
+	}
+	row := m.sidebarRows[m.sidebarCursor]
+	if row.kind != rowKindFolder {
+		return 0, false
+	}
+	return row.folderID, true
+}
+
+func (m Model) feedByID(feedID int64) *db.Feed {
+	for i := range m.feeds {
+		if m.feeds[i].ID == feedID {
+			return &m.feeds[i]
+		}
+	}
+	return nil
+}
+
+func (m Model) folderName(folderID int64) string {
+	if folderID == 0 {
+		return "Uncategorized"
+	}
+	for _, folder := range m.folders {
+		if folder.ID == folderID {
+			return folder.Name
+		}
+	}
+	return "Folder"
+}
+
+func (m Model) folderUnreadCount(folderID int64) int64 {
+	var total int64
+	for _, feed := range m.feeds {
+		if feed.FolderID == folderID {
+			total += feed.UnreadCount
+		}
+	}
+	return total
+}
+
+func (m *Model) toggleSelectedFolder() bool {
+	folderID, ok := m.selectedFolderID()
+	if !ok {
+		return false
+	}
+	m.collapsedFolders[folderID] = !m.collapsedFolders[folderID]
+	m.rebuildSidebar()
+	for i, row := range m.sidebarRows {
+		if row.kind == rowKindFolder && row.folderID == folderID {
+			m.sidebarCursor = i
+			break
+		}
+	}
+	m.clearArticles()
+	return true
+}
 
 func (m *Model) applyFilter() {
 	q := strings.ToLower(m.searchQuery)
@@ -1673,6 +1872,56 @@ func renderFeedRow(prefix, title, badge string, width int) string {
 		row += " " + badge
 	}
 	return padRight(row, width)
+}
+
+func (m Model) renderFolderHeader(folderID int64, selected bool, width int) string {
+	icon := "v "
+	label := m.folderName(folderID)
+	if m.iconsEnabled() {
+		icon = "▾ "
+		label = "󰉋 " + label
+	}
+	if m.collapsedFolders[folderID] {
+		icon = "> "
+		if m.iconsEnabled() {
+			icon = "▸ "
+			label = "󰉖 " + m.folderName(folderID)
+		}
+	}
+	badge := ""
+	if unread := m.folderUnreadCount(folderID); unread > 0 {
+		badge = m.styles.UnreadBadge.Render(fmt.Sprintf("(%d)", unread))
+	}
+	row := renderFeedRow(icon, label, badge, width)
+	style := m.styles.FeedItem.Copy().Foreground(lipgloss.Color(m.styles.Theme.Dimmed)).Bold(true)
+	if selected {
+		style = m.styles.FeedItemSelected.Copy().Bold(true)
+	}
+	return style.Width(width).Render(row)
+}
+
+func (m Model) renderSidebarFeedRow(feed db.Feed, selected bool, width int) string {
+	badge := ""
+	if feed.UnreadCount > 0 {
+		badge = m.styles.UnreadBadge.Render(fmt.Sprintf("(%d)", feed.UnreadCount))
+	}
+
+	prefix := "    "
+	title := feed.Title
+	if m.iconsEnabled() {
+		title = "\U000f046b " + title
+	} else {
+		prefix = "    " + m.feedRowPrefix(selected)
+	}
+	if m.refreshing[feed.ID] {
+		prefix = "    " + m.spinner.View() + " "
+	}
+	row := renderFeedRow(prefix, title, badge, width)
+	style := m.styles.FeedItem
+	if selected {
+		style = m.styles.FeedItemSelected
+	}
+	return style.Width(width).Render(row)
 }
 
 func renderArticleRow(prefix, title, age string, width int) string {
