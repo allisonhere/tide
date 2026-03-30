@@ -467,9 +467,9 @@ func (fm FeedManager) viewEdit(width, height int, chrome managerChrome) string {
 	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
-		renderManagerSection("Title", renderTextInput(fm.titleInput, width-3, fm.focusedField == 0, chrome), chrome),
+		renderManagerSection("Title", renderTextInput(fm.titleInput, width-3, fm.focusedField == 0, false, chrome), chrome),
 		gap,
-		renderManagerSection("URL", renderTextInput(fm.urlInput, width-3, fm.focusedField == 1, chrome), chrome),
+		renderManagerSection("URL", renderTextInput(fm.urlInput, width-3, fm.focusedField == 1, false, chrome), chrome),
 		gap,
 	)
 	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(content)
@@ -651,7 +651,7 @@ func renderManagerPanel(width int, content string, chrome managerChrome) string 
 	return lipgloss.NewStyle().Width(width).Background(chrome.baseBg).Render(panel)
 }
 
-func renderTextInput(input textinput.Model, width int, focused bool, chrome managerChrome) string {
+func renderTextInput(input textinput.Model, width int, focused bool, compactSecretPreview bool, chrome managerChrome) string {
 	// Layout: border(1) | pad(1) | content(contentW) | pad(1)  →  total = width
 	// bubbles input.Width is the text-only area (prompt "> " = 2 chars excluded).
 	fieldBg := chrome.fieldBg
@@ -668,10 +668,16 @@ func renderTextInput(input textinput.Model, width int, focused bool, chrome mana
 	input.Cursor.Style = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.accentFg)
 	input.Cursor.TextStyle = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.accentFg)
 
-	// bubbles pads input.View() with plain un-styled spaces to fill input.Width.
-	// Those spaces carry no ANSI bg code, so they show terminal bg.
-	// Strip them, then re-pad to contentW with explicit fieldBg-coloured spaces.
-	rendered := strings.TrimRight(input.View(), " ")
+	rendered := ""
+	if compactSecretPreview && !focused && input.Value() != "" {
+		preview := maskedPreview(input.Value(), 20)
+		rendered = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.muted).Render(preview)
+	} else {
+		// bubbles pads input.View() with plain un-styled spaces to fill input.Width.
+		// Those spaces carry no ANSI bg code, so they show terminal bg.
+		// Strip them, then re-pad to contentW with explicit fieldBg-coloured spaces.
+		rendered = strings.TrimRight(input.View(), " ")
+	}
 	if gap := contentW - lipgloss.Width(rendered); gap > 0 {
 		rendered += lipgloss.NewStyle().Background(fieldBg).Render(strings.Repeat(" ", gap))
 	}
@@ -691,6 +697,20 @@ func renderTextInput(input textinput.Model, width int, focused bool, chrome mana
 		BorderForeground(barColor).
 		BorderBackground(fieldBg).
 		Render(inner)
+}
+
+func maskedPreview(value string, limit int) string {
+	maskCount := len([]rune(value))
+	if maskCount == 0 {
+		return ""
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if maskCount <= limit {
+		return strings.Repeat("●", maskCount)
+	}
+	return strings.Repeat("●", limit) + "…"
 }
 
 func renderManagerInput(width int, value, placeholder string, focused bool, chrome managerChrome) string {
