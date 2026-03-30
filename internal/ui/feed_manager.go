@@ -41,6 +41,8 @@ type FeedManager struct {
 
 	shouldExit bool
 	statusMsg  string
+	busy       bool
+	busyMsg    string
 }
 
 func NewFeedManager(database *db.DB) FeedManager {
@@ -78,6 +80,9 @@ func (fm *FeedManager) focusAdd() {
 	fm.titleInput.Reset()
 	fm.urlInput.Reset()
 	fm.focusedField = 0
+	fm.statusMsg = ""
+	fm.busy = false
+	fm.busyMsg = ""
 	fm.titleInput.Focus()
 	fm.urlInput.Blur()
 }
@@ -92,6 +97,9 @@ func (fm FeedManager) Update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd, bo
 func (fm FeedManager) update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd) {
 	// Route non-key messages to the focused textinput (cursor blink ticks etc.)
 	if _, ok := msg.(tea.KeyMsg); !ok {
+		if fm.busy {
+			return fm, nil
+		}
 		switch fm.mode {
 		case fmEdit:
 			var cmd tea.Cmd
@@ -123,6 +131,9 @@ func (fm FeedManager) update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd) {
 }
 
 func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.Cmd) {
+	if fm.busy {
+		return fm, nil
+	}
 	switch {
 	case keyMatches(msg, keys.Back):
 		fm.shouldExit = true
@@ -144,6 +155,9 @@ func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		if len(fm.feeds) > 0 {
 			f := fm.feeds[fm.cursor]
 			fm.editTarget = f.ID
+			fm.statusMsg = ""
+			fm.busy = false
+			fm.busyMsg = ""
 			fm.titleInput.Reset()
 			fm.titleInput.SetValue(f.Title)
 			fm.urlInput.Reset()
@@ -160,6 +174,9 @@ func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		}
 
 	case keyMatches(msg, keys.Import):
+		fm.statusMsg = ""
+		fm.busy = false
+		fm.busyMsg = ""
 		fm.importInput.Reset()
 		fm.importInput.Focus()
 		fm.mode = fmImport
@@ -171,6 +188,9 @@ func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 }
 
 func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.Cmd) {
+	if fm.busy {
+		return fm, nil
+	}
 	switch {
 	case keyMatches(msg, keys.Cancel):
 		fm.mode = fmList
@@ -188,6 +208,13 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		}
 
 	case keyMatches(msg, keys.Confirm):
+		if fm.editTarget != 0 {
+			fm.busyMsg = "SAVING FEED..."
+		} else {
+			fm.busyMsg = "ADDING FEED..."
+		}
+		fm.statusMsg = fm.busyMsg
+		fm.busy = true
 		return fm, fm.saveCmd()
 
 	default:
@@ -203,6 +230,9 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 }
 
 func (fm FeedManager) updateImport(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.Cmd) {
+	if fm.busy {
+		return fm, nil
+	}
 	switch {
 	case keyMatches(msg, keys.Cancel):
 		fm.mode = fmList
@@ -210,8 +240,9 @@ func (fm FeedManager) updateImport(msg tea.KeyMsg, keys KeyMap) (FeedManager, te
 
 	case keyMatches(msg, keys.Confirm):
 		path := strings.TrimSpace(fm.importInput.Value())
-		fm.mode = fmList
-		fm.importInput.Blur()
+		fm.statusMsg = "IMPORTING OPML..."
+		fm.busyMsg = fm.statusMsg
+		fm.busy = true
 		return fm, fm.importCmd(path)
 
 	default:
@@ -223,10 +254,16 @@ func (fm FeedManager) updateImport(msg tea.KeyMsg, keys KeyMap) (FeedManager, te
 }
 
 func (fm FeedManager) updateConfirmDelete(msg tea.KeyMsg, _ KeyMap) (FeedManager, tea.Cmd) {
+	if fm.busy {
+		return fm, nil
+	}
 	switch msg.String() {
 	case "y", "enter":
 		fm.mode = fmList
 		if len(fm.feeds) > 0 {
+			fm.statusMsg = "DELETING FEED..."
+			fm.busyMsg = fm.statusMsg
+			fm.busy = true
 			return fm, fm.deleteCmd(fm.feeds[fm.cursor].ID)
 		}
 	case "n", "esc":
@@ -498,6 +535,9 @@ func (fm FeedManager) viewConfirmDelete(width, height int, chrome managerChrome)
 }
 
 func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
+	if fm.busy {
+		return renderManagerActions(width, chrome, "working", strings.ToLower(fm.busyMsg))
+	}
 	switch fm.mode {
 	case fmEdit:
 		return renderManagerActions(width, chrome,

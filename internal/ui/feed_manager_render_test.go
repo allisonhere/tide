@@ -94,3 +94,21 @@ func TestRenderTextInputCompactsUnfocusedSecretPreview(t *testing.T) {
 		t.Fatalf("expected compact masked preview, got %q", rendered)
 	}
 }
+
+func TestFeedManagerEditViewShowsBusyStatus(t *testing.T) {
+	fm := FeedManager{
+		mode:      fmEdit,
+		statusMsg: "ADDING FEED...",
+		busy:      true,
+		busyMsg:   "ADDING FEED...",
+	}
+
+	view := ansi.Strip(fm.View(80, 20, BuildStyles(CatppuccinMocha)))
+
+	if !strings.Contains(view, "ADDING FEED...") {
+		t.Fatalf("expected busy status in edit view, got %q", view)
+	}
+	if !strings.Contains(view, "WORKING") {
+		t.Fatalf("expected busy action hint in edit view, got %q", view)
+	}
+}
