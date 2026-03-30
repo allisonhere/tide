@@ -23,23 +23,23 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 		{
 			name: "Navigation",
 			entries: []entry{
-				bind(keys.NextPane),
-				bind(keys.PrevPane),
-				bind(keys.Left),
-				bind(keys.Right),
+				{keys.NextPane.Help().Key, "next pane"},
+				{keys.PrevPane.Help().Key, "previous pane"},
+				{keys.Left.Help().Key, "move left across panes"},
+				{keys.Right.Help().Key, "move right across panes"},
 				bind(keys.Up),
 				bind(keys.Down),
-				bind(keys.Enter),
+				{keys.Enter.Help().Key, "open article / enter pane"},
 				bind(keys.Back),
 			},
 		},
 		{
-			name: "Articles",
+			name: "Articles / Content",
 			entries: []entry{
-				bind(keys.MarkRead),
-				bind(keys.MarkAllRead),
-				bind(keys.OpenBrowser),
-				bind(keys.Search),
+				{keys.MarkRead.Help().Key, "toggle read for selected article"},
+				{keys.MarkAllRead.Help().Key, "mark current feed as read"},
+				{keys.OpenBrowser.Help().Key, "open selected article in browser"},
+				{keys.Search.Help().Key, "search articles in current feed"},
 			},
 		},
 		{
@@ -48,6 +48,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 				bind(keys.Refresh),
 				bind(keys.RefreshAll),
 				bind(keys.FeedManager),
+				{keys.Add.Help().Key, "add feed from anywhere"},
 			},
 		},
 		{
@@ -61,11 +62,11 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 			},
 		},
 		{
-			name: "Content",
+			name: "Summary Overlay",
 			entries: []entry{
-				bind(keys.Summary),
-				bind(keys.CopyText),
-				bind(keys.SaveMD),
+				{keys.Summary.Help().Key, "AI summary from articles or content"},
+				{keys.CopyText.Help().Key, "copy summary"},
+				{keys.SaveMD.Help().Key, "save summary as .md"},
 			},
 		},
 		{

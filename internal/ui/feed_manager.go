@@ -258,7 +258,7 @@ func (fm FeedManager) updateConfirmDelete(msg tea.KeyMsg, _ KeyMap) (FeedManager
 		return fm, nil
 	}
 	switch msg.String() {
-	case "y", "enter":
+	case "y":
 		fm.mode = fmList
 		if len(fm.feeds) > 0 {
 			fm.statusMsg = "DELETING FEED..."
@@ -405,10 +405,17 @@ func (fm FeedManager) View(width, height int, styles Styles) string {
 	var body string
 	switch fm.mode {
 	case fmEdit:
+		title := "ADD FEED"
+		if fm.editTarget != 0 {
+			title = "EDIT FEED"
+		}
+		header = renderManagerHeader(title, contentW, chrome)
 		hints = fm.viewHints(contentW, chrome)
 	case fmImport:
+		header = renderManagerHeader("IMPORT FEEDS", contentW, chrome)
 		hints = fm.viewHints(contentW, chrome)
 	case fmConfirmDelete:
+		header = renderManagerHeader("DELETE FEED", contentW, chrome)
 		hints = fm.viewHints(contentW, chrome)
 	}
 

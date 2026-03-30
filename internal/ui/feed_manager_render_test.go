@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
@@ -110,5 +111,29 @@ func TestFeedManagerEditViewShowsBusyStatus(t *testing.T) {
 	}
 	if !strings.Contains(view, "WORKING") {
 		t.Fatalf("expected busy action hint in edit view, got %q", view)
+	}
+}
+
+func TestFeedManagerDeleteRequiresY(t *testing.T) {
+	fm := FeedManager{
+		feeds:  []db.Feed{{ID: 1, Title: "Test Feed", URL: "https://example.com/feed"}},
+		mode:   fmConfirmDelete,
+		cursor: 0,
+	}
+
+	next, cmd := fm.updateConfirmDelete(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+	if cmd != nil {
+		t.Fatal("expected enter not to trigger delete command")
+	}
+	if next.mode != fmConfirmDelete {
+		t.Fatalf("expected delete confirm to remain open on enter, got %v", next.mode)
+	}
+
+	next, cmd = fm.updateConfirmDelete(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}}, DefaultKeys)
+	if cmd == nil {
+		t.Fatal("expected y to trigger delete command")
+	}
+	if next.mode != fmList {
+		t.Fatalf("expected delete confirm to close on y, got %v", next.mode)
 	}
 }

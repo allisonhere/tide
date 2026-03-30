@@ -15,7 +15,6 @@ type Styles struct {
 	// Feed list items
 	FeedItem         lipgloss.Style
 	FeedItemSelected lipgloss.Style
-	FeedItemActive   lipgloss.Style // cursor row
 	UnreadBadge      lipgloss.Style
 
 	// Article list items
@@ -34,6 +33,7 @@ type Styles struct {
 	StatusBar     lipgloss.Style
 	StatusError   lipgloss.Style
 	StatusSpinner lipgloss.Style
+	StatusHint    lipgloss.Style
 
 	// Overlay chrome
 	Overlay      lipgloss.Style
@@ -90,13 +90,13 @@ func BuildStyles(t Theme) Styles {
 		ContentPane: lipgloss.NewStyle().
 			Background(t.Bg),
 		PaneHeaderActive: lipgloss.NewStyle().
-			Background(t.Unread).
-			Foreground(t.Bg).
+			Background(t.BorderFocus).
+			Foreground(readableText(t.Fg, t.BorderFocus, 4.5)).
 			Bold(true).
 			AlignHorizontal(lipgloss.Left),
 		PaneHeaderInactive: lipgloss.NewStyle().
 			Background(t.Border).
-			Foreground(t.Fg).
+			Foreground(readableText(t.Fg, t.Border, 4.5)).
 			AlignHorizontal(lipgloss.Left),
 
 		FeedItem: lipgloss.NewStyle().
@@ -105,12 +105,8 @@ func BuildStyles(t Theme) Styles {
 			AlignHorizontal(lipgloss.Left),
 		FeedItemSelected: lipgloss.NewStyle().
 			Background(t.Bg).
-			Foreground(t.BorderFocus).
+			Foreground(readableText(t.BorderFocus, t.Bg, 4.5)).
 			Bold(true).
-			AlignHorizontal(lipgloss.Left),
-		FeedItemActive: lipgloss.NewStyle().
-			Background(t.Border).
-			Foreground(t.Fg).
 			AlignHorizontal(lipgloss.Left),
 		UnreadBadge: lipgloss.NewStyle().
 			Foreground(t.Unread).
@@ -122,11 +118,21 @@ func BuildStyles(t Theme) Styles {
 			AlignHorizontal(lipgloss.Left),
 		ArticleRead: lipgloss.NewStyle().
 			Background(t.Bg).
-			Foreground(t.Dimmed).
+			Foreground(readableText(t.Dimmed, t.Bg, 3.0)).
 			AlignHorizontal(lipgloss.Left),
 		ArticleSelected: lipgloss.NewStyle().
-			Background(t.Bg).
-			Foreground(t.BorderFocus).
+			Background(func() lipgloss.Color {
+				if isDark(t.Bg) {
+					return adjustLightness(t.Bg, 0.08)
+				}
+				return adjustLightness(t.Bg, -0.08)
+			}()).
+			Foreground(readableText(t.BorderFocus, func() lipgloss.Color {
+				if isDark(t.Bg) {
+					return adjustLightness(t.Bg, 0.08)
+				}
+				return adjustLightness(t.Bg, -0.08)
+			}(), 4.5)).
 			Bold(true).
 			AlignHorizontal(lipgloss.Left),
 		ArticleTime: lipgloss.NewStyle().
@@ -138,13 +144,13 @@ func BuildStyles(t Theme) Styles {
 
 		ContentTitle: lipgloss.NewStyle().
 			Background(t.BorderFocus).
-			Foreground(t.Bg).
+			Foreground(readableText(t.Bg, t.BorderFocus, 4.5)).
 			Bold(true).
 			Padding(0, 1).
 			MarginBottom(1),
 		ContentMeta: lipgloss.NewStyle().
 			Background(t.Bg).
-			Foreground(t.Dimmed).
+			Foreground(readableText(t.Dimmed, t.Bg, 3.0)).
 			Italic(true),
 		ContentBody: lipgloss.NewStyle().
 			Background(t.Bg).
@@ -152,15 +158,18 @@ func BuildStyles(t Theme) Styles {
 
 		StatusBar: lipgloss.NewStyle().
 			Background(t.StatusBar).
-			Foreground(t.StatusFg).
+			Foreground(readableText(t.StatusFg, t.StatusBar, 4.5)).
 			Padding(0, 1),
 		StatusError: lipgloss.NewStyle().
 			Background(t.StatusBar).
-			Foreground(t.Error).
+			Foreground(readableText(t.Error, t.StatusBar, 4.5)).
 			Bold(true).
 			Padding(0, 1),
 		StatusSpinner: lipgloss.NewStyle().
 			Foreground(t.Unread),
+		StatusHint: lipgloss.NewStyle().
+			Background(t.StatusBar).
+			Foreground(readableText(t.StatusFg, t.StatusBar, 3.0)),
 
 		Overlay: lipgloss.NewStyle().
 			Background(modalBg).

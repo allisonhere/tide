@@ -3,14 +3,14 @@ package ui
 import "github.com/charmbracelet/bubbles/key"
 
 type KeyMap struct {
-	Up      key.Binding
-	Down    key.Binding
-	Left    key.Binding
-	Right   key.Binding
+	Up       key.Binding
+	Down     key.Binding
+	Left     key.Binding
+	Right    key.Binding
 	NextPane key.Binding
 	PrevPane key.Binding
-	Enter   key.Binding
-	Back    key.Binding
+	Enter    key.Binding
+	Back     key.Binding
 
 	Refresh     key.Binding
 	RefreshAll  key.Binding
@@ -68,7 +68,7 @@ var DefaultKeys = KeyMap{
 
 	Summary:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "AI summary")),
 	CopyText: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
-	SaveMD:   key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "save .md")),
+	SaveMD:   key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "save .md")),
 
 	Add:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 	Edit:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),

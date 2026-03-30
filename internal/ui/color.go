@@ -46,11 +46,12 @@ func isDark(c lipgloss.Color) bool {
 }
 
 // contrastFg returns a light or dark foreground color for legible text on bg.
+// Uses pure white/black to guarantee WCAG 4.5:1 contrast on any background.
 func contrastFg(bg lipgloss.Color) lipgloss.Color {
 	if isDark(bg) {
-		return lipgloss.Color("#e8ecf3")
+		return lipgloss.Color("#ffffff")
 	}
-	return lipgloss.Color("#0f141c")
+	return lipgloss.Color("#000000")
 }
 
 func contrastRatio(a, b lipgloss.Color) float64 {

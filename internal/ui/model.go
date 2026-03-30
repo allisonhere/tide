@@ -468,7 +468,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case keyMatches(msg, m.keys.Right):
-		if m.focused < paneArticles {
+		if m.focused < paneContent {
 			m.focused++
 		}
 		return m, nil
@@ -614,7 +614,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "y", "enter":
 			return m, tea.Quit
-		case "n", "esc", "q":
+		case "n", "esc":
 			m.overlay = overlayNone
 		}
 		return m, nil
@@ -995,7 +995,7 @@ func (m Model) renderStatusBar() string {
 		)
 	}
 
-	parts = append(parts, m.styles.ArticleRead.Render("? help"))
+	parts = append(parts, m.styles.StatusHint.Render("? help"))
 
 	return m.styles.StatusBar.Width(w).Render(m.statusLine(strings.Join(parts, "  ·  ")))
 }
