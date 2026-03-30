@@ -203,40 +203,47 @@ func (s Settings) isTextInput() bool {
 	return false
 }
 
+func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) {
+	var cmd tea.Cmd
+	switch s.focusedField {
+	case sfBrowser:
+		s.browserInput, cmd = s.browserInput.Update(msg)
+	case sfFeedMaxBody:
+		s.feedMaxBodyInput, cmd = s.feedMaxBodyInput.Update(msg)
+	case sfAPIKey:
+		switch s.providerIdx {
+		case 1:
+			s.openaiInput, cmd = s.openaiInput.Update(msg)
+		case 2:
+			s.claudeInput, cmd = s.claudeInput.Update(msg)
+		case 3:
+			s.geminiInput, cmd = s.geminiInput.Update(msg)
+		}
+	case sfOllamaURL:
+		s.ollamaURLInput, cmd = s.ollamaURLInput.Update(msg)
+	case sfOllamaModel:
+		s.ollamaModelInput, cmd = s.ollamaModelInput.Update(msg)
+	case sfSavePath:
+		s.savePathInput, cmd = s.savePathInput.Update(msg)
+	}
+	return s, cmd, false
+}
+
 // ── Update ────────────────────────────────────────────────────────────────────
 
 func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 	// Route cursor-blink ticks to the active text input.
 	if _, ok := msg.(tea.KeyMsg); !ok {
 		if s.isTextInput() {
-			var cmd tea.Cmd
-			switch s.focusedField {
-			case sfBrowser:
-				s.browserInput, cmd = s.browserInput.Update(msg)
-			case sfFeedMaxBody:
-				s.feedMaxBodyInput, cmd = s.feedMaxBodyInput.Update(msg)
-			case sfAPIKey:
-				switch s.providerIdx {
-				case 1:
-					s.openaiInput, cmd = s.openaiInput.Update(msg)
-				case 2:
-					s.claudeInput, cmd = s.claudeInput.Update(msg)
-				case 3:
-					s.geminiInput, cmd = s.geminiInput.Update(msg)
-				}
-			case sfOllamaURL:
-				s.ollamaURLInput, cmd = s.ollamaURLInput.Update(msg)
-			case sfOllamaModel:
-				s.ollamaModelInput, cmd = s.ollamaModelInput.Update(msg)
-			case sfSavePath:
-				s.savePathInput, cmd = s.savePathInput.Update(msg)
-			}
-			return s, cmd, false
+			return s.updateFocusedTextInput(msg)
 		}
 		return s, nil, false
 	}
 
 	key := msg.(tea.KeyMsg)
+	if s.isTextInput() && key.Type == tea.KeyRunes {
+		return s.updateFocusedTextInput(msg)
+	}
 
 	// Global: ctrl+s saves, esc cancels.
 	switch key.String() {
@@ -249,14 +256,14 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		return s, nil, true
 	}
 
-	// Tab / shift+tab / j / k navigate between fields.
+	// Tab / shift+tab navigate between fields.
 	switch {
 	case keyMatches(key, keys.Tab):
 		s.focusedField = s.nextField()
 		s.applyFocus()
 		return s, nil, false
 
-	case keyMatches(key, keys.PrevPane) || key.String() == "shift+tab":
+	case key.String() == "shift+tab":
 		s.focusedField = s.prevField()
 		s.applyFocus()
 		return s, nil, false
@@ -337,29 +344,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.applyFocus()
 			return s, nil, false
 		}
-		var cmd tea.Cmd
-		switch s.focusedField {
-		case sfBrowser:
-			s.browserInput, cmd = s.browserInput.Update(msg)
-		case sfFeedMaxBody:
-			s.feedMaxBodyInput, cmd = s.feedMaxBodyInput.Update(msg)
-		case sfAPIKey:
-			switch s.providerIdx {
-			case 1:
-				s.openaiInput, cmd = s.openaiInput.Update(msg)
-			case 2:
-				s.claudeInput, cmd = s.claudeInput.Update(msg)
-			case 3:
-				s.geminiInput, cmd = s.geminiInput.Update(msg)
-			}
-		case sfOllamaURL:
-			s.ollamaURLInput, cmd = s.ollamaURLInput.Update(msg)
-		case sfOllamaModel:
-			s.ollamaModelInput, cmd = s.ollamaModelInput.Update(msg)
-		case sfSavePath:
-			s.savePathInput, cmd = s.savePathInput.Update(msg)
-		}
-		return s, cmd, false
+		return s.updateFocusedTextInput(msg)
 	}
 
 	return s, nil, false

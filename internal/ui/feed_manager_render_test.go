@@ -314,3 +314,80 @@ func TestFeedManagerAddFolderCanFocusColorField(t *testing.T) {
 		t.Fatalf("expected down from color field to wrap to name field, got %d", next.focusedField)
 	}
 }
+
+func TestFeedManagerEditTextInputsAcceptMovementRunes(t *testing.T) {
+	tests := []struct {
+		name          string
+		focusedField  int
+		showNewFolder bool
+		key           rune
+		value         func(FeedManager) string
+	}{
+		{
+			name:         "title",
+			focusedField: 0,
+			key:          'k',
+			value: func(fm FeedManager) string {
+				return fm.titleInput.Value()
+			},
+		},
+		{
+			name:         "url",
+			focusedField: 1,
+			key:          'j',
+			value: func(fm FeedManager) string {
+				return fm.urlInput.Value()
+			},
+		},
+		{
+			name:          "new folder",
+			focusedField:  3,
+			showNewFolder: true,
+			key:           'k',
+			value: func(fm FeedManager) string {
+				return fm.newFolderInput.Value()
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fm := FeedManager{
+				mode:           fmEdit,
+				titleInput:     textinput.New(),
+				urlInput:       textinput.New(),
+				newFolderInput: textinput.New(),
+				focusedField:   tc.focusedField,
+				showNewFolder:  tc.showNewFolder,
+			}
+			fm.focusCurrentEditField()
+
+			next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{tc.key}}, DefaultKeys)
+
+			if next.focusedField != tc.focusedField {
+				t.Fatalf("expected focus to stay on field %d, got %d", tc.focusedField, next.focusedField)
+			}
+			if got := tc.value(next); got != string(tc.key) {
+				t.Fatalf("expected typed rune %q to stay in the field, got %q", string(tc.key), got)
+			}
+		})
+	}
+}
+
+func TestFeedManagerFolderEditNameAcceptsMovementRunes(t *testing.T) {
+	fm := FeedManager{
+		mode:         fmFolderEdit,
+		titleInput:   textinput.New(),
+		focusedField: 0,
+	}
+	fm.focusCurrentEditField()
+
+	next, _ := fm.updateFolderEdit(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}}, DefaultKeys)
+
+	if next.focusedField != 0 {
+		t.Fatalf("expected folder name focus to stay on the text input, got %d", next.focusedField)
+	}
+	if got := next.titleInput.Value(); got != "k" {
+		t.Fatalf("expected folder name input to receive typed rune, got %q", got)
+	}
+}
