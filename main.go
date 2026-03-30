@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -12,7 +13,17 @@ import (
 	"tide/internal/ui"
 )
 
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 {
+		switch strings.TrimSpace(os.Args[1]) {
+		case "--version", "-version", "-v":
+			fmt.Printf("tide %s\n", version)
+			return
+		}
+	}
+
 	database, err := db.Open()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error opening database:", err)
