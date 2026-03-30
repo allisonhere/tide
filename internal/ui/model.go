@@ -112,17 +112,16 @@ type Model struct {
 	settings Settings
 
 	// AI summary overlay
-	summarizer       ai.Summarizer // nil when not configured
-	summaryArticle   db.Article
+	summarizer        ai.Summarizer // nil when not configured
+	summaryArticle    db.Article
 	summaryGenerating bool
-	summaryErr       string
+	summaryErr        string
 }
 
 type pendingURLUpdate struct {
 	feedID int64
 	newURL string
 }
-
 
 func NewModel(database *db.DB, cfg config.Config) Model {
 	_, themeIdx := ThemeByName(cfg.Theme)
@@ -732,6 +731,7 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if done {
 		if m.settings.shouldSave {
 			m.cfg = m.settings.ApplyTo(m.cfg)
+			feed.SetMaxFeedBodyBytes(m.cfg.Feed.MaxBodyMiB << 20)
 			config.Save(m.cfg)
 			m.summarizer, _ = ai.New(m.cfg.AI)
 		}
@@ -1603,7 +1603,6 @@ func shouldFetchArticleContent(a db.Article) bool {
 	return true
 }
 
-
 func keyMatches(msg tea.KeyMsg, bindings ...key.Binding) bool {
 	for _, b := range bindings {
 		if key.Matches(msg, b) {
@@ -1774,7 +1773,6 @@ func clampView(view string, width, height int, bg lipgloss.Color) string {
 	}
 	return strings.Join(lines, "\n")
 }
-
 
 func (m *Model) resetHelpVP() {
 	winW := min(m.width-6, 90)

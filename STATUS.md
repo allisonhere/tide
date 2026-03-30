@@ -8,6 +8,8 @@
 - Accent left-border focus indicator on inputs; title field focused first on new add
 - Background bleed fully fixed in feed manager dialog (labels, inputs, spacers, wrappers)
 - Robust feed fetching: up to 10 redirects, loop detection, 307/308 method preservation, bot-protection detection, full error classification (9 kinds), TUI error details overlay, permanent-redirect URL update suggestion
+- Large-feed handling: explicit size limit with configurable `feed.max_body_mib` instead of truncated XML parse failures
+- Settings modal polish: compact aligned rows, dedicated FEEDS section, shorter inputs, inline helper text
 - 18 feed fetcher tests passing
 - deploy.sh release tool, install.sh curl installer, GitHub Actions release CI
 

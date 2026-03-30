@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -19,6 +20,7 @@ const (
 	sfDateFormat
 	sfMarkReadOnOpen
 	sfBrowser
+	sfFeedMaxBody
 	sfProvider
 	sfAPIKey    // visible when provider is openai/claude/gemini
 	sfOllamaURL // visible when provider is ollama
@@ -44,10 +46,11 @@ func providerIndex(id string) int {
 
 type Settings struct {
 	// Display
-	icons          bool
-	dateAbsolute   bool // false = relative, true = absolute
-	markReadOnOpen bool
-	browserInput   textinput.Model
+	icons            bool
+	dateAbsolute     bool // false = relative, true = absolute
+	markReadOnOpen   bool
+	browserInput     textinput.Model
+	feedMaxBodyInput textinput.Model
 
 	// AI
 	providerIdx      int
@@ -77,18 +80,19 @@ func newSettings(cfg config.Config) Settings {
 	}
 
 	s := Settings{
-		icons:          cfg.Display.Icons,
-		dateAbsolute:   cfg.Display.DateFormat == "absolute",
-		markReadOnOpen: cfg.Display.MarkReadOnOpen,
-		browserInput:   mkInput(cfg.Display.Browser, "xdg-open", false),
-		providerIdx:    providerIndex(cfg.AI.Provider),
-		openaiInput:    mkInput(cfg.AI.OpenAIKey, "sk-...", true),
-		claudeInput:    mkInput(cfg.AI.ClaudeKey, "sk-ant-...", true),
-		geminiInput:    mkInput(cfg.AI.GeminiKey, "AIza...", true),
-		ollamaURLInput: mkInput(cfg.AI.OllamaURL, "http://localhost:11434", false),
+		icons:            cfg.Display.Icons,
+		dateAbsolute:     cfg.Display.DateFormat == "absolute",
+		markReadOnOpen:   cfg.Display.MarkReadOnOpen,
+		browserInput:     mkInput(cfg.Display.Browser, "xdg-open", false),
+		feedMaxBodyInput: mkInput(strconv.Itoa(cfg.Feed.MaxBodyMiB), "10", false),
+		providerIdx:      providerIndex(cfg.AI.Provider),
+		openaiInput:      mkInput(cfg.AI.OpenAIKey, "sk-...", true),
+		claudeInput:      mkInput(cfg.AI.ClaudeKey, "sk-ant-...", true),
+		geminiInput:      mkInput(cfg.AI.GeminiKey, "AIza...", true),
+		ollamaURLInput:   mkInput(cfg.AI.OllamaURL, "http://localhost:11434", false),
 		ollamaModelInput: mkInput(cfg.AI.OllamaModel, "llama3.2", false),
-		savePathInput:  mkInput(cfg.AI.SavePath, "~/", false),
-		focusedField:   sfIcons,
+		savePathInput:    mkInput(cfg.AI.SavePath, "~/", false),
+		focusedField:     sfIcons,
 	}
 	s.applyFocus()
 	return s
@@ -104,6 +108,9 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	}
 	cfg.Display.MarkReadOnOpen = s.markReadOnOpen
 	cfg.Display.Browser = strings.TrimSpace(s.browserInput.Value())
+	if n, err := strconv.Atoi(strings.TrimSpace(s.feedMaxBodyInput.Value())); err == nil && n > 0 {
+		cfg.Feed.MaxBodyMiB = n
+	}
 
 	cfg.AI.Provider = aiProviderIDs[s.providerIdx]
 	cfg.AI.OpenAIKey = strings.TrimSpace(s.openaiInput.Value())
@@ -119,6 +126,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 
 func (s *Settings) applyFocus() {
 	s.browserInput.Blur()
+	s.feedMaxBodyInput.Blur()
 	s.openaiInput.Blur()
 	s.claudeInput.Blur()
 	s.geminiInput.Blur()
@@ -129,6 +137,8 @@ func (s *Settings) applyFocus() {
 	switch s.focusedField {
 	case sfBrowser:
 		s.browserInput.Focus()
+	case sfFeedMaxBody:
+		s.feedMaxBodyInput.Focus()
 	case sfAPIKey:
 		switch s.providerIdx {
 		case 1:
@@ -148,7 +158,7 @@ func (s *Settings) applyFocus() {
 }
 
 func (s Settings) visibleFields() []settingsField {
-	fields := []settingsField{sfIcons, sfDateFormat, sfMarkReadOnOpen, sfBrowser, sfProvider}
+	fields := []settingsField{sfIcons, sfDateFormat, sfMarkReadOnOpen, sfBrowser, sfFeedMaxBody, sfProvider}
 	switch s.providerIdx {
 	case 4: // ollama
 		fields = append(fields, sfOllamaURL, sfOllamaModel)
@@ -187,7 +197,7 @@ func (s Settings) prevField() settingsField {
 
 func (s Settings) isTextInput() bool {
 	switch s.focusedField {
-	case sfBrowser, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath:
+	case sfBrowser, sfFeedMaxBody, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath:
 		return true
 	}
 	return false
@@ -203,6 +213,8 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			switch s.focusedField {
 			case sfBrowser:
 				s.browserInput, cmd = s.browserInput.Update(msg)
+			case sfFeedMaxBody:
+				s.feedMaxBodyInput, cmd = s.feedMaxBodyInput.Update(msg)
 			case sfAPIKey:
 				switch s.providerIdx {
 				case 1:
@@ -308,7 +320,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.applyFocus()
 		}
 
-	case sfBrowser, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath:
+	case sfBrowser, sfFeedMaxBody, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath:
 		// Enter advances to next field; everything else goes to the text input.
 		if keyMatches(key, keys.Enter) {
 			s.focusedField = s.nextField()
@@ -329,6 +341,8 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		switch s.focusedField {
 		case sfBrowser:
 			s.browserInput, cmd = s.browserInput.Update(msg)
+		case sfFeedMaxBody:
+			s.feedMaxBodyInput, cmd = s.feedMaxBodyInput.Update(msg)
 		case sfAPIKey:
 			switch s.providerIdx {
 			case 1:
@@ -375,11 +389,21 @@ func (s Settings) viewBody(width int, chrome managerChrome) string {
 
 	// inputW: full inner width minus the 2-char left padding of ind.
 	inputW := width - 3
+	hintIndent := strings.Repeat(" ", labelColW)
 
 	addToggle := func(lines []string, label string, on bool, field settingsField) []string {
 		focused := s.focusedField == field
+		row := s.renderToggle(label, on, focused, width-2, chrome)
+		if hint := s.fieldHint(field); hint != "" {
+			lines = append(lines,
+				ind.Render(row),
+				ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)),
+				blank,
+			)
+			return lines
+		}
 		return append(lines,
-			ind.Render(s.renderToggle(label, on, focused, width-2, chrome)),
+			ind.Render(row),
 			blank,
 		)
 	}
@@ -387,9 +411,18 @@ func (s Settings) viewBody(width int, chrome managerChrome) string {
 	addInput := func(lines []string, label string, input textinput.Model, field settingsField) []string {
 		focused := s.focusedField == field
 		compactSecretPreview := field == sfAPIKey
+		fieldW := s.inputWidth(field, inputW)
+		row := s.renderFieldLabel(label, focused, width-2, chrome) + renderTextInput(input, fieldW, focused, compactSecretPreview, chrome)
+		if hint := s.fieldHint(field); hint != "" {
+			lines = append(lines,
+				ind.Render(row),
+				ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)),
+				blank,
+			)
+			return lines
+		}
 		return append(lines,
-			ind.Render(s.renderFieldLabel(label, focused, width-2, chrome)),
-			ind.Render(renderTextInput(input, inputW, focused, compactSecretPreview, chrome)),
+			ind.Render(row),
 			blank,
 		)
 	}
@@ -402,6 +435,11 @@ func (s Settings) viewBody(width int, chrome managerChrome) string {
 	lines = addToggle(lines, "Dates — "+s.dateLabel(), !s.dateAbsolute, sfDateFormat)
 	lines = addToggle(lines, "Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
 	lines = addInput(lines, "Browser command", s.browserInput, sfBrowser)
+	lines = append(lines,
+		s.renderSectionLabel("FEEDS", width, chrome),
+		blank,
+	)
+	lines = addInput(lines, "Feed max size (MiB)", s.feedMaxBodyInput, sfFeedMaxBody)
 
 	lines = append(lines,
 		s.renderSectionLabel("AI SUMMARIES", width, chrome),
@@ -427,6 +465,19 @@ func (s Settings) viewBody(width int, chrome managerChrome) string {
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
 
+func (s Settings) inputWidth(field settingsField, maxWidth int) int {
+	switch field {
+	case sfFeedMaxBody:
+		return min(maxWidth, 12)
+	case sfBrowser, sfSavePath:
+		return min(maxWidth, 36)
+	case sfOllamaURL, sfOllamaModel, sfAPIKey:
+		return min(maxWidth, 44)
+	default:
+		return min(maxWidth, 32)
+	}
+}
+
 func (s Settings) dateLabel() string {
 	if s.dateAbsolute {
 		return "absolute"
@@ -435,7 +486,9 @@ func (s Settings) dateLabel() string {
 }
 
 func (s Settings) renderSectionLabel(label string, width int, chrome managerChrome) string {
-	return chrome.sectionLabel.Width(width).Render(label)
+	bar := lipgloss.NewStyle().Background(chrome.accent).Width(2).Render("  ")
+	title := chrome.sectionLabel.Copy().Foreground(chrome.text).Width(width - 2).Render(" " + label)
+	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render(bar + title)
 }
 
 const labelColW = 20
@@ -467,7 +520,7 @@ func (s Settings) renderToggle(label string, on bool, focused bool, width int, c
 			Padding(0, 0).
 			Render(val)
 	}
-	return label + badge
+	return label + badge + s.renderToggleHint(on, "enabled", "disabled", focused, chrome)
 }
 
 // renderToggleHint appends a small hint showing the current value label.
@@ -499,7 +552,37 @@ func (s Settings) renderProviderSelector(width int, chrome managerChrome) string
 		selector = lipgloss.NewStyle().
 			Background(chrome.surfaceBg).
 			Foreground(chrome.muted).
-			Render(" " + providerName + " ")
+			Padding(0, 1).
+			Render(providerName)
 	}
-	return label + selector
+	hint := s.renderInlineHint(" use left/right to change", width-labelColW, chrome)
+	if focused {
+		hint = chrome.keyLabel.Render(" use left/right to change")
+	}
+	return label + selector + hint
+}
+
+func (s Settings) fieldHint(field settingsField) string {
+	switch field {
+	case sfBrowser:
+		return "leave blank to use the system default browser"
+	case sfFeedMaxBody:
+		return "larger feeds need more memory; default is 10 MiB"
+	case sfAPIKey:
+		return "only the active provider key is used"
+	case sfOllamaURL:
+		return "local Ollama endpoint"
+	case sfSavePath:
+		return "directory for exported markdown summaries"
+	default:
+		return ""
+	}
+}
+
+func (s Settings) renderInlineHint(text string, width int, chrome managerChrome) string {
+	return lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Foreground(chrome.muted).
+		Width(max(1, width)).
+		Render(text)
 }

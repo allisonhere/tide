@@ -8,6 +8,7 @@ import (
 
 	"tide/internal/config"
 	"tide/internal/db"
+	"tide/internal/feed"
 	"tide/internal/ui"
 )
 
@@ -29,6 +30,7 @@ func main() {
 		fmt.Print(setBG)
 		defer fmt.Print(resetBG)
 	}
+	feed.SetMaxFeedBodyBytes(cfg.Feed.MaxBodyMiB << 20)
 
 	model := ui.NewModel(database, cfg)
 	p := tea.NewProgram(model,

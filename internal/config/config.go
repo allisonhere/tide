@@ -10,18 +10,23 @@ import (
 type Config struct {
 	Theme   string        `toml:"theme"`
 	Display DisplayConfig `toml:"display"`
+	Feed    FeedConfig    `toml:"feed"`
 	AI      AIConfig      `toml:"ai"`
 }
 
 type DisplayConfig struct {
 	Icons          bool   `toml:"icons"`
-	DateFormat     string `toml:"date_format"`      // "relative" | "absolute"
+	DateFormat     string `toml:"date_format"` // "relative" | "absolute"
 	MarkReadOnOpen bool   `toml:"mark_read_on_open"`
 	Browser        string `toml:"browser"`
 }
 
+type FeedConfig struct {
+	MaxBodyMiB int `toml:"max_body_mib"`
+}
+
 type AIConfig struct {
-	Provider    string `toml:"provider"`     // "openai" | "claude" | "gemini" | "ollama" | ""
+	Provider    string `toml:"provider"` // "openai" | "claude" | "gemini" | "ollama" | ""
 	OpenAIKey   string `toml:"openai_key"`
 	ClaudeKey   string `toml:"claude_key"`
 	GeminiKey   string `toml:"gemini_key"`
@@ -37,6 +42,9 @@ func DefaultConfig() Config {
 			Icons:          false,
 			DateFormat:     "relative",
 			MarkReadOnOpen: true,
+		},
+		Feed: FeedConfig{
+			MaxBodyMiB: 10,
 		},
 		AI: AIConfig{
 			OllamaURL:   "http://localhost:11434",
@@ -64,6 +72,9 @@ func Load() (Config, error) {
 	cfg := DefaultConfig()
 	if _, err := toml.Decode(string(data), &cfg); err != nil {
 		return DefaultConfig(), err
+	}
+	if cfg.Feed.MaxBodyMiB <= 0 {
+		cfg.Feed.MaxBodyMiB = DefaultConfig().Feed.MaxBodyMiB
 	}
 	return cfg, nil
 }

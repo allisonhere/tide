@@ -321,6 +321,16 @@ func TestSettingsCanReopenAfterSave(t *testing.T) {
 	}
 }
 
+func TestSettingsViewShowsFeedMaxSizeField(t *testing.T) {
+	s := newSettings(config.DefaultConfig())
+
+	view := s.View(100, 30, newManagerChrome(100, CatppuccinMocha))
+
+	if !containsString(view, "Feed max size (MiB)") {
+		t.Fatalf("expected feed max size field in settings view: %q", view)
+	}
+}
+
 func TestSummaryUnavailableFromFeedsPane(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
