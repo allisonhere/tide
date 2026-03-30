@@ -803,9 +803,9 @@ func (m Model) renderFeedsPane() string {
 		}
 
 		refreshing := m.refreshing[f.ID]
-		prefix := "  "
+		prefix := m.feedRowPrefix(false)
 		if i == m.feedCursor {
-			prefix = "> "
+			prefix = m.feedRowPrefix(true)
 			if refreshing {
 				prefix = m.spinner.View() + " "
 			}
@@ -821,7 +821,7 @@ func (m Model) renderFeedsPane() string {
 	if len(m.feeds) == 0 {
 		rows = append(rows, m.styles.FeedItem.Foreground(
 			lipgloss.Color(m.styles.Theme.Dimmed),
-		).Render("  press m to add feeds"))
+		).Render(m.emptyFeedsHint()))
 	}
 	footer := m.styles.ArticleRead.Width(innerW).Render(fmt.Sprintf("  %d feeds", len(m.feeds)))
 	bodyHeight := max(0, m.mainHeight()-1)
@@ -850,10 +850,9 @@ func (m Model) renderArticlesPane() string {
 		a := visible[i]
 		age := relativeTime(a.PublishedAt)
 
-		dot := "  "
+		dot := m.articleRowPrefix(a.Read)
 		style := m.styles.ArticleRead
 		if !a.Read {
-			dot = "o "
 			style = m.styles.ArticleUnread
 		}
 		if i == m.articleCursor {
@@ -934,11 +933,12 @@ func (m Model) renderContentPane() string {
 func (m Model) renderPaneHeader(label string, focused bool, width int) string {
 	style := m.styles.PaneHeaderInactive
 	prefix := "  "
+	title := m.headerLabel(label)
 	if focused {
 		style = m.styles.PaneHeaderActive
 		prefix = "> "
 	}
-	return style.Width(width).Render(renderFeedRow(prefix, label, "", width))
+	return style.Width(width).Render(renderFeedRow(prefix, title, "", width))
 }
 
 func (m Model) renderArticleContent(a db.Article) string {
@@ -1674,6 +1674,59 @@ func renderArticleRow(prefix, title, age string, width int) string {
 	titleW := max(0, width-prefixW-ageW-gapW)
 	row := prefix + padRight(truncate(title, titleW), titleW) + strings.Repeat(" ", gapW) + age
 	return padRight(row, width)
+}
+
+func (m Model) iconsEnabled() bool {
+	return m.cfg.Display.Icons
+}
+
+func (m Model) headerLabel(label string) string {
+	if !m.iconsEnabled() {
+		return label
+	}
+	switch label {
+	case "Feeds":
+		return "◉ Feeds"
+	case "Content":
+		return "▣ Content"
+	}
+	if strings.HasPrefix(label, "Articles") {
+		return strings.Replace(label, "Articles", "≣ Articles", 1)
+	}
+	return label
+}
+
+func (m Model) feedRowPrefix(selected bool) string {
+	if !m.iconsEnabled() {
+		if selected {
+			return "> "
+		}
+		return "  "
+	}
+	if selected {
+		return "▸ "
+	}
+	return "◦ "
+}
+
+func (m Model) articleRowPrefix(read bool) string {
+	if !m.iconsEnabled() {
+		if read {
+			return "  "
+		}
+		return "o "
+	}
+	if read {
+		return "· "
+	}
+	return "● "
+}
+
+func (m Model) emptyFeedsHint() string {
+	if m.iconsEnabled() {
+		return "  ＋ press m to add feeds"
+	}
+	return "  press m to add feeds"
 }
 
 func padRight(s string, width int) string {
