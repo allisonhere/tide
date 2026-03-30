@@ -48,6 +48,43 @@ tide
 
 Config and database are stored in `~/.config/rss/`.
 
+## Settings
+
+Open settings with `S`.
+
+Display options:
+- Toggle icons
+- Switch between relative and absolute dates
+- Toggle mark-read-on-open
+- Set a custom browser command
+
+AI summary options:
+- Provider: `none`, `OpenAI`, `Claude`, `Gemini`, or `Ollama`
+- API key for OpenAI, Claude, or Gemini
+- Ollama URL and model for local summaries
+- Save path for exported Markdown summaries
+
+Settings are saved to `~/.config/rss/config.toml`.
+
+## AI Summaries
+
+Tide can summarize the currently selected article when focus is in the `Articles` or `Content` pane.
+
+- Press `s` to open an AI summary for the selected article
+- Press `c` in the summary dialog to copy the summary
+- Press `m` in the summary dialog to save it as `.md`
+- If AI is not configured, Tide shows a prompt to open Settings with `S`
+
+Supported providers:
+- OpenAI
+- Claude
+- Gemini
+- Ollama
+
+Default Ollama settings:
+- URL: `http://localhost:11434`
+- Model: `llama3.2`
+
 ## Keyboard Shortcuts
 
 ### Navigation
@@ -67,12 +104,12 @@ Config and database are stored in `~/.config/rss/`.
 | `o` | Open in browser |
 | `/` | Search |
 
-### Content
+### AI Summary
 | Key | Action |
 |-----|--------|
-| `s` | AI summary |
-| `c` | Copy summary |
-| `m` | Save summary as `.md` |
+| `s` | AI summary for selected article when focus is in Articles or Content |
+| `c` | Copy summary in summary dialog |
+| `m` | Save summary as `.md` in summary dialog |
 
 ### Feeds
 | Key | Action |

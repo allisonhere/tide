@@ -241,15 +241,75 @@ func TestFeedSelectionChangeWithArticlesKeepsFrameStable(t *testing.T) {
 
 func TestBuildStylesUsesThemeOverlayColors(t *testing.T) {
 	styles := BuildStyles(CatppuccinMocha)
+	wantBg := adjustLightness(CatppuccinMocha.Bg, 0.06)
 
-	if got := styles.Overlay.GetBackground(); got != CatppuccinMocha.Overlay {
-		t.Fatalf("expected overlay background %q, got %q", CatppuccinMocha.Overlay, got)
+	if got := styles.Overlay.GetBackground(); got != wantBg {
+		t.Fatalf("expected overlay background %q, got %q", wantBg, got)
 	}
 	if got := styles.Overlay.GetBorderTopForeground(); got != CatppuccinMocha.OverlayBorder {
 		t.Fatalf("expected overlay border color %q, got %q", CatppuccinMocha.OverlayBorder, got)
 	}
 	if got := styles.OverlayTitle.GetBackground(); got != CatppuccinMocha.BorderFocus {
 		t.Fatalf("expected overlay title accent %q, got %q", CatppuccinMocha.BorderFocus, got)
+	}
+}
+
+func TestSummaryUnavailableFromFeedsPane(t *testing.T) {
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig())
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feeds := []db.Feed{{ID: 1, Title: "Feed One", URL: "https://example.com/feed"}}
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: feeds})
+	m = m2.(Model)
+
+	articles := []db.Article{
+		{ID: 1, FeedID: 1, Title: "Article One", Content: "Body", PublishedAt: unixTestTime(1710000000)},
+	}
+	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: articles})
+	m = m2.(Model)
+
+	m.focused = paneFeeds
+	m2, _ = m.handleMainKey(tea.KeyMsg{Runes: []rune{'s'}})
+	m = m2.(Model)
+
+	if m.overlay == overlaySummary {
+		t.Fatal("summary overlay should not open from feeds pane")
+	}
+}
+
+func TestFormatSummaryBodyPreservesParagraphsAndLists(t *testing.T) {
+	body := "First paragraph with extra   spacing.\n\n- first bullet item\n- second bullet item\n\n1. first numbered item\n2. second numbered item"
+
+	got := formatSummaryBody(body, 24)
+
+	if !strings.Contains(got, "First paragraph with") {
+		t.Fatalf("expected formatted paragraph, got %q", got)
+	}
+	if !strings.Contains(got, "• first bullet item") {
+		t.Fatalf("expected bullet formatting, got %q", got)
+	}
+	if !strings.Contains(got, "1. first numbered item") {
+		t.Fatalf("expected numbered list formatting, got %q", got)
+	}
+	if !strings.Contains(got, "\n\n• first bullet item") {
+		t.Fatalf("expected paragraph break before list, got %q", got)
+	}
+}
+
+func TestFormatSummaryBodySplitsDenseSingleParagraph(t *testing.T) {
+	body := "Sentence one explains the setup. Sentence two adds context. Sentence three gives the key point. Sentence four closes it out."
+
+	got := formatSummaryBody(body, 48)
+
+	if !strings.Contains(got, "\n\nSentence three gives the key point.") {
+		t.Fatalf("expected dense summary to split into short paragraphs, got %q", got)
 	}
 }
 
