@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
@@ -75,5 +76,21 @@ func TestManagerChromeKeepsReadableLightThemeContrast(t *testing.T) {
 	}
 	if contrastRatio(chrome.muted, chrome.baseBg) < 3 {
 		t.Fatalf("expected readable muted text on light modal base, got %.2f", contrastRatio(chrome.muted, chrome.baseBg))
+	}
+}
+
+func TestRenderTextInputCompactsUnfocusedSecretPreview(t *testing.T) {
+	input := textinput.New()
+	input.EchoMode = textinput.EchoPassword
+	input.EchoCharacter = '●'
+	input.SetValue("sk-abcdefghijklmnopqrstuvwxyz123456")
+
+	rendered := ansi.Strip(renderTextInput(input, 30, false, true, newManagerChrome(60, CatppuccinMocha)))
+
+	if strings.Contains(rendered, "abcdefghijklmnopqrstuvwxyz") {
+		t.Fatalf("secret preview leaked raw value: %q", rendered)
+	}
+	if !strings.Contains(rendered, "●●●●●●●●●●●●●●●●●●●●…") {
+		t.Fatalf("expected compact masked preview, got %q", rendered)
 	}
 }

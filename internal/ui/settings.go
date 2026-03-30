@@ -386,9 +386,10 @@ func (s Settings) viewBody(width int, chrome managerChrome) string {
 
 	addInput := func(lines []string, label string, input textinput.Model, field settingsField) []string {
 		focused := s.focusedField == field
+		compactSecretPreview := field == sfAPIKey
 		return append(lines,
 			ind.Render(s.renderFieldLabel(label, focused, width-2, chrome)),
-			ind.Render(renderTextInput(input, inputW, focused, chrome)),
+			ind.Render(renderTextInput(input, inputW, focused, compactSecretPreview, chrome)),
 			blank,
 		)
 	}
