@@ -374,7 +374,7 @@ func (s Settings) viewBody(width int, chrome managerChrome) string {
 	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 
 	// inputW: full inner width minus the 2-char left padding of ind.
-	inputW := width - 2
+	inputW := width - 3
 
 	addToggle := func(lines []string, label string, on bool, field settingsField) []string {
 		focused := s.focusedField == field
