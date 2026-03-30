@@ -24,7 +24,7 @@ func TestFeedManagerListViewGeometry(t *testing.T) {
 		mode:   fmList,
 	}
 
-	view := fm.View(96, 24, BuildStyles(CatppuccinMocha))
+	view := fm.View(96, 24, BuildStyles(CatppuccinMocha), true)
 	lines := strings.Split(ansi.Strip(view), "\n")
 
 	if got := len(lines); got > 24 {
@@ -104,7 +104,7 @@ func TestFeedManagerEditViewShowsBusyStatus(t *testing.T) {
 		busyMsg:   "ADDING FEED...",
 	}
 
-	view := ansi.Strip(fm.View(80, 20, BuildStyles(CatppuccinMocha)))
+	view := ansi.Strip(fm.View(80, 20, BuildStyles(CatppuccinMocha), true))
 
 	if !strings.Contains(view, "ADDING FEED...") {
 		t.Fatalf("expected busy status in edit view, got %q", view)
@@ -144,12 +144,13 @@ func TestFeedManagerEditViewShowsFolderPickerAndNewField(t *testing.T) {
 		folders:       []db.Folder{{ID: 1, Name: "Tech"}},
 		folderCursor:  2,
 		showNewFolder: true,
-		focusedField:  3,
+		focusedField:  4,
+		colorCursor:   1,
 	}
 	fm.newFolderInput = textinput.New()
 	fm.newFolderInput.SetValue("Infra")
 
-	view := ansi.Strip(fm.View(80, 20, BuildStyles(CatppuccinMocha)))
+	view := ansi.Strip(fm.View(80, 20, BuildStyles(CatppuccinMocha), true))
 
 	if !strings.Contains(view, "Folder") {
 		t.Fatalf("expected folder picker label, got %q", view)
@@ -159,5 +160,81 @@ func TestFeedManagerEditViewShowsFolderPickerAndNewField(t *testing.T) {
 	}
 	if !strings.Contains(view, "New") || !strings.Contains(view, "Infra") {
 		t.Fatalf("expected new folder input row, got %q", view)
+	}
+	if !strings.Contains(view, "Color") {
+		t.Fatalf("expected color picker row, got %q", view)
+	}
+}
+
+func TestFeedManagerListShowsFoldersBeforeFeeds(t *testing.T) {
+	fm := FeedManager{
+		folders: []db.Folder{{ID: 1, Name: "Tech", Color: "#7aa2f7"}},
+		feeds:   []db.Feed{{ID: 2, Title: "Feed One", URL: "https://example.com/feed"}},
+		cursor:  0,
+		mode:    fmList,
+	}
+
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	if !strings.Contains(view, "FOLDERS + FEEDS") {
+		t.Fatalf("expected combined manager section, got %q", view)
+	}
+	if !strings.Contains(view, "󰉋 TECH") {
+		t.Fatalf("expected folder row in manager list, got %q", view)
+	}
+	if !strings.Contains(view, "\U000f046b FEED ONE") {
+		t.Fatalf("expected feed icon in manager list, got %q", view)
+	}
+	if !strings.Contains(view, "EDIT") || !strings.Contains(view, "DELETE") {
+		t.Fatalf("expected generic actions in footer, got %q", view)
+	}
+}
+
+func TestFeedManagerListShowsCollapsedFolderIcon(t *testing.T) {
+	fm := FeedManager{
+		folders:          []db.Folder{{ID: 1, Name: "Tech", Color: "#7aa2f7"}},
+		collapsedFolders: map[int64]bool{1: true},
+		cursor:           0,
+		mode:             fmList,
+	}
+
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	if !strings.Contains(view, "󰉖 TECH") {
+		t.Fatalf("expected collapsed folder icon in manager list, got %q", view)
+	}
+}
+
+func TestFeedManagerListOmitsIconsWhenDisabled(t *testing.T) {
+	fm := FeedManager{
+		folders: []db.Folder{{ID: 1, Name: "Tech", Color: "#7aa2f7"}},
+		feeds:   []db.Feed{{ID: 2, Title: "Feed One", URL: "https://example.com/feed"}},
+		cursor:  0,
+		mode:    fmList,
+	}
+
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), false))
+	if strings.Contains(view, "󰉋 TECH") || strings.Contains(view, "󰉖 TECH") {
+		t.Fatalf("expected no folder glyphs when icons disabled, got %q", view)
+	}
+	if strings.Contains(view, "\U000f046b FEED ONE") {
+		t.Fatalf("expected no feed glyph when icons disabled, got %q", view)
+	}
+}
+
+func TestFeedManagerFolderEditViewShowsNameAndColor(t *testing.T) {
+	fm := FeedManager{
+		mode:             fmFolderEdit,
+		folderEditTarget: 1,
+		focusedField:     4,
+		colorCursor:      2,
+	}
+	fm.titleInput = textinput.New()
+	fm.titleInput.SetValue("Tech")
+
+	view := ansi.Strip(fm.View(80, 20, BuildStyles(CatppuccinMocha), true))
+	if !strings.Contains(view, "EDIT FOLDER") {
+		t.Fatalf("expected folder edit header, got %q", view)
+	}
+	if !strings.Contains(view, "Name") || !strings.Contains(view, "Color") {
+		t.Fatalf("expected folder edit fields, got %q", view)
 	}
 }

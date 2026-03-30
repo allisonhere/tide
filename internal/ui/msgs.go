@@ -29,6 +29,14 @@ type FeedDeletedMsg struct {
 	FeedID int64
 	Err    error
 }
+type FolderSavedMsg struct {
+	Folder db.Folder
+	Err    error
+}
+type FolderDeletedMsg struct {
+	FolderID int64
+	Err      error
+}
 type OPMLImportedMsg struct {
 	Count int
 	Err   error

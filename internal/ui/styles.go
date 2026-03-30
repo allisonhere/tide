@@ -13,9 +13,11 @@ type Styles struct {
 	PaneHeaderInactive lipgloss.Style
 
 	// Feed list items
-	FeedItem         lipgloss.Style
-	FeedItemSelected lipgloss.Style
-	UnreadBadge      lipgloss.Style
+	FeedItem                  lipgloss.Style
+	FeedItemSelected          lipgloss.Style
+	FeedItemSelectedFocused   lipgloss.Style
+	FeedItemSelectedUnfocused lipgloss.Style
+	UnreadBadge               lipgloss.Style
 
 	// Article list items
 	ArticleUnread   lipgloss.Style
@@ -76,6 +78,19 @@ func BuildStyles(t Theme) Styles {
 		Background(t.Bg).
 		BorderForeground(t.BorderFocus)
 
+	selectedBg := func() lipgloss.Color {
+		if isDark(t.Bg) {
+			return adjustLightness(t.Bg, 0.12)
+		}
+		return adjustLightness(t.Bg, -0.12)
+	}()
+	selectedBgSoft := func() lipgloss.Color {
+		if isDark(t.Bg) {
+			return adjustLightness(t.Bg, 0.06)
+		}
+		return adjustLightness(t.Bg, -0.06)
+	}()
+
 	return Styles{
 		Theme: t,
 
@@ -104,8 +119,18 @@ func BuildStyles(t Theme) Styles {
 			Foreground(t.Fg).
 			AlignHorizontal(lipgloss.Left),
 		FeedItemSelected: lipgloss.NewStyle().
-			Background(t.Bg).
-			Foreground(readableText(t.BorderFocus, t.Bg, 4.5)).
+			Background(selectedBg).
+			Foreground(readableText(t.BorderFocus, selectedBg, 4.5)).
+			Bold(true).
+			AlignHorizontal(lipgloss.Left),
+		FeedItemSelectedFocused: lipgloss.NewStyle().
+			Background(selectedBg).
+			Foreground(readableText(t.BorderFocus, selectedBg, 4.5)).
+			Bold(true).
+			AlignHorizontal(lipgloss.Left),
+		FeedItemSelectedUnfocused: lipgloss.NewStyle().
+			Background(selectedBgSoft).
+			Foreground(readableText(t.BorderFocus, selectedBgSoft, 4.5)).
 			Bold(true).
 			AlignHorizontal(lipgloss.Left),
 		UnreadBadge: lipgloss.NewStyle().
