@@ -368,6 +368,38 @@ func (fm *FeedManager) advanceEditField() {
 	fm.focusCurrentEditField()
 }
 
+func (fm FeedManager) isEditTextInputFocused() bool {
+	switch fm.focusedField {
+	case 0, 1:
+		return true
+	case 3:
+		return fm.showNewFolder
+	default:
+		return false
+	}
+}
+
+func (fm FeedManager) updateFocusedEditInput(msg tea.Msg) (FeedManager, tea.Cmd) {
+	var cmd tea.Cmd
+	switch {
+	case fm.focusedField == 0:
+		fm.titleInput, cmd = fm.titleInput.Update(msg)
+	case fm.focusedField == 1:
+		fm.urlInput, cmd = fm.urlInput.Update(msg)
+	case fm.focusedField == 3 && fm.showNewFolder:
+		fm.newFolderInput, cmd = fm.newFolderInput.Update(msg)
+	}
+	return fm, cmd
+}
+
+func (fm FeedManager) updateFocusedFolderEditInput(msg tea.Msg) (FeedManager, tea.Cmd) {
+	var cmd tea.Cmd
+	if fm.focusedField == 0 {
+		fm.titleInput, cmd = fm.titleInput.Update(msg)
+	}
+	return fm, cmd
+}
+
 func (fm *FeedManager) setColorCursorFromCurrentFolder() {
 	fm.colorCursor = 0
 	var color string
@@ -396,21 +428,9 @@ func (fm FeedManager) update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd) {
 		}
 		switch fm.mode {
 		case fmEdit:
-			var cmd tea.Cmd
-			if fm.focusedField == 0 {
-				fm.titleInput, cmd = fm.titleInput.Update(msg)
-			} else if fm.focusedField == 1 {
-				fm.urlInput, cmd = fm.urlInput.Update(msg)
-			} else if fm.focusedField == 3 && fm.showNewFolder {
-				fm.newFolderInput, cmd = fm.newFolderInput.Update(msg)
-			}
-			return fm, cmd
+			return fm.updateFocusedEditInput(msg)
 		case fmFolderEdit:
-			var cmd tea.Cmd
-			if fm.focusedField == 0 {
-				fm.titleInput, cmd = fm.titleInput.Update(msg)
-			}
-			return fm, cmd
+			return fm.updateFocusedFolderEditInput(msg)
 		case fmImport:
 			var cmd tea.Cmd
 			fm.importInput, cmd = fm.importInput.Update(msg)
@@ -507,6 +527,9 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 	if fm.busy {
 		return fm, nil
 	}
+	if fm.isEditTextInputFocused() && msg.Type == tea.KeyRunes {
+		return fm.updateFocusedEditInput(msg)
+	}
 	switch {
 	case keyMatches(msg, keys.Cancel):
 		fm.mode = fmList
@@ -567,15 +590,7 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		return fm, fm.saveCmd()
 
 	default:
-		var cmd tea.Cmd
-		if fm.focusedField == 0 {
-			fm.titleInput, cmd = fm.titleInput.Update(msg)
-		} else if fm.focusedField == 1 {
-			fm.urlInput, cmd = fm.urlInput.Update(msg)
-		} else if fm.focusedField == 3 && fm.showNewFolder {
-			fm.newFolderInput, cmd = fm.newFolderInput.Update(msg)
-		}
-		return fm, cmd
+		return fm.updateFocusedEditInput(msg)
 	}
 	return fm, nil
 }
@@ -583,6 +598,9 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 func (fm FeedManager) updateFolderEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.Cmd) {
 	if fm.busy {
 		return fm, nil
+	}
+	if fm.focusedField == 0 && msg.Type == tea.KeyRunes {
+		return fm.updateFocusedFolderEditInput(msg)
 	}
 	switch {
 	case keyMatches(msg, keys.Cancel):
@@ -622,11 +640,7 @@ func (fm FeedManager) updateFolderEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager
 		return fm, fm.saveFolderCmd()
 
 	default:
-		var cmd tea.Cmd
-		if fm.focusedField == 0 {
-			fm.titleInput, cmd = fm.titleInput.Update(msg)
-		}
-		return fm, cmd
+		return fm.updateFocusedFolderEditInput(msg)
 	}
 	return fm, nil
 }
