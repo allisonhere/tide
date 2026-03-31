@@ -68,7 +68,7 @@ Config and database are stored in `~/.config/rss/`.
 
 Open settings with `S`.
 
-The settings overlay uses a category list on the left and a focused detail pane on the right. Current categories are `DISPLAY`, `FEEDS`, `UPDATES`, and `AI`.
+The settings overlay uses a category list on the left and a focused detail pane on the right. Current categories are `DISPLAY`, `FEEDS`, `UPDATES`, `AI`, and `ABOUT`.
 
 Display options:
 - Toggle Unicode icons for pane headers and item state markers
@@ -90,6 +90,10 @@ AI summary options:
 - API key for OpenAI, Claude, or Gemini
 - Ollama URL and model for local summaries
 - Save path for exported Markdown summaries
+
+About:
+- Open the Tide repository and issues page from inside Settings
+- Includes a small signed note and project tagline
 
 Settings are saved to `~/.config/rss/config.toml`.
 
