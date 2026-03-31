@@ -1065,14 +1065,12 @@ func (s Settings) renderAboutSection(width int, chrome managerChrome) string {
 func (s Settings) renderAboutHero(width int, chrome managerChrome) string {
 	panelW := max(1, width-4)
 	contentW := max(1, panelW-2)
-	label := s.renderAboutWaveLine("TIDE", contentW, 0, false)
-	tagline := wrapWords("Your feeds, no algorithm, no bullshit", max(12, contentW))
-	taglineLines := strings.Split(tagline, "\n")
-
-	lines := []string{label}
-	for i, line := range taglineLines {
-		crest, body := s.renderAboutBouncyWaveLine(line, contentW, 0.85+float64(i)*1.1, true)
-		lines = append(lines, crest, body)
+	label := s.renderAboutWaveLine("TIDE", contentW, 0, 0, false)
+	tagline := truncate("Your feeds, no algorithm, no bullshit", contentW)
+	lines := []string{
+		label,
+		s.renderAboutWaveLine("", contentW, 0, 1, false),
+		s.renderAboutWaveLine(tagline, contentW, 0, 2, true),
 	}
 
 	panelBg := lipgloss.Color("#04141d")
@@ -1172,8 +1170,7 @@ func (s Settings) renderAboutClosingNote(width int, chrome managerChrome) string
 		Render(lipgloss.JoinVertical(lipgloss.Left, signoff, heart))
 }
 
-func (s Settings) renderAboutWaveLine(text string, width int, lineOffset float64, bold bool) string {
-	center, bandWidth := s.aboutWaveCenter(width, lineOffset)
+func (s Settings) renderAboutWaveLine(text string, width int, lineOffset float64, row int, bold bool) string {
 	runes := []rune(text)
 	if len(runes) > width {
 		runes = []rune(truncate(text, width))
@@ -1185,45 +1182,23 @@ func (s Settings) renderAboutWaveLine(text string, width int, lineOffset float64
 		if i < len(runes) {
 			ch = runes[i]
 		}
-		b.WriteString(renderAboutWaveCell(ch, float64(i)-center, bandWidth, bold))
+		bg := aboutMarineBackground(s.aboutGradientFrame, row, i, width)
+		spotlight := aboutSpotlightSample(s.aboutGradientFrame, row, i, width)
+		fg := aboutMarineForeground(bg, spotlight)
+		if row == 2 && ch != ' ' {
+			fg = aboutTaglineBaseForeground(bg, fg)
+			sweep := aboutTaglineCodexSweepSample(s.aboutGradientFrame, i, width)
+			head := aboutTaglineCodexHeadSample(s.aboutGradientFrame, i, width)
+			bg = aboutTaglineCodexBackground(bg, sweep, head)
+			fg = aboutTaglineCodexForeground(bg, fg, sweep, head)
+			if sweep > 0.18 || head > 0.16 {
+				b.WriteString(renderAboutCodexCell(ch, bg, fg, bold || head > 0.42))
+				continue
+			}
+		}
+		b.WriteString(renderAboutWaveCell(ch, bg, fg, bold))
 	}
 	return b.String()
-}
-
-func (s Settings) renderAboutBouncyWaveLine(text string, width int, lineOffset float64, bold bool) (string, string) {
-	center, bandWidth := s.aboutWaveCenter(width, lineOffset)
-	runes := []rune(text)
-	if len(runes) > width {
-		runes = []rune(truncate(text, width))
-	}
-
-	var crest strings.Builder
-	var body strings.Builder
-	for i := 0; i < width; i++ {
-		ch := ' '
-		if i < len(runes) {
-			ch = runes[i]
-		}
-
-		delta := float64(i) - center
-		sample := aboutWaveSample(delta, bandWidth)
-
-		crestCh := ' '
-		if ch != ' ' && sample.lift >= 0.34 {
-			crestCh = ch
-		}
-
-		crest.WriteString(renderAboutWaveCell(crestCh, delta, bandWidth, bold))
-		switch {
-		case ch == ' ':
-			body.WriteString(renderAboutWaveCell(ch, delta, bandWidth, bold))
-		case sample.intensity > 0:
-			body.WriteString(renderAboutWaveTintedCell(ch, delta, bandWidth, false, sample.ghostMix))
-		default:
-			body.WriteString(renderAboutWaveCell(ch, delta, bandWidth, bold))
-		}
-	}
-	return crest.String(), body.String()
 }
 
 func (s Settings) aboutWaveCenter(width int, lineOffset float64) (float64, float64) {
@@ -1234,58 +1209,20 @@ func (s Settings) aboutWaveCenter(width int, lineOffset float64) (float64, float
 	return center, bandWidth
 }
 
-func renderAboutWaveCell(ch rune, delta, bandWidth float64, bold bool) string {
-	bg := aboutWaveColor(delta, bandWidth)
+func renderAboutWaveCell(ch rune, bg, fg lipgloss.Color, bold bool) string {
 	return lipgloss.NewStyle().
 		Background(bg).
-		Foreground(aboutWaveForeground(bg)).
+		Foreground(fg).
 		Bold(bold).
 		Render(string(ch))
 }
 
-func renderAboutWaveTintedCell(ch rune, delta, bandWidth float64, bold bool, mix float64) string {
-	bg := aboutWaveColor(delta, bandWidth)
-	tint := blendLipglossColor(bg, aboutWaveForeground(bg), mix)
+func renderAboutCodexCell(ch rune, bg, fg lipgloss.Color, bold bool) string {
 	return lipgloss.NewStyle().
 		Background(bg).
-		Foreground(tint).
+		Foreground(fg).
 		Bold(bold).
 		Render(string(ch))
-}
-
-type aboutWaveMotion struct {
-	intensity  float64
-	lift       float64
-	ghostMix   float64
-	ripple     float64
-	rippleTone float64
-}
-
-func aboutWaveSample(delta, bandWidth float64) aboutWaveMotion {
-	if bandWidth <= 0 {
-		return aboutWaveMotion{}
-	}
-
-	motion := aboutWaveMotion{}
-	dist := math.Abs(delta) / bandWidth
-	if dist < 1 {
-		intensity := math.Pow(math.Cos(dist*math.Pi/2), 2)
-		motion.intensity = intensity
-		motion.lift = intensity * math.Max(0, 1-math.Abs(delta)/1.75)
-		motion.ghostMix = math.Max(0.34, math.Min(0.74, 0.74-intensity*0.34))
-	}
-
-	if delta < -bandWidth*0.24 {
-		trail := ((-delta / bandWidth) - 0.24) / 2.05
-		if trail > 0 && trail < 1 {
-			envelope := math.Pow(1-trail, 1.45)
-			ringWave := math.Sin(trail * math.Pi * 3.6)
-			motion.ripple = envelope * (0.28 + 0.72*math.Abs(ringWave)) * 0.42
-			motion.rippleTone = ringWave
-		}
-	}
-
-	return motion
 }
 
 func aboutWaveForeground(bg lipgloss.Color) lipgloss.Color {
@@ -1296,58 +1233,106 @@ func aboutWaveForeground(bg lipgloss.Color) lipgloss.Color {
 	return fg
 }
 
-func aboutWaveColor(delta, bandWidth float64) lipgloss.Color {
-	base := lipgloss.Color("#08263d")
-	if bandWidth <= 0 {
+func aboutMarineForeground(bg lipgloss.Color, spotlight float64) lipgloss.Color {
+	base := aboutWaveForeground(bg)
+	if spotlight <= 0 {
 		return base
 	}
+	return blendLipglossColor(base, lipgloss.Color("#f5fdff"), clamp01(spotlight*0.46))
+}
 
-	sample := aboutWaveSample(delta, bandWidth)
-	if sample.intensity == 0 && sample.ripple == 0 {
-		return base
+func aboutTaglineBaseForeground(bg, fg lipgloss.Color) lipgloss.Color {
+	base := blendLipglossColor(fg, lipgloss.Color("#55748a"), 0.68)
+	if contrastRatio(base, bg) < 4.5 {
+		return readableText(base, bg, 4.5)
 	}
+	return base
+}
 
-	pos := math.Max(-1, math.Min(1, delta/bandWidth))
-	gradient := aboutWaveGradientColor(pos)
-	bg := blendLipglossColor(base, gradient, sample.intensity)
-	if sample.ripple > 0 {
-		rippleColor := lipgloss.Color("#b8f2ff")
-		if sample.rippleTone < 0 {
-			rippleColor = lipgloss.Color("#0b4f88")
-		}
-		bg = blendLipglossColor(bg, rippleColor, sample.ripple)
+func aboutTaglineCodexForeground(bg, fg lipgloss.Color, sweep, head float64) lipgloss.Color {
+	intensity := clamp01(sweep*1.12 + head*1.34)
+	if intensity <= 0 {
+		return fg
+	}
+	glow := blendLipglossColor(lipgloss.Color("#c8f2ff"), lipgloss.Color("#ffffff"), clamp01(head*1.18+sweep*0.52))
+	return blendLipglossColor(fg, glow, clamp01(0.28+intensity))
+}
+
+func aboutTaglineCodexBackground(bg lipgloss.Color, sweep, head float64) lipgloss.Color {
+	intensity := clamp01(sweep*0.40 + head*0.56)
+	if intensity <= 0 {
+		return bg
+	}
+	glow := blendLipglossColor(lipgloss.Color("#0a2030"), lipgloss.Color("#1d4b69"), clamp01(head*0.78+sweep*0.16))
+	return blendLipglossColor(bg, glow, clamp01(intensity*0.14))
+}
+
+func aboutMarineBackground(frame, row, col, width int) lipgloss.Color {
+	base := lipgloss.Color("#041a2b")
+	deep := lipgloss.Color("#083a59")
+	shallow := lipgloss.Color("#0c5d84")
+	bright := lipgloss.Color("#4b93b7")
+
+	x := float64(col)
+	y := float64(row)
+	t := float64(frame) * 0.16
+
+	gradient := clamp01(0.20 + y*0.12 + 0.18*math.Sin(x*0.032+t*0.35))
+	bg := blendLipglossColor(base, deep, gradient)
+	bg = blendLipglossColor(bg, shallow, clamp01(0.22+0.16*math.Sin(x*0.055-t*0.28+y*0.40)))
+
+	spotlight := aboutSpotlightSample(frame, row, col, width)
+	if spotlight > 0 {
+		bg = blendLipglossColor(bg, bright, clamp01(spotlight*0.50))
 	}
 	return bg
 }
 
-func aboutWaveGradientColor(pos float64) lipgloss.Color {
-	stops := []struct {
-		pos   float64
-		color lipgloss.Color
-	}{
-		{pos: -1.0, color: lipgloss.Color("#08263d")},
-		{pos: -0.55, color: lipgloss.Color("#0d6fb8")},
-		{pos: -0.10, color: lipgloss.Color("#16b8ff")},
-		{pos: 0.20, color: lipgloss.Color("#9cecff")},
-		{pos: 0.52, color: lipgloss.Color("#3ca7ff")},
-		{pos: 1.0, color: lipgloss.Color("#08263d")},
-	}
+func aboutSpotlightSample(frame, row, col, width int) float64 {
+	cx, cy := aboutSpotlightCenter(frame, width)
+	span := math.Max(6, float64(width-1))
+	rx := math.Max(4.2, span*0.17)
+	ry := rx * 0.46
+	dx := (float64(col) - cx) / rx
+	dy := (float64(row) - cy) / ry
+	return clamp01(math.Exp(-(dx*dx + dy*dy)))
+}
 
-	pos = math.Max(-1, math.Min(1, pos))
-	for i := 1; i < len(stops); i++ {
-		left := stops[i-1]
-		right := stops[i]
-		if pos <= right.pos {
-			span := right.pos - left.pos
-			if span <= 0 {
-				return right.color
-			}
-			t := (pos - left.pos) / span
-			return blendLipglossColor(left.color, right.color, t)
-		}
-	}
+func aboutTaglineCodexSweepSample(frame, col, width int) float64 {
+	head := aboutTaglineCodexCenter(frame, width)
+	rx := math.Max(4.6, float64(width)*0.13)
+	dx := (float64(col) - (head - rx*0.35)) / rx
+	return clamp01(math.Exp(-(dx * dx)))
+}
 
-	return stops[len(stops)-1].color
+func aboutTaglineCodexHeadSample(frame, col, width int) float64 {
+	head := aboutTaglineCodexCenter(frame, width)
+	rx := math.Max(1.3, float64(width)*0.028)
+	dx := (float64(col) - head) / rx
+	return clamp01(math.Exp(-(dx * dx)))
+}
+
+func aboutTaglineCodexCenter(frame, width int) float64 {
+	span := math.Max(6, float64(width-1))
+	travel := span + 10
+	pos := math.Mod(float64(frame)*0.88, travel)
+	return pos - 5
+}
+
+func aboutSpotlightCenter(frame, width int) (float64, float64) {
+	t := float64(frame) * 0.07
+	span := math.Max(6, float64(width-1))
+	cx := span * (0.14 + 0.72*(0.5+0.5*math.Sin(t*0.47+0.35*math.Sin(t*0.21))))
+	cy := 0.9 + 1.6*(0.5+0.5*math.Cos(t*0.58+0.4))
+	return cx, cy
+}
+
+func clamp01(v float64) float64 {
+	return math.Max(0, math.Min(1, v))
+}
+
+func rgbLipglossColor(r, g, b int) lipgloss.Color {
+	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", r, g, b))
 }
 
 func blendLipglossColor(a, b lipgloss.Color, t float64) lipgloss.Color {
