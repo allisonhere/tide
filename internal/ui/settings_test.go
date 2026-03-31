@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -211,72 +212,114 @@ func TestSettingsAboutAnimationDoesNotWrapEarly(t *testing.T) {
 	}
 }
 
-func TestAboutWaveSampleFallsOffSmoothly(t *testing.T) {
-	center := aboutWaveSample(0, 12)
-	near := aboutWaveSample(1, 12)
-	edge := aboutWaveSample(11, 12)
-	aheadOutside := aboutWaveSample(12, 12)
-
-	if center.intensity <= near.intensity {
-		t.Fatalf("expected center intensity %.2f to exceed near intensity %.2f", center.intensity, near.intensity)
-	}
-	if near.intensity <= edge.intensity {
-		t.Fatalf("expected near intensity %.2f to exceed edge intensity %.2f", near.intensity, edge.intensity)
-	}
-	if center.lift <= near.lift {
-		t.Fatalf("expected center lift %.2f to exceed near lift %.2f", center.lift, near.lift)
-	}
-	if near.lift <= 0 {
-		t.Fatalf("expected adjacent cells to retain some lift, got %.2f", near.lift)
-	}
-	if aheadOutside.intensity != 0 || aheadOutside.lift != 0 || aheadOutside.ripple != 0 {
-		t.Fatalf("expected sample ahead of the crest band to be inactive, got %+v", aheadOutside)
-	}
-}
-
-func TestAboutWaveSampleAddsTrailingRippleOnlyBehindCrest(t *testing.T) {
-	behindNear := aboutWaveSample(-7, 12)
-	behindMid := aboutWaveSample(-16, 12)
-	behindEnd := aboutWaveSample(-29, 12)
-	ahead := aboutWaveSample(16, 12)
-
-	if behindNear.ripple <= 0 {
-		t.Fatalf("expected trailing ripple behind the crest, got %+v", behindNear)
-	}
-	if behindNear.ripple <= behindMid.ripple {
-		t.Fatalf("expected ripple to decay with distance, got near=%.3f mid=%.3f", behindNear.ripple, behindMid.ripple)
-	}
-	if behindEnd.ripple != 0 {
-		t.Fatalf("expected ripple to fade out before the next wave, got %+v", behindEnd)
-	}
-	if ahead.ripple != 0 {
-		t.Fatalf("expected no ripple ahead of the crest, got %+v", ahead)
-	}
-}
-
-func TestSettingsAboutWaveBounceLiftsCharacterNeighborhood(t *testing.T) {
-	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
-	s.setActiveSection(ssAbout)
-	s.aboutGradientFrame = 9
-
-	crest, body := s.renderAboutBouncyWaveLine("WAVE", 12, 0, true)
-	crestRunes := []rune(ansi.Strip(crest))
-	bodyRunes := []rune(ansi.Strip(body))
-	lifted := 0
-	for _, ch := range crestRunes {
-		if ch != ' ' {
-			lifted++
+func TestAboutMarineBackgroundChangesAcrossFrames(t *testing.T) {
+	changed := false
+	for _, col := range []int{4, 11, 19} {
+		if aboutMarineBackground(0, 1, col, 24) != aboutMarineBackground(4, 1, col, 24) {
+			changed = true
+			break
 		}
 	}
+	if !changed {
+		t.Fatal("expected about marine background to change across frames")
+	}
+}
 
-	if crestRunes[1] != 'A' {
-		t.Fatalf("expected crest line to lift the rune under the wave crest, got %q", string(crestRunes))
+func TestAboutSpotlightBrightensForeground(t *testing.T) {
+	frame := 18
+	spotCol := 26
+	row := 2
+	width := 48
+	spot := aboutSpotlightSample(frame, row, spotCol, width)
+	far := aboutSpotlightSample(frame, row, 0, width)
+	if spot <= far {
+		t.Fatalf("expected spotlight intensity %.2f to exceed far intensity %.2f", spot, far)
 	}
-	if lifted < 2 {
-		t.Fatalf("expected wave crest to lift a small neighborhood, got %q", string(crestRunes))
+
+	bg := aboutMarineBackground(frame, row, spotCol, width)
+	spotFg := aboutMarineForeground(bg, spot)
+	farFg := aboutMarineForeground(bg, far)
+	if spotFg == farFg {
+		t.Fatalf("expected spotlight foreground %q to differ from far foreground %q", spotFg, farFg)
 	}
-	if bodyRunes[1] != 'A' {
-		t.Fatalf("expected body line to keep a ghosted baseline rune for a half-bounce effect, got %q", string(bodyRunes))
+}
+
+func TestAboutSpotlightIsApproximatelyRound(t *testing.T) {
+	frame := 18
+	width := 48
+	cx, cy := aboutSpotlightCenter(frame, width)
+	centerCol := int(math.Round(cx))
+	centerRow := int(math.Round(cy))
+	left := aboutSpotlightSample(frame, centerRow, centerCol-4, width)
+	right := aboutSpotlightSample(frame, centerRow, centerCol+4, width)
+	up := aboutSpotlightSample(frame, centerRow-1, centerCol, width)
+	down := aboutSpotlightSample(frame, centerRow+1, centerCol, width)
+
+	if math.Abs(left-right) > 0.12 {
+		t.Fatalf("expected round spotlight horizontally, got left=%.2f right=%.2f", left, right)
+	}
+	if math.Abs(up-down) > 0.12 {
+		t.Fatalf("expected round spotlight vertically, got up=%.2f down=%.2f", up, down)
+	}
+}
+
+func TestAboutTaglineCodexSweepChangesAcrossFrames(t *testing.T) {
+	changed := false
+	for _, col := range []int{12, 20, 28} {
+		if aboutTaglineCodexSweepSample(8, col, 48) != aboutTaglineCodexSweepSample(18, col, 48) {
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		t.Fatal("expected tagline codex sweep to change across frames")
+	}
+}
+
+func TestAboutTaglineCodexHeadIsSharperThanSweep(t *testing.T) {
+	frame := 18
+	width := 48
+	centerCol := int(math.Round(aboutTaglineCodexCenter(frame, width)))
+	headNear := aboutTaglineCodexHeadSample(frame, centerCol, width)
+	headFar := aboutTaglineCodexHeadSample(frame, centerCol+4, width)
+	sweepFar := aboutTaglineCodexSweepSample(frame, centerCol+4, width)
+	if headNear <= headFar {
+		t.Fatalf("expected codex head %.2f to exceed far head %.2f", headNear, headFar)
+	}
+	if headFar >= sweepFar {
+		t.Fatalf("expected codex head %.2f to fall off faster than sweep %.2f", headFar, sweepFar)
+	}
+}
+
+func TestAboutTaglineCodexSweepIsVisiblyDifferent(t *testing.T) {
+	bg := lipgloss.Color("#083a59")
+	fg := lipgloss.Color("#eef8fb")
+	sweep := 0.7
+	head := 0.45
+	if got := aboutTaglineCodexForeground(bg, fg, sweep, head); got == fg {
+		t.Fatalf("expected codex foreground to differ from base foreground %q", fg)
+	}
+	if got := aboutTaglineCodexBackground(bg, sweep, head); got == bg {
+		t.Fatalf("expected codex background to differ from base background %q", bg)
+	}
+}
+
+func TestSettingsAboutTaglineStaysOnOneLine(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setActiveSection(ssAbout)
+	s.aboutGradientFrame = 18
+	view := s.renderAboutHero(56, newManagerChrome(84, CatppuccinMocha))
+	if strings.Count(ansi.Strip(view), "Your feeds, no algorithm, no bullshit") != 1 {
+		t.Fatalf("expected tagline to render once on a single line, got %q", ansi.Strip(view))
+	}
+}
+
+func TestSettingsAboutHeroKeepsPreviousHeight(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setActiveSection(ssAbout)
+	view := s.renderAboutHero(56, newManagerChrome(84, CatppuccinMocha))
+	if got := lipgloss.Height(view); got != 5 {
+		t.Fatalf("expected about hero height 5, got %d", got)
 	}
 }
 
