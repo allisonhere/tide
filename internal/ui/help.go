@@ -49,6 +49,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 				bind(keys.RefreshAll),
 				bind(keys.FeedManager),
 				{keys.Add.Help().Key, "add feed from anywhere"},
+				{"u", "accept suggested feed URL update"},
 			},
 		},
 		{
@@ -74,6 +75,8 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 			entries: []entry{
 				bind(keys.ThemePicker),
 				bind(keys.Settings),
+				{"U", "install available Tide update"},
+				{"i", "ignore available Tide update"},
 				bind(keys.Help),
 				bind(keys.Quit),
 			},

@@ -45,7 +45,7 @@ func main() {
 	}
 	feed.SetMaxFeedBodyBytes(cfg.Feed.MaxBodyMiB << 20)
 
-	model := ui.NewModel(database, cfg)
+	model := ui.NewModel(database, cfg, resolvedVersion())
 	p := tea.NewProgram(model,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),

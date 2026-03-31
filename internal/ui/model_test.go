@@ -5,11 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"tide/internal/config"
 	"tide/internal/db"
+	"tide/internal/update"
 )
 
 func TestFeedsLoadedPopulatesPane(t *testing.T) {
@@ -19,7 +22,7 @@ func TestFeedsLoadedPopulatesPane(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 
 	// Simulate WindowSizeMsg so width/height are set
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
@@ -63,7 +66,7 @@ func TestFirstLoadEmptyDoesNotOpenOverlay(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
 	m = m2.(Model)
@@ -84,7 +87,7 @@ func TestFeedPaneKeepsCurrentFeedVisibleWhenUnfocused(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
 	m = m2.(Model)
@@ -109,7 +112,7 @@ func TestLongStatusMessageDoesNotChangeViewHeight(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = m2.(Model)
 
@@ -130,6 +133,116 @@ func TestLongStatusMessageDoesNotChangeViewHeight(t *testing.T) {
 	}
 }
 
+func TestStatusBarShowsUpdateCheckActivity(t *testing.T) {
+	m := Model{
+		width:       80,
+		styles:      BuildStyles(CatppuccinMocha),
+		updateState: updateStateChecking,
+		spinner:     spinner.New(),
+	}
+
+	bar := m.renderStatusBar()
+	if !containsString(bar, "checking updates") {
+		t.Fatalf("expected status bar to show update check activity, got %q", bar)
+	}
+}
+
+func TestStatusBarKeepsUpdateAvailableVisibleWithLongFeedTitle(t *testing.T) {
+	m := Model{
+		width:       48,
+		styles:      BuildStyles(CatppuccinMocha),
+		updateState: updateStateAvailable,
+		updateInfo:  update.ReleaseInfo{Version: "v1.1.0"},
+		feeds: []db.Feed{
+			{ID: 1, Title: "A Very Long Feed Title That Would Normally Push Status Details Off Screen"},
+		},
+		sidebarRows:   []sidebarRow{{kind: rowKindFeed, feedID: 1}},
+		sidebarCursor: 0,
+	}
+
+	bar := m.renderStatusBar()
+	if !containsString(bar, "v1.1.0") {
+		t.Fatalf("expected status bar to keep update version visible, got %q", bar)
+	}
+	if !containsString(bar, "U update") || !containsString(bar, "i ignore") {
+		t.Fatalf("expected status bar to keep update actions visible, got %q", bar)
+	}
+	if !strings.HasSuffix(strings.TrimRight(ansi.Strip(bar), " "), "v1.1.0  U update  i ignore") {
+		t.Fatalf("expected update prompt to be right-aligned at the end of the bar, got %q", ansi.Strip(bar))
+	}
+}
+
+func TestStatusMessageStillIncludesAvailableUpdateHint(t *testing.T) {
+	m := Model{
+		width:       80,
+		styles:      BuildStyles(CatppuccinMocha),
+		updateState: updateStateAvailable,
+		updateInfo:  update.ReleaseInfo{Version: "v1.1.0"},
+		statusMsg:   "saved settings",
+	}
+
+	bar := m.renderStatusBar()
+	if !containsString(bar, "U update") || !containsString(bar, "i ignore") {
+		t.Fatalf("expected transient status bar to retain update actions, got %q", bar)
+	}
+	if !containsString(bar, "saved settings") {
+		t.Fatalf("expected transient status message to remain visible, got %q", bar)
+	}
+}
+
+func TestUppercaseUOpensAvailableUpdateConfirm(t *testing.T) {
+	m := Model{
+		updateState: updateStateAvailable,
+		updateInfo:  update.ReleaseInfo{Version: "v1.1.0"},
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'U'}})
+	got := next.(Model)
+
+	if got.overlay != overlayUpdateConfirm {
+		t.Fatalf("expected U to open update confirm, got overlay %v", got.overlay)
+	}
+}
+
+func TestLowercaseUIgnoredForAppUpdateAndAppliesFeedURLUpdate(t *testing.T) {
+	m := Model{
+		pendingURLUpdate: &pendingURLUpdate{feedID: 7, newURL: "https://example.com/new.xml"},
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	got := next.(Model)
+
+	if got.pendingURLUpdate != nil {
+		t.Fatal("expected lowercase u to consume pending feed URL update")
+	}
+	if cmd == nil {
+		t.Fatal("expected lowercase u to return a feed URL update command")
+	}
+}
+
+func TestLowercaseIDismissesAvailableUpdate(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	m := Model{
+		cfg:         config.DefaultConfig(),
+		updateState: updateStateAvailable,
+		updateInfo:  update.ReleaseInfo{Version: "v1.1.0"},
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	got := next.(Model)
+
+	if !got.updateDismissed {
+		t.Fatal("expected i to dismiss the available update")
+	}
+	if got.cfg.Updates.DismissedVersion != "v1.1.0" {
+		t.Fatalf("expected dismissed version to be persisted, got %q", got.cfg.Updates.DismissedVersion)
+	}
+	if got.statusMsg == "" {
+		t.Fatal("expected dismiss action to set a status message")
+	}
+}
+
 func TestFeedPaneDoesNotStartWithBlankLines(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
@@ -137,7 +250,7 @@ func TestFeedPaneDoesNotStartWithBlankLines(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	m = m2.(Model)
 
@@ -161,7 +274,7 @@ func TestCursorMoveDoesNotChangeRenderedLineCount(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -200,7 +313,7 @@ func TestFeedSelectionChangeWithArticlesKeepsFrameStable(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -263,7 +376,7 @@ func TestIconsToggleChangesRenderedPaneMarkers(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.Display.Icons = true
-	m := NewModel(database, cfg)
+	m := NewModel(database, cfg, "v1.0.0")
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -300,7 +413,7 @@ func TestSettingsCanReopenAfterSave(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -324,7 +437,8 @@ func TestSettingsCanReopenAfterSave(t *testing.T) {
 }
 
 func TestSettingsViewShowsFeedMaxSizeField(t *testing.T) {
-	s := newSettings(config.DefaultConfig())
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setActiveSection(ssFeeds)
 
 	view := s.View(100, 30, newManagerChrome(100, CatppuccinMocha))
 
@@ -340,7 +454,7 @@ func TestRightKeyReachesContentPane(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -364,7 +478,7 @@ func TestQuitOverlayDoesNotCloseOnQ(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	m = m2.(Model)
 	if m.overlay != overlayQuitConfirm {
@@ -385,7 +499,7 @@ func TestSummaryUnavailableFromFeedsPane(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -444,7 +558,7 @@ func TestArticleCursorMoveKeepsFrameStable(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -484,7 +598,7 @@ func TestContentPaneClampsViewportOutputToPaneSize(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -567,7 +681,7 @@ func TestFeedsPaneRendersFoldersAndUncategorized(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -598,7 +712,7 @@ func TestFolderSelectionClearsArticlesAndToggleCollapses(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -635,7 +749,7 @@ func TestFolderAccentStylesPropagateToFeedsAndArticles(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig())
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
 	m.folders = []db.Folder{{ID: 10, Name: "Tech", Color: "#f7768e"}}
 	m.feeds = []db.Feed{{ID: 1, Title: "Feed One", URL: "https://example.com/1", FolderID: 10, UnreadCount: 3}}
 	m.sidebarRows = []sidebarRow{{kind: rowKindFolder, folderID: 10}, {kind: rowKindFeed, feedID: 1}}
@@ -695,6 +809,89 @@ func TestSidebarSelectedStyleUsesFolderAccentAsFocusedBackground(t *testing.T) {
 	selected := m.sidebarSelectedStyle(lipgloss.Color("#f7768e"))
 	if got := selected.GetBackground(); got != lipgloss.Color("#f7768e") {
 		t.Fatalf("expected focused folder accent background, got %q", got)
+	}
+}
+
+func TestUpdateCheckedMsgMarksAvailableRelease(t *testing.T) {
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m.settings = newSettings(m.cfg, m.settingsUpdateState())
+
+	next, _ := m.Update(UpdateCheckedMsg{
+		Result: update.CheckResult{
+			CurrentVersion: "v1.0.0",
+			Latest: update.ReleaseInfo{
+				Version:     "v1.1.0",
+				Summary:     "Faster update flow.",
+				PublishedAt: unixTestTime(1710000000),
+			},
+			Available: true,
+		},
+		Manual: true,
+	})
+	m = next.(Model)
+
+	if m.updateState != updateStateAvailable {
+		t.Fatalf("expected updateStateAvailable, got %v", m.updateState)
+	}
+	if m.updateInfo.Version != "v1.1.0" {
+		t.Fatalf("expected latest version v1.1.0, got %q", m.updateInfo.Version)
+	}
+	if m.settings.update.latestVersion != "v1.1.0" {
+		t.Fatalf("expected settings update state to sync latest version, got %q", m.settings.update.latestVersion)
+	}
+	if m.cfg.Updates.AvailableVersion != "v1.1.0" {
+		t.Fatalf("expected available update to persist in config, got %q", m.cfg.Updates.AvailableVersion)
+	}
+}
+
+func TestNewModelRestoresCachedAvailableUpdate(t *testing.T) {
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.Updates.AvailableVersion = "v1.1.0"
+	cfg.Updates.AvailableSummary = "Faster update flow."
+	cfg.Updates.AvailablePublished = 1710000000
+
+	m := NewModel(database, cfg, "v1.0.0")
+
+	if m.updateState != updateStateAvailable {
+		t.Fatalf("expected cached update to restore available state, got %v", m.updateState)
+	}
+	if m.updateInfo.Version != "v1.1.0" {
+		t.Fatalf("expected cached update version v1.1.0, got %q", m.updateInfo.Version)
+	}
+}
+
+func TestSettingsViewRendersUpdateActions(t *testing.T) {
+	cfg := config.DefaultConfig()
+	s := newSettings(cfg, settingsUpdateState{
+		currentVersion: "v1.0.0",
+		state:          updateStateAvailable,
+		latestVersion:  "v1.1.0",
+		summary:        "Faster update flow.",
+	})
+	s.setActiveSection(ssUpdates)
+	chrome := newManagerChrome(62, CatppuccinMocha)
+	view := s.View(62, 40, chrome)
+
+	if !containsString(view, "CATEGORIES") {
+		t.Fatalf("expected categories pane in settings view: %q", view)
+	}
+	if !containsString(view, "Current version") {
+		t.Fatalf("expected current version row in settings view: %q", view)
+	}
+	if !containsString(view, "Update now") {
+		t.Fatalf("expected update action in settings view: %q", view)
 	}
 }
 

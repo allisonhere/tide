@@ -3,6 +3,7 @@ package ui
 import (
 	"tide/internal/db"
 	"tide/internal/feed"
+	"tide/internal/update"
 )
 
 type FeedsLoadedMsg struct {
@@ -54,6 +55,22 @@ type FeedURLUpdatedMsg struct {
 	FeedID int64
 	NewURL string
 	Err    error
+}
+type UpdateCheckedMsg struct {
+	Result update.CheckResult
+	Manual bool
+	Err    error
+}
+type UpdateDownloadedMsg struct {
+	Asset update.DownloadedAsset
+	Err   error
+}
+type UpdateInstalledMsg struct {
+	Result update.InstallResult
+	Err    error
+}
+type RestartedMsg struct {
+	Err error
 }
 type AISummaryFetchedMsg struct {
 	ArticleID int64
