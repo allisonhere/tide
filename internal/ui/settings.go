@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +29,8 @@ const (
 	sfUpdateInstallNow
 	sfUpdateDismissVersion
 	sfUpdateRestartNow
+	sfAboutRepo
+	sfAboutIssues
 	sfProvider
 	sfAPIKey    // visible when provider is openai/claude/gemini
 	sfOllamaURL // visible when provider is ollama
@@ -41,6 +45,7 @@ const (
 	ssFeeds
 	ssUpdates
 	ssAI
+	ssAbout
 	settingsSectionCount
 )
 
@@ -59,7 +64,20 @@ const (
 	settingsActionInstallUpdate
 	settingsActionDismissVersion
 	settingsActionRestartAfterUpdate
+	settingsActionOpenRepo
+	settingsActionOpenIssues
 )
+
+const (
+	tideRepoURL              = "https://github.com/allisonhere/tide"
+	tideIssuesURL            = tideRepoURL + "/issues"
+	settingsAboutPulsePeriod = 120 * time.Millisecond
+	settingsAboutTwoColMinW  = 56
+	settingsAboutCardGap     = 2
+	settingsAboutFrameReset  = 4096
+)
+
+type settingsAboutPulseMsg struct{}
 
 type settingsUpdateState struct {
 	currentVersion   string
@@ -83,6 +101,7 @@ var (
 		"FEEDS",
 		"UPDATES",
 		"AI",
+		"ABOUT",
 	}
 )
 
@@ -117,12 +136,13 @@ type Settings struct {
 	ollamaModelInput textinput.Model
 	savePathInput    textinput.Model
 
-	activeSection settingsSection
-	focusedPane   settingsPaneFocus
-	sectionField  [settingsSectionCount]settingsField
-	focusedField  settingsField
-	shouldSave    bool
-	shouldExit    bool
+	activeSection      settingsSection
+	focusedPane        settingsPaneFocus
+	sectionField       [settingsSectionCount]settingsField
+	focusedField       settingsField
+	aboutGradientFrame int
+	shouldSave         bool
+	shouldExit         bool
 }
 
 func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
@@ -160,6 +180,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 			ssFeeds:   sfFeedMaxBody,
 			ssUpdates: sfUpdateCheckOnStartup,
 			ssAI:      sfProvider,
+			ssAbout:   sfAboutRepo,
 		},
 		focusedField: sfIcons,
 	}
@@ -219,6 +240,9 @@ func (s *Settings) setActiveSection(section settingsSection) {
 		return
 	}
 	s.activeSection = section
+	if section != ssAbout {
+		s.aboutGradientFrame = 0
+	}
 	s.ensureSectionFieldVisible(section)
 	s.focusedField = s.sectionField[section]
 	s.applyFocus()
@@ -321,9 +345,35 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		}
 		fields = append(fields, sfSavePath)
 		return fields
+	case ssAbout:
+		return []settingsField{sfAboutRepo, sfAboutIssues}
 	default:
 		return nil
 	}
+}
+
+func settingsActionURL(action settingsAction) string {
+	switch action {
+	case settingsActionOpenRepo:
+		return tideRepoURL
+	case settingsActionOpenIssues:
+		return tideIssuesURL
+	default:
+		return ""
+	}
+}
+
+func settingsAboutPulseCmd() tea.Cmd {
+	return tea.Tick(settingsAboutPulsePeriod, func(time.Time) tea.Msg {
+		return settingsAboutPulseMsg{}
+	})
+}
+
+func (s Settings) aboutPulseCmd() tea.Cmd {
+	if s.activeSection != ssAbout {
+		return nil
+	}
+	return settingsAboutPulseCmd()
 }
 
 func (s Settings) nextField() settingsField {
@@ -392,6 +442,18 @@ func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) 
 // ── Update ────────────────────────────────────────────────────────────────────
 
 func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
+	if _, ok := msg.(settingsAboutPulseMsg); ok {
+		if s.activeSection != ssAbout {
+			s.aboutGradientFrame = 0
+			return s, nil, false
+		}
+		s.aboutGradientFrame++
+		if s.aboutGradientFrame >= settingsAboutFrameReset {
+			s.aboutGradientFrame = 0
+		}
+		return s, settingsAboutPulseCmd(), false
+	}
+
 	// Route cursor-blink ticks to the active text input.
 	if _, ok := msg.(tea.KeyMsg); !ok {
 		if s.isTextInput() {
@@ -420,10 +482,10 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		switch {
 		case keyMatches(key, keys.Up):
 			s.setActiveSection(s.prevSection())
-			return s, nil, false
+			return s, s.aboutPulseCmd(), false
 		case keyMatches(key, keys.Down):
 			s.setActiveSection(s.nextSection())
-			return s, nil, false
+			return s, s.aboutPulseCmd(), false
 		case keyMatches(key, keys.Right), keyMatches(key, keys.Enter), keyMatches(key, keys.Tab):
 			s.setFocusedPane(settingsPaneDetail)
 			return s, nil, false
@@ -526,6 +588,26 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
+	case sfAboutRepo:
+		switch {
+		case key.String() == " " || keyMatches(key, keys.Enter):
+			s.action = settingsActionOpenRepo
+		case keyMatches(key, keys.Down):
+			s.setFocusedField(s.nextField())
+		case keyMatches(key, keys.Up):
+			s.setFocusedField(s.prevField())
+		}
+
+	case sfAboutIssues:
+		switch {
+		case key.String() == " " || keyMatches(key, keys.Enter):
+			s.action = settingsActionOpenIssues
+		case keyMatches(key, keys.Down):
+			s.setFocusedField(s.nextField())
+		case keyMatches(key, keys.Up):
+			s.setFocusedField(s.prevField())
+		}
+
 	case sfProvider:
 		switch {
 		case key.String() == " " || keyMatches(key, keys.Enter):
@@ -609,6 +691,10 @@ func (s Settings) viewSectionPane(width, height int, chrome managerChrome) strin
 }
 
 func (s Settings) viewSectionBody(width int, chrome managerChrome) string {
+	if s.activeSection == ssAbout {
+		return s.renderAboutSection(width, chrome)
+	}
+
 	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2)
 	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 
@@ -731,6 +817,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) string {
 			lines = addInput(lines, "Model", s.ollamaModelInput, sfOllamaModel)
 		}
 		lines = addInput(lines, "Save summaries to", s.savePathInput, sfSavePath)
+
 	}
 
 	if len(lines) == 0 {
@@ -959,4 +1046,295 @@ func (s Settings) renderInlineHint(text string, width int, chrome managerChrome)
 		Foreground(chrome.muted).
 		Width(max(1, width)).
 		Render(text)
+}
+
+func (s Settings) renderAboutSection(width int, chrome managerChrome) string {
+	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2)
+	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
+	bodyW := max(1, width-2)
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		ind.Render(s.renderAboutHero(bodyW, chrome)),
+		blank,
+		ind.Render(s.renderAboutLinks(bodyW, chrome)),
+		blank,
+		ind.Render(s.renderAboutClosingNote(bodyW, chrome)),
+	)
+}
+
+func (s Settings) renderAboutHero(width int, chrome managerChrome) string {
+	panelW := max(1, width-4)
+	contentW := max(1, panelW-2)
+	label := s.renderAboutWaveLine("TIDE", contentW, 0, false)
+	tagline := wrapWords("Your feeds, no algorithm, no bullshit", max(12, contentW))
+	taglineLines := strings.Split(tagline, "\n")
+
+	lines := []string{label}
+	for i, line := range taglineLines {
+		crest, body := s.renderAboutBouncyWaveLine(line, contentW, i+1, true)
+		lines = append(lines, crest, body)
+	}
+
+	panelBg := lipgloss.Color("#04141d")
+	panel := lipgloss.NewStyle().
+		Width(panelW).
+		Background(panelBg).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#2e6f7f")).
+		BorderBackground(panelBg).
+		Padding(0, 1).
+		Render(strings.Join(lines, "\n"))
+
+	return lipgloss.NewStyle().Width(width).Background(chrome.baseBg).Render(panel)
+}
+
+func (s Settings) renderAboutLinks(width int, chrome managerChrome) string {
+	repoCard := s.renderAboutLinkCard(width, "REPOSITORY", "view source on GitHub", tideRepoURL, s.focusedField == sfAboutRepo, chrome)
+	issuesCard := s.renderAboutLinkCard(width, "ISSUES", "report bugs or track changes", tideIssuesURL, s.focusedField == sfAboutIssues, chrome)
+
+	if width < settingsAboutTwoColMinW {
+		return lipgloss.JoinVertical(lipgloss.Left, repoCard, "", issuesCard)
+	}
+
+	leftW := max(20, (width-settingsAboutCardGap)/2)
+	rightW := max(20, width-leftW-settingsAboutCardGap)
+	repoCard = s.renderAboutLinkCard(leftW, "REPOSITORY", "view source on GitHub", tideRepoURL, s.focusedField == sfAboutRepo, chrome)
+	issuesCard = s.renderAboutLinkCard(rightW, "ISSUES", "report bugs or track changes", tideIssuesURL, s.focusedField == sfAboutIssues, chrome)
+	gap := lipgloss.NewStyle().Background(chrome.baseBg).Render(strings.Repeat(" ", settingsAboutCardGap))
+	return lipgloss.JoinHorizontal(lipgloss.Top, repoCard, gap, issuesCard)
+}
+
+func (s Settings) renderAboutLinkCard(width int, title, hint, url string, focused bool, chrome managerChrome) string {
+	bg := chrome.surfaceBg
+	border := chrome.border
+	titleFg := chrome.text
+	bodyFg := chrome.muted
+	urlFg := chrome.accent
+	if focused {
+		if isDark(bg) {
+			bg = adjustLightness(bg, 0.07)
+		} else {
+			bg = adjustLightness(bg, -0.07)
+		}
+		border = chrome.accent
+		titleFg = chrome.text
+		bodyFg = readableText(chrome.text, bg, 3.5)
+		urlFg = titleFg
+	}
+
+	panelW := max(1, width-4)
+	textW := max(1, panelW-2)
+	badge := s.renderBadge("ENTER", focused, chrome)
+	titleText := lipgloss.NewStyle().Background(bg).Foreground(titleFg).Bold(true).Render(title)
+	titleGap := max(1, textW-lipgloss.Width(titleText)-lipgloss.Width(badge))
+	titleLine := titleText + lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", titleGap)) + badge
+
+	bodyStyle := lipgloss.NewStyle().Background(bg).Foreground(bodyFg)
+	urlStyle := lipgloss.NewStyle().Background(bg).Foreground(urlFg).Bold(focused)
+	content := strings.Join([]string{
+		clampView(titleLine, textW, 1, bg),
+		bodyStyle.Width(textW).Render(truncate(hint, textW)),
+		urlStyle.Width(textW).Render(truncate(url, textW)),
+	}, "\n")
+
+	card := lipgloss.NewStyle().
+		Width(panelW).
+		Background(bg).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(border).
+		BorderBackground(bg).
+		Padding(0, 1).
+		Render(content)
+
+	return lipgloss.NewStyle().Width(width).Background(chrome.baseBg).Render(card)
+}
+
+func (s Settings) renderAboutClosingNote(width int, chrome managerChrome) string {
+	signoff := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Foreground(chrome.muted).
+		Italic(true).
+		Width(max(1, width)).
+		Align(lipgloss.Center).
+		Render("Thanks for taking a look -allie")
+
+	heart := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Foreground(lipgloss.Color("#e64553")).
+		Bold(true).
+		Width(max(1, width)).
+		Align(lipgloss.Center).
+		Render("♥")
+
+	return lipgloss.JoinVertical(lipgloss.Left, signoff, heart)
+}
+
+func (s Settings) renderAboutWaveLine(text string, width, lineIndex int, bold bool) string {
+	center, bandWidth := s.aboutWaveCenter(width, lineIndex)
+	runes := []rune(text)
+	if len(runes) > width {
+		runes = []rune(truncate(text, width))
+	}
+
+	var b strings.Builder
+	for i := 0; i < width; i++ {
+		ch := ' '
+		if i < len(runes) {
+			ch = runes[i]
+		}
+		b.WriteString(renderAboutWaveCell(ch, i-center, bandWidth, bold))
+	}
+	return b.String()
+}
+
+func (s Settings) renderAboutBouncyWaveLine(text string, width, lineIndex int, bold bool) (string, string) {
+	center, bandWidth := s.aboutWaveCenter(width, lineIndex)
+	runes := []rune(text)
+	if len(runes) > width {
+		runes = []rune(truncate(text, width))
+	}
+
+	var crest strings.Builder
+	var body strings.Builder
+	for i := 0; i < width; i++ {
+		ch := ' '
+		if i < len(runes) {
+			ch = runes[i]
+		}
+
+		delta := i - center
+		phase := aboutWaveImpactPhase(delta)
+
+		crestCh := ' '
+		if phase == aboutWavePhaseImpact && ch != ' ' {
+			crestCh = ch
+		}
+
+		crest.WriteString(renderAboutWaveCell(crestCh, delta, bandWidth, bold))
+		switch {
+		case ch == ' ':
+			body.WriteString(renderAboutWaveCell(ch, delta, bandWidth, bold))
+		case phase == aboutWavePhaseImpact:
+			body.WriteString(renderAboutWaveTintedCell(ch, delta, bandWidth, false, 0.38))
+		case phase == aboutWavePhasePreImpact:
+			body.WriteString(renderAboutWaveTintedCell(ch, delta, bandWidth, false, 0.58))
+		case phase == aboutWavePhaseWakeStrong:
+			body.WriteString(renderAboutWaveTintedCell(ch, delta, bandWidth, false, 0.50))
+		case phase == aboutWavePhaseWakeSoft:
+			body.WriteString(renderAboutWaveTintedCell(ch, delta, bandWidth, false, 0.72))
+		default:
+			body.WriteString(renderAboutWaveCell(ch, delta, bandWidth, bold))
+		}
+	}
+	return crest.String(), body.String()
+}
+
+func (s Settings) aboutWaveCenter(width, lineIndex int) (int, int) {
+	bandWidth := max(8, width/3)
+	travel := max(1, width+bandWidth*2)
+	center := (s.aboutGradientFrame + lineIndex*2) % travel
+	center -= bandWidth
+	return center, bandWidth
+}
+
+func renderAboutWaveCell(ch rune, delta, bandWidth int, bold bool) string {
+	bg := aboutWaveColor(delta, bandWidth)
+	return lipgloss.NewStyle().
+		Background(bg).
+		Foreground(aboutWaveForeground(bg)).
+		Bold(bold).
+		Render(string(ch))
+}
+
+func renderAboutWaveTintedCell(ch rune, delta, bandWidth int, bold bool, mix float64) string {
+	bg := aboutWaveColor(delta, bandWidth)
+	tint := blendLipglossColor(bg, aboutWaveForeground(bg), mix)
+	return lipgloss.NewStyle().
+		Background(bg).
+		Foreground(tint).
+		Bold(bold).
+		Render(string(ch))
+}
+
+type aboutWavePhase int
+
+const (
+	aboutWavePhaseNone aboutWavePhase = iota
+	aboutWavePhasePreImpact
+	aboutWavePhaseImpact
+	aboutWavePhaseWakeStrong
+	aboutWavePhaseWakeSoft
+)
+
+func aboutWaveImpactPhase(delta int) aboutWavePhase {
+	switch delta {
+	case -1:
+		return aboutWavePhasePreImpact
+	case 0:
+		return aboutWavePhaseImpact
+	case 1:
+		return aboutWavePhaseWakeStrong
+	case 2:
+		return aboutWavePhaseWakeSoft
+	default:
+		return aboutWavePhaseNone
+	}
+}
+
+func aboutWaveForeground(bg lipgloss.Color) lipgloss.Color {
+	fg := lipgloss.Color("#eef8fb")
+	if contrastRatio(lipgloss.Color("#103847"), bg) >= 4.5 {
+		fg = lipgloss.Color("#103847")
+	}
+	return fg
+}
+
+func aboutWaveColor(delta, bandWidth int) lipgloss.Color {
+	base := lipgloss.Color("#0b2b36")
+	if delta < -bandWidth || delta > bandWidth {
+		return base
+	}
+
+	if delta <= 0 {
+		t := float64(delta+bandWidth) / float64(max(1, bandWidth))
+		switch {
+		case t < 0.45:
+			return blendLipglossColor(base, lipgloss.Color("#2f8f97"), t/0.45)
+		case t < 0.75:
+			return blendLipglossColor(lipgloss.Color("#2f8f97"), lipgloss.Color("#58b8be"), (t-0.45)/0.30)
+		case t < 0.92:
+			return blendLipglossColor(lipgloss.Color("#58b8be"), lipgloss.Color("#81cfd5"), (t-0.75)/0.17)
+		default:
+			return blendLipglossColor(lipgloss.Color("#81cfd5"), lipgloss.Color("#a9dfe2"), (t-0.92)/0.08)
+		}
+	}
+
+	t := float64(delta) / float64(max(1, bandWidth))
+	switch {
+	case t < 0.10:
+		return blendLipglossColor(lipgloss.Color("#a9dfe2"), lipgloss.Color("#81cfd5"), t/0.10)
+	case t < 0.26:
+		return blendLipglossColor(lipgloss.Color("#81cfd5"), lipgloss.Color("#73c0d8"), (t-0.10)/0.16)
+	case t < 0.52:
+		return blendLipglossColor(lipgloss.Color("#73c0d8"), lipgloss.Color("#4f97bb"), (t-0.26)/0.26)
+	default:
+		return blendLipglossColor(lipgloss.Color("#4f97bb"), base, (t-0.52)/0.48)
+	}
+}
+
+func blendLipglossColor(a, b lipgloss.Color, t float64) lipgloss.Color {
+	ar, ag, ab, okA := hexToRGB(a)
+	br, bg, bb, okB := hexToRGB(b)
+	if !okA || !okB {
+		return a
+	}
+	t = math.Max(0, math.Min(1, t))
+	r := ar + (br-ar)*t
+	g := ag + (bg-ag)*t
+	bl := ab + (bb-ab)*t
+	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x",
+		uint8(math.Round(r*255)),
+		uint8(math.Round(g*255)),
+		uint8(math.Round(bl*255)),
+	))
 }

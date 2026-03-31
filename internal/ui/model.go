@@ -1011,7 +1011,8 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	newS, cmd, done := m.settings.Update(msg, m.keys)
 	m.settings = newS
-	switch m.settings.takeAction() {
+	action := m.settings.takeAction()
+	switch action {
 	case settingsActionCheckUpdates:
 		m.updateState = updateStateChecking
 		m.updateErr = ""
@@ -1027,6 +1028,11 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case settingsActionRestartAfterUpdate:
 		if m.updateInstall.Restartable {
 			return m, restartProcessCmd(m.updateInstall.ExecutablePath)
+		}
+		return m, nil
+	case settingsActionOpenRepo, settingsActionOpenIssues:
+		if url := settingsActionURL(action); url != "" {
+			return m, m.openBrowserCmd(url)
 		}
 		return m, nil
 	}

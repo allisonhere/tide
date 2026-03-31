@@ -496,6 +496,26 @@ func TestSettingsViewShowsFeedMaxSizeField(t *testing.T) {
 	}
 }
 
+func TestSettingsAboutActionReturnsBrowserCommand(t *testing.T) {
+	m := Model{
+		cfg:      config.DefaultConfig(),
+		keys:     DefaultKeys,
+		settings: newSettings(config.DefaultConfig(), settingsUpdateState{}),
+	}
+	m.settings.setActiveSection(ssAbout)
+	m.settings.setFocusedField(sfAboutRepo)
+
+	next, cmd := m.handleSettings(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected ABOUT repository action to return a browser command")
+	}
+	if got.settings.action != settingsActionNone {
+		t.Fatalf("expected ABOUT repository action to be consumed, got %v", got.settings.action)
+	}
+}
+
 func TestRightKeyReachesContentPane(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
