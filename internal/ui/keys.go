@@ -56,7 +56,7 @@ var DefaultKeys = KeyMap{
 
 	Refresh:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "refresh feed")),
 	RefreshAll:  key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "refresh all")),
-	MarkRead:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "toggle read")),
+	MarkRead:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "mark read")),
 	MarkAllRead: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "mark all read")),
 	OpenBrowser: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open in browser")),
 	Search:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),

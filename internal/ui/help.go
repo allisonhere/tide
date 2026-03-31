@@ -36,7 +36,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 		{
 			name: "Articles / Content",
 			entries: []entry{
-				{keys.MarkRead.Help().Key, "toggle read for selected article"},
+				{keys.MarkRead.Help().Key, "mark read; next article in list"},
 				{keys.MarkAllRead.Help().Key, "mark current feed as read"},
 				{keys.OpenBrowser.Help().Key, "open selected article in browser"},
 				{keys.Search.Help().Key, "search articles in current feed"},

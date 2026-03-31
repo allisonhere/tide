@@ -51,6 +51,12 @@ type ArticleContentFetchedMsg struct {
 	Content   string
 	Err       error
 }
+type ArticleReadUpdatedMsg struct {
+	ArticleID int64
+	Read      bool
+	Advance   bool
+	Err       error
+}
 type FeedURLUpdatedMsg struct {
 	FeedID int64
 	NewURL string
