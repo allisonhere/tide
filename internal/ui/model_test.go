@@ -204,6 +204,55 @@ func TestUppercaseUOpensAvailableUpdateConfirm(t *testing.T) {
 	}
 }
 
+func TestUpdateConfirmEscReturnsToApp(t *testing.T) {
+	m := Model{
+		overlay: overlayUpdateConfirm,
+		keys:    DefaultKeys,
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	got := next.(Model)
+
+	if got.overlay != overlayNone {
+		t.Fatalf("expected esc from update confirm to return to app, got overlay %v", got.overlay)
+	}
+}
+
+func TestUpdateConfirmEnterStartsDownloadAndReturnsToApp(t *testing.T) {
+	m := Model{
+		overlay:    overlayUpdateConfirm,
+		keys:       DefaultKeys,
+		updateInfo: update.ReleaseInfo{Version: "v1.1.0"},
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(Model)
+
+	if got.overlay != overlayNone {
+		t.Fatalf("expected enter from update confirm to return to app, got overlay %v", got.overlay)
+	}
+	if got.updateState != updateStateDownloading {
+		t.Fatalf("expected enter from update confirm to start downloading, got state %v", got.updateState)
+	}
+	if cmd == nil {
+		t.Fatal("expected enter from update confirm to start a download command")
+	}
+}
+
+func TestUpdateConfirmOverlayMentionsSettingsAvailability(t *testing.T) {
+	m := Model{
+		updateInfo: update.ReleaseInfo{
+			Version:   "v1.1.0",
+			AssetName: "tide-darwin-aarch64",
+		},
+	}
+
+	view := m.renderUpdateConfirmOverlay(72, newManagerChrome(72, CatppuccinMocha))
+	if !containsString(view, "Settings > Updates") {
+		t.Fatalf("expected update confirm overlay to mention settings availability, got %q", view)
+	}
+}
+
 func TestLowercaseUIgnoredForAppUpdateAndAppliesFeedURLUpdate(t *testing.T) {
 	m := Model{
 		pendingURLUpdate: &pendingURLUpdate{feedID: 7, newURL: "https://example.com/new.xml"},
@@ -591,6 +640,87 @@ func TestArticleCursorMoveKeepsFrameStable(t *testing.T) {
 	}
 }
 
+func TestArticleReadUpdatedAdvancesToNextArticleInArticlesPane(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feed := db.Feed{ID: 1, Title: "Feed One", URL: "https://example.com/feed"}
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
+	m = m2.(Model)
+	m.sidebarCursor = 1
+
+	articles := []db.Article{
+		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: "one", PublishedAt: unixTestTime(1710000100), Read: false},
+		{ID: 2, FeedID: 1, Title: "Article Two", Link: "https://example.com/b", Content: "two", PublishedAt: unixTestTime(1710000000), Read: false},
+	}
+	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: articles})
+	m = m2.(Model)
+	m.focused = paneArticles
+
+	m2, cmd := m.Update(ArticleReadUpdatedMsg{ArticleID: 1, Read: true, Advance: true})
+	m = m2.(Model)
+
+	if !m.articles[0].Read {
+		t.Fatal("expected first article to be marked read")
+	}
+	if m.articleCursor != 1 {
+		t.Fatalf("expected article cursor to advance to next article, got %d", m.articleCursor)
+	}
+	if m.filteredArticles[m.articleCursor].ID != 2 {
+		t.Fatalf("expected second article to become selected, got article %d", m.filteredArticles[m.articleCursor].ID)
+	}
+	if cmd == nil {
+		t.Fatal("expected mark-read update to trigger follow-up commands")
+	}
+}
+
+func TestArticleReadUpdatedDoesNotAdvanceOutsideArticlesPane(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feed := db.Feed{ID: 1, Title: "Feed One", URL: "https://example.com/feed"}
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
+	m = m2.(Model)
+	m.sidebarCursor = 1
+
+	articles := []db.Article{
+		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: "one", PublishedAt: unixTestTime(1710000100), Read: false},
+		{ID: 2, FeedID: 1, Title: "Article Two", Link: "https://example.com/b", Content: "two", PublishedAt: unixTestTime(1710000000), Read: false},
+	}
+	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: articles})
+	m = m2.(Model)
+	m.focused = paneContent
+
+	m2, _ = m.Update(ArticleReadUpdatedMsg{ArticleID: 1, Read: true, Advance: false})
+	m = m2.(Model)
+
+	if !m.articles[0].Read {
+		t.Fatal("expected first article to be marked read")
+	}
+	if m.articleCursor != 0 {
+		t.Fatalf("expected article cursor to stay put outside articles pane, got %d", m.articleCursor)
+	}
+	if m.filteredArticles[m.articleCursor].ID != 1 {
+		t.Fatalf("expected first article to remain selected, got article %d", m.filteredArticles[m.articleCursor].ID)
+	}
+}
+
 func TestContentPaneClampsViewportOutputToPaneSize(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
@@ -645,6 +775,31 @@ func TestRenderArticleContentFillsPaneWidth(t *testing.T) {
 	for i, line := range strings.Split(got, "\n") {
 		if lipgloss.Width(line) != m.articlesPaneWidth() {
 			t.Fatalf("expected article content line %d to fill pane width %d, got %d", i+1, m.articlesPaneWidth(), lipgloss.Width(line))
+		}
+	}
+}
+
+func TestRenderArticleContentUsesOneCharacterLeftMargin(t *testing.T) {
+	m := Model{
+		width:  120,
+		height: 30,
+		styles: BuildStyles(GruvboxLight),
+	}
+
+	got := m.renderArticleContent(db.Article{
+		Title:       "Short title",
+		Link:        "https://example.com/a",
+		Content:     "one short line",
+		PublishedAt: unixTestTime(1710000000),
+	})
+
+	lines := strings.Split(ansi.Strip(got), "\n")
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, " ") {
+			t.Fatalf("expected article content line %d to start with a one-character left margin, got %q", i+1, line)
 		}
 	}
 }

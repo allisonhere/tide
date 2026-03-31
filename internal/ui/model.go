@@ -527,6 +527,51 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.clearStatusCmd()
 
+	case ArticleReadUpdatedMsg:
+		if msg.Err != nil {
+			m.setStatus(fmt.Sprintf("mark read failed: %v", msg.Err), true)
+			return m, m.clearStatusCmd()
+		}
+
+		for i := range m.articles {
+			if m.articles[i].ID == msg.ArticleID {
+				m.articles[i].Read = msg.Read
+				break
+			}
+		}
+		m.applyFilter()
+
+		if len(m.filteredArticles) == 0 {
+			m.articleCursor = 0
+			m.listOffset = 0
+			m.viewport.SetContent("")
+			return m, m.loadFeedsCmd()
+		}
+
+		if idx := m.indexOfFilteredArticle(msg.ArticleID); msg.Advance && idx >= 0 && idx == m.articleCursor && idx < len(m.filteredArticles)-1 {
+			m.articleCursor = idx + 1
+			visible := max(1, m.articleRowsVisible())
+			if m.articleCursor >= m.listOffset+visible {
+				m.listOffset = m.articleCursor - visible + 1
+			}
+		} else {
+			m.articleCursor = clamp(m.articleCursor, 0, max(0, len(m.filteredArticles)-1))
+			maxOffset := max(0, len(m.filteredArticles)-1)
+			m.listOffset = clamp(m.listOffset, 0, maxOffset)
+		}
+
+		current := m.filteredArticles[m.articleCursor]
+		m.viewport.SetContent(m.renderArticleContent(current))
+		m.viewport.GotoTop()
+
+		cmds := []tea.Cmd{m.loadFeedsCmd()}
+		if current.ID != msg.ArticleID || !msg.Read {
+			if cmd := m.maybeFetchArticleContentCmd(current); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		return m, tea.Batch(cmds...)
+
 	case ArticleContentFetchedMsg:
 		if msg.Err != nil {
 			return m, nil
@@ -677,7 +722,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focused == paneArticles && len(m.filteredArticles) > 0 {
 			m.focused = paneContent
 			if m.cfg.Display.MarkReadOnOpen {
-				return m, m.markReadCmd(m.filteredArticles[m.articleCursor].ID, true)
+				return m, m.setArticleReadCmd(m.filteredArticles[m.articleCursor].ID, true, false)
 			}
 		}
 		return m, nil
@@ -704,7 +749,11 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, m.keys.MarkRead):
 		if len(m.filteredArticles) > 0 {
 			a := m.filteredArticles[m.articleCursor]
-			return m, m.markReadCmd(a.ID, !a.Read)
+			advance := m.focused == paneArticles
+			if !advance && a.Read {
+				return m, nil
+			}
+			return m, m.setArticleReadCmd(a.ID, true, advance)
 		}
 		return m, nil
 
@@ -942,12 +991,12 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case overlayUpdateConfirm:
 		switch {
 		case keyMatches(msg, m.keys.Confirm):
-			m.overlay = overlaySettings
+			m.overlay = overlayNone
 			m.updateState = updateStateDownloading
 			m.syncSettingsUpdateState()
 			return m, m.downloadUpdateCmd(m.updateInfo)
 		case keyMatches(msg, m.keys.Cancel):
-			m.overlay = overlaySettings
+			m.overlay = overlayNone
 			return m, nil
 		}
 		return m, nil
@@ -1198,15 +1247,16 @@ func (m Model) renderPaneHeaderWithAccent(label string, focused bool, width int,
 }
 
 func (m Model) renderArticleContent(a db.Article) string {
+	contentWidth := max(1, m.articlesPaneWidth()-1)
 	bodyWidth := m.contentBodyWidth()
-	title := m.styles.ContentTitle.Width(bodyWidth + 2).Render(truncate(a.Title, bodyWidth+2))
-	meta := m.styles.ContentMeta.Width(bodyWidth + 2).Render(truncate(a.PublishedAt.Format("Mon, 02 Jan 2006 15:04")+"  "+a.Link, bodyWidth+2))
+	title := " " + m.styles.ContentTitle.Width(contentWidth).Render(truncate(a.Title, contentWidth))
+	meta := " " + m.styles.ContentMeta.Width(contentWidth).Render(truncate(a.PublishedAt.Format("Mon, 02 Jan 2006 15:04")+"  "+a.Link, contentWidth))
 
 	content := a.Content
 	if content == "" {
 		content = "No content available. Press o to open in browser."
 	}
-	body := m.styles.ContentBody.Width(bodyWidth).Render(formatArticleBody(content, bodyWidth))
+	body := indentBlock(m.styles.ContentBody.Width(bodyWidth).Render(formatArticleBody(content, bodyWidth)), 1)
 
 	return fillViewWidth(title+"\n"+meta+"\n\n"+body, m.articlesPaneWidth(), m.styles.Theme.Bg)
 }
@@ -1498,11 +1548,18 @@ func (m Model) renderUpdateConfirmOverlay(width int, chrome managerChrome) strin
 		Background(chrome.baseBg).
 		Foreground(chrome.text).
 		Width(width).
-		Padding(1, 2).
+		Padding(1, 2, 0, 2).
 		Render(bodyText)
 
+	note := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Foreground(chrome.muted).
+		Width(width).
+		Padding(0, 2, 1, 2).
+		Render("Also available in Settings > Updates")
+
 	actions := renderManagerActions(width, chrome, "enter", "install", "esc", "cancel")
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, actions)
+	return lipgloss.JoinVertical(lipgloss.Left, header, body, note, actions)
 }
 
 func overlayOnBase(base, box string, width, height int, bg lipgloss.Color) string {
@@ -1682,19 +1739,12 @@ func (m *Model) updateFeedURLCmd(feedID int64, newURL string) tea.Cmd {
 	}
 }
 
-func (m *Model) markReadCmd(articleID int64, read bool) tea.Cmd {
+func (m *Model) setArticleReadCmd(articleID int64, read, advance bool) tea.Cmd {
 	return func() tea.Msg {
 		if err := m.db.MarkRead(articleID, read); err != nil {
-			return ErrMsg{err}
+			return ArticleReadUpdatedMsg{ArticleID: articleID, Read: read, Advance: advance, Err: err}
 		}
-		// Update in-memory
-		for i := range m.articles {
-			if m.articles[i].ID == articleID {
-				m.articles[i].Read = read
-			}
-		}
-		m.applyFilter()
-		return m.loadFeedsCmd()()
+		return ArticleReadUpdatedMsg{ArticleID: articleID, Read: read, Advance: advance}
 	}
 }
 
@@ -2208,6 +2258,15 @@ func (m *Model) applyFilter() {
 	m.filteredArticles = filtered
 }
 
+func (m Model) indexOfFilteredArticle(articleID int64) int {
+	for i := range m.filteredArticles {
+		if m.filteredArticles[i].ID == articleID {
+			return i
+		}
+	}
+	return -1
+}
+
 func (m *Model) setStatus(msg string, isErr bool) {
 	m.statusMsg = msg
 	m.statusErr = isErr
@@ -2584,6 +2643,18 @@ func fillViewWidth(view string, width int, bg lipgloss.Color) string {
 		return view
 	}
 	return clampView(view, width, strings.Count(view, "\n")+1, bg)
+}
+
+func indentBlock(view string, pad int) string {
+	if view == "" || pad <= 0 {
+		return view
+	}
+	prefix := strings.Repeat(" ", pad)
+	lines := strings.Split(view, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) resetHelpVP() {
