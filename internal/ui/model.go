@@ -24,6 +24,7 @@ import (
 	"tide/internal/config"
 	"tide/internal/db"
 	"tide/internal/feed"
+	"tide/internal/update"
 )
 
 // ── Enums ────────────────────────────────────────────────────────────────────
@@ -60,7 +61,21 @@ const (
 	overlayHelp
 	overlayFetchError // fetch-error details for a single feed
 	overlaySettings
+	overlayUpdateConfirm
 	overlaySummary
+)
+
+type updateState int
+
+const (
+	updateStateIdle updateState = iota
+	updateStateChecking
+	updateStateAvailable
+	updateStateDownloading
+	updateStateInstalling
+	updateStateInstalled
+	updateStateNeedsElevation
+	updateStateError
 )
 
 // ── Model ────────────────────────────────────────────────────────────────────
@@ -68,6 +83,9 @@ const (
 type Model struct {
 	db  *db.DB
 	cfg config.Config
+
+	currentVersion string
+	updater        *update.Updater
 
 	width, height int
 	focused       pane
@@ -127,6 +145,14 @@ type Model struct {
 	// Settings overlay
 	settings Settings
 
+	// Update flow
+	updateState      updateState
+	updateInfo       update.ReleaseInfo
+	downloadedUpdate *update.DownloadedAsset
+	updateInstall    update.InstallResult
+	updateErr        string
+	updateDismissed  bool
+
 	// AI summary overlay
 	summarizer        ai.Summarizer // nil when not configured
 	summaryArticle    db.Article
@@ -139,7 +165,7 @@ type pendingURLUpdate struct {
 	newURL string
 }
 
-func NewModel(database *db.DB, cfg config.Config) Model {
+func NewModel(database *db.DB, cfg config.Config, currentVersion string) Model {
 	_, themeIdx := ThemeByName(cfg.Theme)
 
 	si := textinput.New()
@@ -155,6 +181,8 @@ func NewModel(database *db.DB, cfg config.Config) Model {
 	m := Model{
 		db:               database,
 		cfg:              cfg,
+		currentVersion:   currentVersion,
+		updater:          update.New(),
 		focused:          paneFeeds,
 		confirmedTheme:   themeIdx,
 		activeTheme:      themeIdx,
@@ -169,11 +197,16 @@ func NewModel(database *db.DB, cfg config.Config) Model {
 		keys:             DefaultKeys,
 		summarizer:       summarizer,
 	}
+	m.restoreCachedUpdateState()
 	return m
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadFeedsCmd(), m.spinner.Tick)
+	cmds := []tea.Cmd{m.loadFeedsCmd(), m.spinner.Tick}
+	if cmd := m.maybeCheckForUpdatesCmd(false); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	return tea.Batch(cmds...)
 }
 
 // ── Update ───────────────────────────────────────────────────────────────────
@@ -203,6 +236,94 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMsg = ""
 		m.statusErr = false
 		return m, nil
+
+	case UpdateCheckedMsg:
+		m.updateErr = ""
+		m.cfg.Updates.LastCheckedUnix = time.Now().Unix()
+		if msg.Err != nil {
+			m.updateState = updateStateError
+			m.updateErr = msg.Err.Error()
+			m.syncSettingsUpdateState()
+			config.Save(m.cfg) //nolint:errcheck
+			if msg.Manual {
+				m.setStatus("update check failed: "+msg.Err.Error(), true)
+				return m, m.clearStatusCmd()
+			}
+			return m, nil
+		}
+
+		m.updateInfo = msg.Result.Latest
+		m.updateDismissed = msg.Result.Latest.Version != "" && msg.Result.Latest.Version == m.cfg.Updates.DismissedVersion
+		if msg.Result.Available {
+			m.updateState = updateStateAvailable
+			m.cfg.Updates.AvailableVersion = msg.Result.Latest.Version
+			m.cfg.Updates.AvailableSummary = msg.Result.Latest.Summary
+			m.cfg.Updates.AvailablePublished = msg.Result.Latest.PublishedAt.Unix()
+			m.syncSettingsUpdateState()
+			config.Save(m.cfg) //nolint:errcheck
+			if !m.updateDismissed && (msg.Manual || update.IsStableVersion(m.currentVersion)) {
+				m.setStatus("Update available: "+msg.Result.Latest.Version, false)
+				return m, m.clearStatusCmd()
+			}
+			return m, nil
+		}
+
+		m.updateState = updateStateIdle
+		m.updateDismissed = false
+		m.cfg.Updates.DismissedVersion = ""
+		m.clearCachedAvailableUpdate()
+		config.Save(m.cfg) //nolint:errcheck
+		m.syncSettingsUpdateState()
+		if msg.Manual {
+			m.setStatus("Tide is up to date", false)
+			return m, m.clearStatusCmd()
+		}
+		return m, nil
+
+	case UpdateDownloadedMsg:
+		if msg.Err != nil {
+			m.updateState = updateStateError
+			m.updateErr = msg.Err.Error()
+			m.syncSettingsUpdateState()
+			m.setStatus("update download failed: "+msg.Err.Error(), true)
+			return m, m.clearStatusCmd()
+		}
+		m.downloadedUpdate = &msg.Asset
+		m.updateState = updateStateInstalling
+		m.syncSettingsUpdateState()
+		return m, m.installUpdateCmd(msg.Asset)
+
+	case UpdateInstalledMsg:
+		if msg.Err != nil {
+			m.updateState = updateStateError
+			m.updateErr = msg.Err.Error()
+			m.syncSettingsUpdateState()
+			m.setStatus("update failed: "+msg.Err.Error(), true)
+			return m, m.clearStatusCmd()
+		}
+		m.updateInstall = msg.Result
+		m.downloadedUpdate = nil
+		if msg.Result.RequiresManual {
+			m.updateState = updateStateNeedsElevation
+			m.syncSettingsUpdateState()
+			m.setStatus("update downloaded; admin permission required", true)
+			return m, m.clearStatusCmd()
+		}
+		m.updateState = updateStateInstalled
+		m.updateDismissed = false
+		m.cfg.Updates.DismissedVersion = ""
+		m.clearCachedAvailableUpdate()
+		config.Save(m.cfg) //nolint:errcheck
+		m.syncSettingsUpdateState()
+		m.setStatus("Tide updated to "+msg.Result.Version+" · restart when ready", false)
+		return m, m.clearStatusCmd()
+
+	case RestartedMsg:
+		if msg.Err != nil {
+			m.setStatus(msg.Err.Error(), true)
+			return m, m.clearStatusCmd()
+		}
+		return m, tea.Quit
 
 	case FeedsLoadedMsg:
 		prevKind, prevID := m.currentSidebarSelection()
@@ -292,7 +413,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Success — check for permanent redirect suggestion.
 		if r := msg.Result; r != nil && r.SuggestURLUpdate {
 			m.pendingURLUpdate = &pendingURLUpdate{feedID: msg.FeedID, newURL: r.SuggestedURL}
-			m.setStatus("feed moved permanently — press U to update stored URL", false)
+			m.setStatus("feed moved permanently — press u to update stored URL", false)
 		}
 		cmds := []tea.Cmd{}
 		for _, a := range msg.Articles {
@@ -609,15 +730,28 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case keyMatches(msg, m.keys.Settings):
-		m.settings = newSettings(m.cfg)
+		m.settings = newSettings(m.cfg, m.settingsUpdateState())
 		m.overlay = overlaySettings
 		return m, nil
 
-	case msg.String() == "U":
+	case msg.String() == "u":
 		if m.pendingURLUpdate != nil {
 			p := m.pendingURLUpdate
 			m.pendingURLUpdate = nil
 			return m, m.updateFeedURLCmd(p.feedID, p.newURL)
+		}
+		return m, nil
+
+	case msg.String() == "U":
+		if m.showAvailableUpdatePrompt() {
+			m.overlay = overlayUpdateConfirm
+			return m, nil
+		}
+		return m, nil
+
+	case msg.String() == "i":
+		if m.showAvailableUpdatePrompt() {
+			return m, m.dismissAvailableUpdate()
 		}
 		return m, nil
 
@@ -787,7 +921,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = overlayNone
 			m.lastFetchError = nil
 			return m, m.clearStatusCmd()
-		case "u", "U":
+		case "u":
 			if m.lastFetchError != nil && m.lastFetchError.SuggestURLUpdate {
 				r := m.lastFetchError
 				m.overlay = overlayNone
@@ -805,6 +939,19 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case overlaySettings:
 		return m.handleSettings(msg)
 
+	case overlayUpdateConfirm:
+		switch {
+		case keyMatches(msg, m.keys.Confirm):
+			m.overlay = overlaySettings
+			m.updateState = updateStateDownloading
+			m.syncSettingsUpdateState()
+			return m, m.downloadUpdateCmd(m.updateInfo)
+		case keyMatches(msg, m.keys.Cancel):
+			m.overlay = overlaySettings
+			return m, nil
+		}
+		return m, nil
+
 	case overlaySummary:
 		return m.handleSummaryKey(msg)
 	}
@@ -815,6 +962,25 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	newS, cmd, done := m.settings.Update(msg, m.keys)
 	m.settings = newS
+	switch m.settings.takeAction() {
+	case settingsActionCheckUpdates:
+		m.updateState = updateStateChecking
+		m.updateErr = ""
+		m.syncSettingsUpdateState()
+		return m, m.checkForUpdatesCmd(true)
+	case settingsActionInstallUpdate:
+		if m.updateInfo.Version != "" {
+			m.overlay = overlayUpdateConfirm
+		}
+		return m, nil
+	case settingsActionDismissVersion:
+		return m, m.dismissAvailableUpdate()
+	case settingsActionRestartAfterUpdate:
+		if m.updateInstall.Restartable {
+			return m, restartProcessCmd(m.updateInstall.ExecutablePath)
+		}
+		return m, nil
+	}
 	if done {
 		if m.settings.shouldSave {
 			m.cfg = m.settings.ApplyTo(m.cfg)
@@ -1047,17 +1213,28 @@ func (m Model) renderArticleContent(a db.Article) string {
 
 func (m Model) renderStatusBar() string {
 	w := m.width
+	updateInfoPart := m.statusUpdateInfoPart()
+	updateActionPart := m.statusUpdateActionPart()
 
 	if m.statusMsg != "" {
 		style := m.styles.StatusBar
 		if m.statusErr {
 			style = m.styles.StatusError
 		}
-		return style.Width(w).Render(m.statusLine(m.statusMsg))
+		parts := []string{}
+		if updateInfoPart != "" && !m.statusMsgCoversUpdateState() {
+			parts = append(parts, updateInfoPart)
+		}
+		parts = append(parts, m.statusMsg)
+		return style.Width(w).Render(m.statusLine(strings.Join(parts, "  ·  "), updateActionPart))
 	}
 
 	// Build status from current state
 	parts := []string{}
+
+	if updateInfoPart != "" {
+		parts = append(parts, updateInfoPart)
+	}
 
 	if len(m.feeds) > 0 {
 		f := m.selectedFeed()
@@ -1085,7 +1262,44 @@ func (m Model) renderStatusBar() string {
 
 	parts = append(parts, m.styles.StatusHint.Render("? help"))
 
-	return m.styles.StatusBar.Width(w).Render(m.statusLine(strings.Join(parts, "  ·  ")))
+	return m.styles.StatusBar.Width(w).Render(m.statusLine(strings.Join(parts, "  ·  "), updateActionPart))
+}
+
+func (m Model) statusUpdateInfoPart() string {
+	switch m.updateState {
+	case updateStateChecking:
+		return m.styles.StatusSpinner.Render(m.spinner.View() + " checking updates...")
+	case updateStateInstalled:
+		if m.updateInstall.Version != "" {
+			return "restart for " + m.updateInstall.Version
+		}
+	}
+	return ""
+}
+
+func (m Model) statusUpdateActionPart() string {
+	if !m.showAvailableUpdatePrompt() {
+		return ""
+	}
+	return m.styles.StatusHint.Render(m.updateInfo.Version + "  U update  i ignore")
+}
+
+func (m Model) statusMsgCoversUpdateState() bool {
+	msg := strings.ToLower(m.statusMsg)
+	switch m.updateState {
+	case updateStateChecking:
+		return strings.Contains(msg, "checking update")
+	case updateStateAvailable:
+		return strings.Contains(msg, "update available")
+	case updateStateInstalled:
+		return strings.Contains(msg, "restart") || strings.Contains(msg, "updated to")
+	default:
+		return false
+	}
+}
+
+func (m Model) showAvailableUpdatePrompt() bool {
+	return m.updateState == updateStateAvailable && m.updateInfo.Version != "" && !m.updateDismissed
 }
 
 func (m Model) renderOverlay(base string) string {
@@ -1162,6 +1376,13 @@ func (m Model) renderOverlay(base string) string {
 		winH := min(m.height-4, 36)
 		chrome := newManagerChrome(winW, m.styles.Theme)
 		inner := m.settings.View(winW, winH, chrome)
+		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
+		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
+
+	case overlayUpdateConfirm:
+		winW := min(m.width-8, 72)
+		chrome := newManagerChrome(winW, m.styles.Theme)
+		inner := m.renderUpdateConfirmOverlay(winW, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
 		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
 
@@ -1259,6 +1480,31 @@ func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) str
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, hints)
 }
 
+func (m Model) renderUpdateConfirmOverlay(width int, chrome managerChrome) string {
+	header := renderManagerHeader("INSTALL UPDATE?", width, chrome)
+
+	target, _ := os.Executable()
+	bodyText := strings.Join([]string{
+		"Install the latest Tide release?",
+		"",
+		"Version: " + m.updateInfo.Version,
+		"Asset: " + m.updateInfo.AssetName + ".tar.gz",
+		"Target: " + target,
+		"",
+		"The update will download first, then replace the current binary if the install path is writable.",
+	}, "\n")
+
+	body := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Foreground(chrome.text).
+		Width(width).
+		Padding(1, 2).
+		Render(bodyText)
+
+	actions := renderManagerActions(width, chrome, "enter", "install", "esc", "cancel")
+	return lipgloss.JoinVertical(lipgloss.Left, header, body, actions)
+}
+
 func overlayOnBase(base, box string, width, height int, bg lipgloss.Color) string {
 	base = clampView(base, width, height, bg)
 
@@ -1350,6 +1596,50 @@ func (m *Model) loadArticlesCmd(feedID int64) tea.Cmd {
 			return ErrMsg{err}
 		}
 		return ArticlesLoadedMsg{FeedID: feedID, Articles: articles}
+	}
+}
+
+func (m *Model) maybeCheckForUpdatesCmd(manual bool) tea.Cmd {
+	if manual {
+		return m.checkForUpdatesCmd(true)
+	}
+	if !m.cfg.Updates.CheckOnStartup {
+		return nil
+	}
+	lastChecked := time.Unix(m.cfg.Updates.LastCheckedUnix, 0)
+	if m.cfg.Updates.LastCheckedUnix > 0 {
+		interval := time.Duration(m.cfg.Updates.CheckIntervalHours) * time.Hour
+		if interval > 0 && time.Since(lastChecked) < interval {
+			return nil
+		}
+	}
+	return m.checkForUpdatesCmd(false)
+}
+
+func (m *Model) checkForUpdatesCmd(manual bool) tea.Cmd {
+	m.updateState = updateStateChecking
+	updater := m.updater
+	currentVersion := m.currentVersion
+	return func() tea.Msg {
+		result, err := updater.Check(currentVersion)
+		return UpdateCheckedMsg{Result: result, Manual: manual, Err: err}
+	}
+}
+
+func (m *Model) downloadUpdateCmd(info update.ReleaseInfo) tea.Cmd {
+	updater := m.updater
+	return func() tea.Msg {
+		asset, err := updater.Download(info)
+		return UpdateDownloadedMsg{Asset: asset, Err: err}
+	}
+}
+
+func (m *Model) installUpdateCmd(asset update.DownloadedAsset) tea.Cmd {
+	updater := m.updater
+	currentExec, _ := os.Executable()
+	return func() tea.Msg {
+		result, err := updater.Install(asset, currentExec)
+		return UpdateInstalledMsg{Result: result, Err: err}
 	}
 }
 
@@ -1457,6 +1747,19 @@ func (m *Model) clearStatusCmd() tea.Cmd {
 	return tea.Tick(4*time.Second, func(time.Time) tea.Msg {
 		return StatusClearMsg{}
 	})
+}
+
+func restartProcessCmd(executablePath string) tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command(executablePath, os.Args[1:]...)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Start(); err != nil {
+			return RestartedMsg{Err: fmt.Errorf("restart Tide: %w", err)}
+		}
+		return RestartedMsg{}
+	}
 }
 
 func (m Model) openBrowserCmd(url string) tea.Cmd {
@@ -1630,6 +1933,70 @@ func (m *Model) clearArticles() {
 	m.listOffset = 0
 	m.viewport.SetContent("")
 	m.viewport.GotoTop()
+}
+
+func (m Model) settingsUpdateState() settingsUpdateState {
+	lastChecked := time.Time{}
+	if m.cfg.Updates.LastCheckedUnix > 0 {
+		lastChecked = time.Unix(m.cfg.Updates.LastCheckedUnix, 0)
+	}
+	return settingsUpdateState{
+		currentVersion:   m.currentVersion,
+		state:            m.updateState,
+		latestVersion:    m.updateInfo.Version,
+		publishedAt:      m.updateInfo.PublishedAt,
+		summary:          m.updateInfo.Summary,
+		lastChecked:      lastChecked,
+		err:              m.updateErr,
+		dismissed:        m.updateDismissed,
+		manualCommand:    m.updateInstall.ManualCommand,
+		restartable:      m.updateInstall.Restartable,
+		installedVersion: m.updateInstall.Version,
+	}
+}
+
+func (m *Model) syncSettingsUpdateState() {
+	m.settings.setUpdateState(m.settingsUpdateState())
+}
+
+func (m *Model) dismissAvailableUpdate() tea.Cmd {
+	if m.updateInfo.Version == "" {
+		return nil
+	}
+	m.cfg.Updates.DismissedVersion = m.updateInfo.Version
+	config.Save(m.cfg) //nolint:errcheck
+	m.updateDismissed = true
+	m.syncSettingsUpdateState()
+	m.setStatus("Update "+m.updateInfo.Version+" dismissed", false)
+	return m.clearStatusCmd()
+}
+
+func (m *Model) restoreCachedUpdateState() {
+	version := strings.TrimSpace(m.cfg.Updates.AvailableVersion)
+	if version == "" {
+		return
+	}
+	if !update.IsNewerVersion(version, m.currentVersion) {
+		m.clearCachedAvailableUpdate()
+		return
+	}
+	publishedAt := time.Time{}
+	if m.cfg.Updates.AvailablePublished > 0 {
+		publishedAt = time.Unix(m.cfg.Updates.AvailablePublished, 0)
+	}
+	m.updateInfo = update.ReleaseInfo{
+		Version:     version,
+		Summary:     strings.TrimSpace(m.cfg.Updates.AvailableSummary),
+		PublishedAt: publishedAt,
+	}
+	m.updateState = updateStateAvailable
+	m.updateDismissed = version == m.cfg.Updates.DismissedVersion
+}
+
+func (m *Model) clearCachedAvailableUpdate() {
+	m.cfg.Updates.AvailableVersion = ""
+	m.cfg.Updates.AvailableSummary = ""
+	m.cfg.Updates.AvailablePublished = 0
 }
 
 func (m Model) currentSidebarSelection() (sidebarRowKind, int64) {
@@ -2009,10 +2376,31 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-func (m Model) statusLine(s string) string {
+func (m Model) statusLine(left, right string) string {
 	maxW := max(0, m.width-4) // leave room for status bar padding
-	s = strings.ReplaceAll(s, "\n", " ")
-	return truncate(s, maxW)
+	left = strings.ReplaceAll(left, "\n", " ")
+	right = strings.ReplaceAll(right, "\n", " ")
+	if right == "" {
+		return truncate(left, maxW)
+	}
+
+	right = truncate(right, maxW)
+	rightW := lipgloss.Width(right)
+	if rightW >= maxW {
+		return right
+	}
+	if left == "" {
+		return strings.Repeat(" ", maxW-rightW) + right
+	}
+
+	const gap = 2
+	leftW := maxW - rightW - gap
+	if leftW <= 0 {
+		return right
+	}
+
+	left = truncate(left, leftW)
+	return padRight(left, leftW) + strings.Repeat(" ", gap) + right
 }
 
 func renderFeedRow(prefix, title, badge string, width int) string {

@@ -52,7 +52,7 @@ Config and database are stored in `~/.config/rss/`.
 
 Open settings with `S`.
 
-The settings modal is organized into compact `DISPLAY`, `FEEDS`, and `AI SUMMARIES` sections with shorter input fields and inline hints for fields that benefit from extra context.
+The settings overlay uses a category list on the left and a focused detail pane on the right. Current categories are `DISPLAY`, `FEEDS`, `UPDATES`, and `AI`.
 
 Display options:
 - Toggle Unicode icons for pane headers and item state markers
@@ -62,6 +62,12 @@ Display options:
 
 Feed options:
 - Set the maximum feed body size accepted during parsing
+
+Update options:
+- Toggle startup update checks
+- Check for the latest Tide release manually
+- Install the latest release in place when the current binary path is writable
+- If admin permission is required, Tide shows the exact install command to run
 
 AI summary options:
 - Provider: `none`, `OpenAI`, `Claude`, `Gemini`, or `Ollama`
@@ -135,6 +141,16 @@ Feed fetch limits:
 - `feed.max_body_mib` controls the maximum feed response size accepted for parsing
 - Default is `10`
 - If a feed exceeds this limit, Tide returns a clear “feed is too large to parse” error instead of a misleading XML syntax error
+
+## Self Updates
+
+Tide can check GitHub releases for a newer version and install the matching binary for your platform.
+
+- Startup checks are enabled by default and run at most once every 24 hours
+- Manual checks and installs live in the `UPDATES` section of Settings (`S`)
+- Tide never downloads or installs an update until you explicitly choose `Update now`
+- After a successful install, Tide offers `Restart now`
+- If the install target needs elevated permissions, Tide shows a manual `sudo install ...` command instead of failing silently
 
 ## Keyboard Shortcuts
 

@@ -11,6 +11,7 @@ type Config struct {
 	Theme   string        `toml:"theme"`
 	Display DisplayConfig `toml:"display"`
 	Feed    FeedConfig    `toml:"feed"`
+	Updates UpdatesConfig `toml:"updates"`
 	AI      AIConfig      `toml:"ai"`
 }
 
@@ -23,6 +24,16 @@ type DisplayConfig struct {
 
 type FeedConfig struct {
 	MaxBodyMiB int `toml:"max_body_mib"`
+}
+
+type UpdatesConfig struct {
+	CheckOnStartup     bool   `toml:"check_on_startup"`
+	CheckIntervalHours int    `toml:"check_interval_hours"`
+	LastCheckedUnix    int64  `toml:"last_checked_unix"`
+	DismissedVersion   string `toml:"dismissed_version"`
+	AvailableVersion   string `toml:"available_version"`
+	AvailableSummary   string `toml:"available_summary"`
+	AvailablePublished int64  `toml:"available_published_unix"`
 }
 
 type AIConfig struct {
@@ -45,6 +56,10 @@ func DefaultConfig() Config {
 		},
 		Feed: FeedConfig{
 			MaxBodyMiB: 10,
+		},
+		Updates: UpdatesConfig{
+			CheckOnStartup:     true,
+			CheckIntervalHours: 24,
 		},
 		AI: AIConfig{
 			OllamaURL:   "http://localhost:11434",
@@ -75,6 +90,9 @@ func Load() (Config, error) {
 	}
 	if cfg.Feed.MaxBodyMiB <= 0 {
 		cfg.Feed.MaxBodyMiB = DefaultConfig().Feed.MaxBodyMiB
+	}
+	if cfg.Updates.CheckIntervalHours <= 0 {
+		cfg.Updates.CheckIntervalHours = DefaultConfig().Updates.CheckIntervalHours
 	}
 	return cfg, nil
 }
