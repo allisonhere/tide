@@ -18,7 +18,23 @@ A terminal RSS reader built with [Bubble Tea](https://github.com/charmbracelet/b
 
 ## Themes
 
-catppuccin-mocha, catppuccin-latte, catppuccin-frappe, catppuccin-macchiato, nord, dracula, gruvbox-dark, gruvbox-light, tokyo-night, tokyo-night-day, rose-pine, rose-pine-moon, rose-pine-dawn, one-dark, magenta-geode, coral-sunset, lavender-fields-forever
+- `catppuccin-mocha`
+- `catppuccin-latte`
+- `catppuccin-frappe`
+- `catppuccin-macchiato`
+- `nord`
+- `dracula`
+- `gruvbox-dark`
+- `gruvbox-light`
+- `tokyo-night`
+- `tokyo-night-day`
+- `rose-pine`
+- `rose-pine-moon`
+- `rose-pine-dawn`
+- `one-dark`
+- `magenta-geode`
+- `coral-sunset`
+- `lavender-fields-forever`
 
 ## Installation
 
