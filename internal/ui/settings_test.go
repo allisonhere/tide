@@ -211,27 +211,50 @@ func TestSettingsAboutAnimationDoesNotWrapEarly(t *testing.T) {
 	}
 }
 
-func TestAboutWaveImpactPhaseSequence(t *testing.T) {
-	tests := []struct {
-		delta int
-		want  aboutWavePhase
-	}{
-		{delta: -2, want: aboutWavePhaseNone},
-		{delta: -1, want: aboutWavePhasePreImpact},
-		{delta: 0, want: aboutWavePhaseImpact},
-		{delta: 1, want: aboutWavePhaseWakeStrong},
-		{delta: 2, want: aboutWavePhaseWakeSoft},
-		{delta: 3, want: aboutWavePhaseNone},
-	}
+func TestAboutWaveSampleFallsOffSmoothly(t *testing.T) {
+	center := aboutWaveSample(0, 12)
+	near := aboutWaveSample(1, 12)
+	edge := aboutWaveSample(11, 12)
+	aheadOutside := aboutWaveSample(12, 12)
 
-	for _, tt := range tests {
-		if got := aboutWaveImpactPhase(tt.delta); got != tt.want {
-			t.Fatalf("delta %d: expected phase %v, got %v", tt.delta, tt.want, got)
-		}
+	if center.intensity <= near.intensity {
+		t.Fatalf("expected center intensity %.2f to exceed near intensity %.2f", center.intensity, near.intensity)
+	}
+	if near.intensity <= edge.intensity {
+		t.Fatalf("expected near intensity %.2f to exceed edge intensity %.2f", near.intensity, edge.intensity)
+	}
+	if center.lift <= near.lift {
+		t.Fatalf("expected center lift %.2f to exceed near lift %.2f", center.lift, near.lift)
+	}
+	if near.lift <= 0 {
+		t.Fatalf("expected adjacent cells to retain some lift, got %.2f", near.lift)
+	}
+	if aheadOutside.intensity != 0 || aheadOutside.lift != 0 || aheadOutside.ripple != 0 {
+		t.Fatalf("expected sample ahead of the crest band to be inactive, got %+v", aheadOutside)
 	}
 }
 
-func TestSettingsAboutWaveBounceLiftsCharacterAtCrest(t *testing.T) {
+func TestAboutWaveSampleAddsTrailingRippleOnlyBehindCrest(t *testing.T) {
+	behindNear := aboutWaveSample(-7, 12)
+	behindMid := aboutWaveSample(-16, 12)
+	behindEnd := aboutWaveSample(-29, 12)
+	ahead := aboutWaveSample(16, 12)
+
+	if behindNear.ripple <= 0 {
+		t.Fatalf("expected trailing ripple behind the crest, got %+v", behindNear)
+	}
+	if behindNear.ripple <= behindMid.ripple {
+		t.Fatalf("expected ripple to decay with distance, got near=%.3f mid=%.3f", behindNear.ripple, behindMid.ripple)
+	}
+	if behindEnd.ripple != 0 {
+		t.Fatalf("expected ripple to fade out before the next wave, got %+v", behindEnd)
+	}
+	if ahead.ripple != 0 {
+		t.Fatalf("expected no ripple ahead of the crest, got %+v", ahead)
+	}
+}
+
+func TestSettingsAboutWaveBounceLiftsCharacterNeighborhood(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setActiveSection(ssAbout)
 	s.aboutGradientFrame = 9
@@ -239,9 +262,18 @@ func TestSettingsAboutWaveBounceLiftsCharacterAtCrest(t *testing.T) {
 	crest, body := s.renderAboutBouncyWaveLine("WAVE", 12, 0, true)
 	crestRunes := []rune(ansi.Strip(crest))
 	bodyRunes := []rune(ansi.Strip(body))
+	lifted := 0
+	for _, ch := range crestRunes {
+		if ch != ' ' {
+			lifted++
+		}
+	}
 
 	if crestRunes[1] != 'A' {
 		t.Fatalf("expected crest line to lift the rune under the wave crest, got %q", string(crestRunes))
+	}
+	if lifted < 2 {
+		t.Fatalf("expected wave crest to lift a small neighborhood, got %q", string(crestRunes))
 	}
 	if bodyRunes[1] != 'A' {
 		t.Fatalf("expected body line to keep a ghosted baseline rune for a half-bounce effect, got %q", string(bodyRunes))

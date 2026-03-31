@@ -1071,7 +1071,7 @@ func (s Settings) renderAboutHero(width int, chrome managerChrome) string {
 
 	lines := []string{label}
 	for i, line := range taglineLines {
-		crest, body := s.renderAboutBouncyWaveLine(line, contentW, i+1, true)
+		crest, body := s.renderAboutBouncyWaveLine(line, contentW, 0.85+float64(i)*1.1, true)
 		lines = append(lines, crest, body)
 	}
 
@@ -1166,11 +1166,14 @@ func (s Settings) renderAboutClosingNote(width int, chrome managerChrome) string
 		Align(lipgloss.Center).
 		Render("♥")
 
-	return lipgloss.JoinVertical(lipgloss.Left, signoff, heart)
+	return lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		PaddingTop(4).
+		Render(lipgloss.JoinVertical(lipgloss.Left, signoff, heart))
 }
 
-func (s Settings) renderAboutWaveLine(text string, width, lineIndex int, bold bool) string {
-	center, bandWidth := s.aboutWaveCenter(width, lineIndex)
+func (s Settings) renderAboutWaveLine(text string, width int, lineOffset float64, bold bool) string {
+	center, bandWidth := s.aboutWaveCenter(width, lineOffset)
 	runes := []rune(text)
 	if len(runes) > width {
 		runes = []rune(truncate(text, width))
@@ -1182,13 +1185,13 @@ func (s Settings) renderAboutWaveLine(text string, width, lineIndex int, bold bo
 		if i < len(runes) {
 			ch = runes[i]
 		}
-		b.WriteString(renderAboutWaveCell(ch, i-center, bandWidth, bold))
+		b.WriteString(renderAboutWaveCell(ch, float64(i)-center, bandWidth, bold))
 	}
 	return b.String()
 }
 
-func (s Settings) renderAboutBouncyWaveLine(text string, width, lineIndex int, bold bool) (string, string) {
-	center, bandWidth := s.aboutWaveCenter(width, lineIndex)
+func (s Settings) renderAboutBouncyWaveLine(text string, width int, lineOffset float64, bold bool) (string, string) {
+	center, bandWidth := s.aboutWaveCenter(width, lineOffset)
 	runes := []rune(text)
 	if len(runes) > width {
 		runes = []rune(truncate(text, width))
@@ -1202,11 +1205,11 @@ func (s Settings) renderAboutBouncyWaveLine(text string, width, lineIndex int, b
 			ch = runes[i]
 		}
 
-		delta := i - center
-		phase := aboutWaveImpactPhase(delta)
+		delta := float64(i) - center
+		sample := aboutWaveSample(delta, bandWidth)
 
 		crestCh := ' '
-		if phase == aboutWavePhaseImpact && ch != ' ' {
+		if ch != ' ' && sample.lift >= 0.34 {
 			crestCh = ch
 		}
 
@@ -1214,14 +1217,8 @@ func (s Settings) renderAboutBouncyWaveLine(text string, width, lineIndex int, b
 		switch {
 		case ch == ' ':
 			body.WriteString(renderAboutWaveCell(ch, delta, bandWidth, bold))
-		case phase == aboutWavePhaseImpact:
-			body.WriteString(renderAboutWaveTintedCell(ch, delta, bandWidth, false, 0.38))
-		case phase == aboutWavePhasePreImpact:
-			body.WriteString(renderAboutWaveTintedCell(ch, delta, bandWidth, false, 0.58))
-		case phase == aboutWavePhaseWakeStrong:
-			body.WriteString(renderAboutWaveTintedCell(ch, delta, bandWidth, false, 0.50))
-		case phase == aboutWavePhaseWakeSoft:
-			body.WriteString(renderAboutWaveTintedCell(ch, delta, bandWidth, false, 0.72))
+		case sample.intensity > 0:
+			body.WriteString(renderAboutWaveTintedCell(ch, delta, bandWidth, false, sample.ghostMix))
 		default:
 			body.WriteString(renderAboutWaveCell(ch, delta, bandWidth, bold))
 		}
@@ -1229,15 +1226,15 @@ func (s Settings) renderAboutBouncyWaveLine(text string, width, lineIndex int, b
 	return crest.String(), body.String()
 }
 
-func (s Settings) aboutWaveCenter(width, lineIndex int) (int, int) {
-	bandWidth := max(8, width/3)
-	travel := max(1, width+bandWidth*2)
-	center := (s.aboutGradientFrame + lineIndex*2) % travel
+func (s Settings) aboutWaveCenter(width int, lineOffset float64) (float64, float64) {
+	bandWidth := math.Max(8, float64(width)/3)
+	travel := math.Max(1, float64(width)+bandWidth*2)
+	center := math.Mod(float64(s.aboutGradientFrame)+lineOffset, travel)
 	center -= bandWidth
 	return center, bandWidth
 }
 
-func renderAboutWaveCell(ch rune, delta, bandWidth int, bold bool) string {
+func renderAboutWaveCell(ch rune, delta, bandWidth float64, bold bool) string {
 	bg := aboutWaveColor(delta, bandWidth)
 	return lipgloss.NewStyle().
 		Background(bg).
@@ -1246,7 +1243,7 @@ func renderAboutWaveCell(ch rune, delta, bandWidth int, bold bool) string {
 		Render(string(ch))
 }
 
-func renderAboutWaveTintedCell(ch rune, delta, bandWidth int, bold bool, mix float64) string {
+func renderAboutWaveTintedCell(ch rune, delta, bandWidth float64, bold bool, mix float64) string {
 	bg := aboutWaveColor(delta, bandWidth)
 	tint := blendLipglossColor(bg, aboutWaveForeground(bg), mix)
 	return lipgloss.NewStyle().
@@ -1256,29 +1253,39 @@ func renderAboutWaveTintedCell(ch rune, delta, bandWidth int, bold bool, mix flo
 		Render(string(ch))
 }
 
-type aboutWavePhase int
+type aboutWaveMotion struct {
+	intensity  float64
+	lift       float64
+	ghostMix   float64
+	ripple     float64
+	rippleTone float64
+}
 
-const (
-	aboutWavePhaseNone aboutWavePhase = iota
-	aboutWavePhasePreImpact
-	aboutWavePhaseImpact
-	aboutWavePhaseWakeStrong
-	aboutWavePhaseWakeSoft
-)
-
-func aboutWaveImpactPhase(delta int) aboutWavePhase {
-	switch delta {
-	case -1:
-		return aboutWavePhasePreImpact
-	case 0:
-		return aboutWavePhaseImpact
-	case 1:
-		return aboutWavePhaseWakeStrong
-	case 2:
-		return aboutWavePhaseWakeSoft
-	default:
-		return aboutWavePhaseNone
+func aboutWaveSample(delta, bandWidth float64) aboutWaveMotion {
+	if bandWidth <= 0 {
+		return aboutWaveMotion{}
 	}
+
+	motion := aboutWaveMotion{}
+	dist := math.Abs(delta) / bandWidth
+	if dist < 1 {
+		intensity := math.Pow(math.Cos(dist*math.Pi/2), 2)
+		motion.intensity = intensity
+		motion.lift = intensity * math.Max(0, 1-math.Abs(delta)/1.75)
+		motion.ghostMix = math.Max(0.34, math.Min(0.74, 0.74-intensity*0.34))
+	}
+
+	if delta < -bandWidth*0.24 {
+		trail := ((-delta / bandWidth) - 0.24) / 2.05
+		if trail > 0 && trail < 1 {
+			envelope := math.Pow(1-trail, 1.45)
+			ringWave := math.Sin(trail * math.Pi * 3.6)
+			motion.ripple = envelope * (0.28 + 0.72*math.Abs(ringWave)) * 0.42
+			motion.rippleTone = ringWave
+		}
+	}
+
+	return motion
 }
 
 func aboutWaveForeground(bg lipgloss.Color) lipgloss.Color {
@@ -1289,37 +1296,58 @@ func aboutWaveForeground(bg lipgloss.Color) lipgloss.Color {
 	return fg
 }
 
-func aboutWaveColor(delta, bandWidth int) lipgloss.Color {
-	base := lipgloss.Color("#0b2b36")
-	if delta < -bandWidth || delta > bandWidth {
+func aboutWaveColor(delta, bandWidth float64) lipgloss.Color {
+	base := lipgloss.Color("#08263d")
+	if bandWidth <= 0 {
 		return base
 	}
 
-	if delta <= 0 {
-		t := float64(delta+bandWidth) / float64(max(1, bandWidth))
-		switch {
-		case t < 0.45:
-			return blendLipglossColor(base, lipgloss.Color("#2f8f97"), t/0.45)
-		case t < 0.75:
-			return blendLipglossColor(lipgloss.Color("#2f8f97"), lipgloss.Color("#58b8be"), (t-0.45)/0.30)
-		case t < 0.92:
-			return blendLipglossColor(lipgloss.Color("#58b8be"), lipgloss.Color("#81cfd5"), (t-0.75)/0.17)
-		default:
-			return blendLipglossColor(lipgloss.Color("#81cfd5"), lipgloss.Color("#a9dfe2"), (t-0.92)/0.08)
+	sample := aboutWaveSample(delta, bandWidth)
+	if sample.intensity == 0 && sample.ripple == 0 {
+		return base
+	}
+
+	pos := math.Max(-1, math.Min(1, delta/bandWidth))
+	gradient := aboutWaveGradientColor(pos)
+	bg := blendLipglossColor(base, gradient, sample.intensity)
+	if sample.ripple > 0 {
+		rippleColor := lipgloss.Color("#b8f2ff")
+		if sample.rippleTone < 0 {
+			rippleColor = lipgloss.Color("#0b4f88")
+		}
+		bg = blendLipglossColor(bg, rippleColor, sample.ripple)
+	}
+	return bg
+}
+
+func aboutWaveGradientColor(pos float64) lipgloss.Color {
+	stops := []struct {
+		pos   float64
+		color lipgloss.Color
+	}{
+		{pos: -1.0, color: lipgloss.Color("#08263d")},
+		{pos: -0.55, color: lipgloss.Color("#0d6fb8")},
+		{pos: -0.10, color: lipgloss.Color("#16b8ff")},
+		{pos: 0.20, color: lipgloss.Color("#9cecff")},
+		{pos: 0.52, color: lipgloss.Color("#3ca7ff")},
+		{pos: 1.0, color: lipgloss.Color("#08263d")},
+	}
+
+	pos = math.Max(-1, math.Min(1, pos))
+	for i := 1; i < len(stops); i++ {
+		left := stops[i-1]
+		right := stops[i]
+		if pos <= right.pos {
+			span := right.pos - left.pos
+			if span <= 0 {
+				return right.color
+			}
+			t := (pos - left.pos) / span
+			return blendLipglossColor(left.color, right.color, t)
 		}
 	}
 
-	t := float64(delta) / float64(max(1, bandWidth))
-	switch {
-	case t < 0.10:
-		return blendLipglossColor(lipgloss.Color("#a9dfe2"), lipgloss.Color("#81cfd5"), t/0.10)
-	case t < 0.26:
-		return blendLipglossColor(lipgloss.Color("#81cfd5"), lipgloss.Color("#73c0d8"), (t-0.10)/0.16)
-	case t < 0.52:
-		return blendLipglossColor(lipgloss.Color("#73c0d8"), lipgloss.Color("#4f97bb"), (t-0.26)/0.26)
-	default:
-		return blendLipglossColor(lipgloss.Color("#4f97bb"), base, (t-0.52)/0.48)
-	}
+	return stops[len(stops)-1].color
 }
 
 func blendLipglossColor(a, b lipgloss.Color, t float64) lipgloss.Color {
