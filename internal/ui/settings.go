@@ -83,6 +83,7 @@ type settingsUpdateState struct {
 	currentVersion   string
 	state            updateState
 	latestVersion    string
+	latestIsFresh    bool
 	publishedAt      time.Time
 	summary          string
 	lastChecked      time.Time
@@ -91,6 +92,11 @@ type settingsUpdateState struct {
 	manualCommand    string
 	restartable      bool
 	installedVersion string
+}
+
+type settingsSectionBody struct {
+	lines   []string
+	anchors map[settingsField]int
 }
 
 var (
@@ -681,150 +687,160 @@ func (s Settings) viewSectionsPane(width, height int, chrome managerChrome) stri
 }
 
 func (s Settings) viewSectionPane(width, height int, chrome managerChrome) string {
-	body := s.viewSectionBody(width, chrome)
 	title := settingsSectionLabels[s.activeSection]
 	if s.focusedPane == settingsPaneDetail {
 		title += " >"
 	}
-	section := clampView(renderManagerSection(title, body, chrome), width, height, chrome.baseBg)
+	body := s.viewSectionBody(width, chrome)
+	titleRow := chrome.sectionLabel.Width(width).Render(title)
+	bodyHeight := max(1, height-1)
+	section := lipgloss.JoinVertical(lipgloss.Left, titleRow, s.scrollSectionBody(body, width, bodyHeight, chrome))
 	return lipgloss.NewStyle().Width(width).Height(height).Background(chrome.baseBg).Render(section)
 }
 
-func (s Settings) viewSectionBody(width int, chrome managerChrome) string {
+func (s Settings) scrollSectionBody(body settingsSectionBody, width, height int, chrome managerChrome) string {
+	if len(body.lines) == 0 {
+		return clampView("", width, height, chrome.baseBg)
+	}
+	offset := 0
+	if anchor, ok := body.anchors[s.focusedField]; ok {
+		offset = settingsScrollOffset(len(body.lines), anchor, height)
+	}
+	end := min(len(body.lines), offset+height)
+	return clampView(strings.Join(body.lines[offset:end], "\n"), width, height, chrome.baseBg)
+}
+
+func settingsScrollOffset(totalLines, anchorLine, height int) int {
+	if totalLines <= height || height <= 0 {
+		return 0
+	}
+	anchorLine = clamp(anchorLine, 0, totalLines-1)
+	offset := anchorLine - height/2
+	return clamp(offset, 0, totalLines-height)
+}
+
+func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSectionBody {
 	if s.activeSection == ssAbout {
 		return s.renderAboutSection(width, chrome)
 	}
 
 	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2)
 	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
+	body := settingsSectionBody{anchors: make(map[settingsField]int)}
+	addLine := func(line string) {
+		body.lines = append(body.lines, line)
+	}
+	markAnchor := func(field settingsField) {
+		body.anchors[field] = len(body.lines)
+	}
 
 	// inputW: full inner width minus the 2-char left padding of ind.
 	inputW := width - 3
 	hintIndent := strings.Repeat(" ", labelColW)
 
-	addToggle := func(lines []string, label string, on bool, field settingsField) []string {
+	addToggle := func(label string, on bool, field settingsField) {
 		focused := s.focusedField == field
 		row := s.renderToggle(label, on, focused, width-2, chrome)
+		markAnchor(field)
+		addLine(ind.Render(row))
 		if hint := s.fieldHint(field); hint != "" {
-			lines = append(lines,
-				ind.Render(row),
-				ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)),
-				blank,
-			)
-			return lines
+			addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
 		}
-		return append(lines,
-			ind.Render(row),
-			blank,
-		)
+		addLine(blank)
 	}
 
-	addInput := func(lines []string, label string, input textinput.Model, field settingsField) []string {
+	addInput := func(label string, input textinput.Model, field settingsField) {
 		focused := s.focusedField == field
 		compactSecretPreview := field == sfAPIKey
 		fieldW := s.inputWidth(field, inputW)
 		row := s.renderFieldLabel(label, focused, width-2, chrome) + renderTextInput(input, fieldW, focused, compactSecretPreview, chrome)
+		markAnchor(field)
+		addLine(ind.Render(row))
 		if hint := s.fieldHint(field); hint != "" {
-			lines = append(lines,
-				ind.Render(row),
-				ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)),
-				blank,
-			)
-			return lines
+			addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
 		}
-		return append(lines,
-			ind.Render(row),
-			blank,
-		)
+		addLine(blank)
 	}
 
-	addValue := func(lines []string, label, value string, focused bool) []string {
+	addValue := func(label, value string, focused bool) {
 		if value == "" {
-			return lines
+			return
 		}
 		row := s.renderValueRow(label, value, focused, width-2, chrome)
-		return append(lines,
-			ind.Render(row),
-			blank,
-		)
+		addLine(ind.Render(row))
+		addLine(blank)
 	}
 
-	addAction := func(lines []string, label, hint string, field settingsField) []string {
+	addAction := func(label, hint string, field settingsField) {
 		focused := s.focusedField == field
 		row := s.renderActionRow(label, hint, focused, width-2, chrome)
-		return append(lines,
-			ind.Render(row),
-			blank,
-		)
+		markAnchor(field)
+		addLine(ind.Render(row))
+		addLine(blank)
 	}
-
-	lines := []string{}
 	switch s.activeSection {
 	case ssDisplay:
-		lines = addToggle(lines, "Icons", s.icons, sfIcons)
-		lines = addToggle(lines, "Use relative dates", !s.dateAbsolute, sfDateFormat)
-		lines = addToggle(lines, "Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
-		lines = addInput(lines, "Browser command", s.browserInput, sfBrowser)
+		addToggle("Icons", s.icons, sfIcons)
+		addToggle("Use relative dates", !s.dateAbsolute, sfDateFormat)
+		addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
+		addInput("Browser command", s.browserInput, sfBrowser)
 
 	case ssFeeds:
-		lines = addInput(lines, "Feed max size (MiB)", s.feedMaxBodyInput, sfFeedMaxBody)
+		addInput("Feed max size (MiB)", s.feedMaxBodyInput, sfFeedMaxBody)
 
 	case ssUpdates:
-		lines = addValue(lines, "Current version", s.update.currentVersion, false)
-		lines = addToggle(lines, "Check on startup", s.updateCheckOnStartup, sfUpdateCheckOnStartup)
+		addValue("Current version", s.update.currentVersion, false)
+		addToggle("Check on startup", s.updateCheckOnStartup, sfUpdateCheckOnStartup)
 		if !s.update.lastChecked.IsZero() {
-			lines = addValue(lines, "Last checked", relativeTime(s.update.lastChecked), false)
+			addValue("Last checked", relativeTime(s.update.lastChecked), false)
 		}
-		lines = addAction(lines, "Check now", "query latest release", sfUpdateCheckNow)
+		addAction("Check now", "query latest release", sfUpdateCheckNow)
 		if s.update.latestVersion != "" {
-			lines = addValue(lines, "Latest version", s.update.latestVersion, false)
+			addValue("Latest version", s.update.latestVersion, false)
 		}
 		if !s.update.publishedAt.IsZero() {
-			lines = addValue(lines, "Published", s.update.publishedAt.Format("Jan 2, 2006"), false)
+			addValue("Published", s.update.publishedAt.Format("Jan 2, 2006"), false)
 		}
-		lines = addValue(lines, "Status", s.update.statusLabel(), false)
+		addValue("Status", s.update.statusLabel(), false)
 		if s.update.summary != "" {
-			lines = append(lines,
-				ind.Render(s.renderInlineHint(hintIndent+s.update.summary, width-2, chrome)),
-				blank,
-			)
+			addLine(ind.Render(s.renderInlineHint(hintIndent+s.update.summary, width-2, chrome)))
+			addLine(blank)
 		}
 		if s.update.latestVersion != "" {
-			lines = addAction(lines, "Update now", "download and replace Tide", sfUpdateInstallNow)
-			lines = addAction(lines, "Dismiss version", "hide prompts for this release", sfUpdateDismissVersion)
+			addAction("Update now", "Update now", sfUpdateInstallNow)
+			addAction("Ignore", "", sfUpdateDismissVersion)
 		}
 		if s.update.manualCommand != "" {
-			lines = addValue(lines, "Install command", s.update.manualCommand, false)
+			addValue("Install command", s.update.manualCommand, false)
 		}
 		if s.update.restartable {
-			lines = addAction(lines, "Restart now", "launch updated Tide", sfUpdateRestartNow)
+			addAction("Restart now", "launch updated Tide", sfUpdateRestartNow)
 		}
 
 	case ssAI:
-		lines = append(lines,
-			ind.Render(s.renderProviderSelector(width-2, chrome)),
-			blank,
-		)
+		markAnchor(sfProvider)
+		addLine(ind.Render(s.renderProviderSelector(width-2, chrome)))
+		addLine(blank)
 		switch s.providerIdx {
 		case 1:
-			lines = addInput(lines, "OpenAI key", s.openaiInput, sfAPIKey)
+			addInput("OpenAI key", s.openaiInput, sfAPIKey)
 		case 2:
-			lines = addInput(lines, "Claude key", s.claudeInput, sfAPIKey)
+			addInput("Claude key", s.claudeInput, sfAPIKey)
 		case 3:
-			lines = addInput(lines, "Gemini key", s.geminiInput, sfAPIKey)
+			addInput("Gemini key", s.geminiInput, sfAPIKey)
 		case 4:
-			lines = addInput(lines, "Ollama URL", s.ollamaURLInput, sfOllamaURL)
-			lines = addInput(lines, "Model", s.ollamaModelInput, sfOllamaModel)
+			addInput("Ollama URL", s.ollamaURLInput, sfOllamaURL)
+			addInput("Model", s.ollamaModelInput, sfOllamaModel)
 		}
-		lines = addInput(lines, "Save summaries to", s.savePathInput, sfSavePath)
+		addInput("Save summaries to", s.savePathInput, sfSavePath)
 
 	}
 
-	if len(lines) == 0 {
-		lines = append(lines, blank)
+	if len(body.lines) == 0 {
+		body.lines = append(body.lines, blank)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return body
 }
 
 func (s Settings) inputWidth(field settingsField, maxWidth int) int {
@@ -1048,37 +1064,48 @@ func (s Settings) renderInlineHint(text string, width int, chrome managerChrome)
 		Render(text)
 }
 
-func (s Settings) renderAboutSection(width int, chrome managerChrome) string {
+func (s Settings) renderAboutSection(width int, chrome managerChrome) settingsSectionBody {
 	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2)
 	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	bodyW := max(1, width-2)
-
-	return lipgloss.JoinVertical(lipgloss.Left,
-		ind.Render(s.renderAboutHero(bodyW, chrome)),
-		blank,
-		ind.Render(s.renderAboutLinks(bodyW, chrome)),
-		blank,
-		ind.Render(s.renderAboutClosingNote(bodyW, chrome)),
-	)
+	lines := []string{}
+	addBlock := func(block string) int {
+		start := len(lines)
+		lines = append(lines, strings.Split(block, "\n")...)
+		return start
+	}
+	heroStart := addBlock(ind.Render(s.renderAboutHero(bodyW, chrome)))
+	_ = heroStart
+	lines = append(lines, blank)
+	linksStart := addBlock(ind.Render(s.renderAboutLinks(bodyW, chrome)))
+	lines = append(lines, blank)
+	addBlock(ind.Render(s.renderAboutClosingNote(bodyW, chrome)))
+	return settingsSectionBody{
+		lines: lines,
+		anchors: map[settingsField]int{
+			sfAboutRepo:   linksStart,
+			sfAboutIssues: linksStart,
+		},
+	}
 }
 
 func (s Settings) renderAboutHero(width int, chrome managerChrome) string {
 	panelW := max(1, width-4)
 	contentW := max(1, panelW-2)
-	label := s.renderAboutWaveLine("TIDE", contentW, 0, 0, false)
-	tagline := truncate("Your feeds, no algorithm, no bullshit", contentW)
+	tagline := aboutCenterText(truncate("Your feeds, no algorithm, no bullshit", contentW), contentW)
 	lines := []string{
-		label,
-		s.renderAboutWaveLine("", contentW, 0, 1, false),
-		s.renderAboutWaveLine(tagline, contentW, 0, 2, true),
+		s.renderAboutHeroTextLine(aboutCenterText("TIDE", contentW), contentW, 0, true),
+		s.renderAboutHeroTextLine(tagline, contentW, 1, false),
+		s.renderAboutHeroWaveLine(contentW, 2),
+		s.renderAboutHeroWaveLine(contentW, 3),
 	}
 
-	panelBg := lipgloss.Color("#04141d")
+	panelBg := lipgloss.Color("#071622")
 	panel := lipgloss.NewStyle().
 		Width(panelW).
 		Background(panelBg).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#2e6f7f")).
+		BorderForeground(lipgloss.Color("#3a6f85")).
 		BorderBackground(panelBg).
 		Padding(0, 1).
 		Render(strings.Join(lines, "\n"))
@@ -1170,7 +1197,7 @@ func (s Settings) renderAboutClosingNote(width int, chrome managerChrome) string
 		Render(lipgloss.JoinVertical(lipgloss.Left, signoff, heart))
 }
 
-func (s Settings) renderAboutWaveLine(text string, width int, lineOffset float64, row int, bold bool) string {
+func (s Settings) renderAboutHeroTextLine(text string, width, row int, bold bool) string {
 	runes := []rune(text)
 	if len(runes) > width {
 		runes = []rune(truncate(text, width))
@@ -1182,34 +1209,27 @@ func (s Settings) renderAboutWaveLine(text string, width int, lineOffset float64
 		if i < len(runes) {
 			ch = runes[i]
 		}
-		bg := aboutMarineBackground(s.aboutGradientFrame, row, i, width)
-		spotlight := aboutSpotlightSample(s.aboutGradientFrame, row, i, width)
-		fg := aboutMarineForeground(bg, spotlight)
-		if row == 2 && ch != ' ' {
-			fg = aboutTaglineBaseForeground(bg, fg)
-			sweep := aboutTaglineCodexSweepSample(s.aboutGradientFrame, i, width)
-			head := aboutTaglineCodexHeadSample(s.aboutGradientFrame, i, width)
-			bg = aboutTaglineCodexBackground(bg, sweep, head)
-			fg = aboutTaglineCodexForeground(bg, fg, sweep, head)
-			if sweep > 0.18 || head > 0.16 {
-				b.WriteString(renderAboutCodexCell(ch, bg, fg, bold || head > 0.42))
-				continue
-			}
-		}
-		b.WriteString(renderAboutWaveCell(ch, bg, fg, bold))
+		bg := aboutHeroBackground(s.aboutGradientFrame, row, i, width)
+		fg := aboutHeroTextForeground(bg, row, ch)
+		b.WriteString(renderAboutHeroCell(ch, bg, fg, bold))
 	}
 	return b.String()
 }
 
-func (s Settings) aboutWaveCenter(width int, lineOffset float64) (float64, float64) {
-	bandWidth := math.Max(8, float64(width)/3)
-	travel := math.Max(1, float64(width)+bandWidth*2)
-	center := math.Mod(float64(s.aboutGradientFrame)+lineOffset, travel)
-	center -= bandWidth
-	return center, bandWidth
+func (s Settings) renderAboutHeroWaveLine(width, row int) string {
+	pattern := aboutHeroWavePattern(s.aboutGradientFrame, row, width)
+
+	var b strings.Builder
+	for i, ch := range []rune(pattern) {
+		bg := aboutHeroBackground(s.aboutGradientFrame, row, i, width)
+		foam := aboutHeroFoamSample(s.aboutGradientFrame, row, i, width)
+		fg := aboutHeroWaveForeground(bg, row, ch, foam)
+		b.WriteString(renderAboutHeroCell(ch, bg, fg, foam > 0.45 && ch != ' '))
+	}
+	return b.String()
 }
 
-func renderAboutWaveCell(ch rune, bg, fg lipgloss.Color, bold bool) string {
+func renderAboutHeroCell(ch rune, bg, fg lipgloss.Color, bold bool) string {
 	return lipgloss.NewStyle().
 		Background(bg).
 		Foreground(fg).
@@ -1217,114 +1237,132 @@ func renderAboutWaveCell(ch rune, bg, fg lipgloss.Color, bold bool) string {
 		Render(string(ch))
 }
 
-func renderAboutCodexCell(ch rune, bg, fg lipgloss.Color, bold bool) string {
-	return lipgloss.NewStyle().
-		Background(bg).
-		Foreground(fg).
-		Bold(bold).
-		Render(string(ch))
-}
+func aboutHeroBackground(frame, row, col, width int) lipgloss.Color {
+	skyTop := lipgloss.Color("#071524")
+	skyMid := lipgloss.Color("#0d2d45")
+	horizon := lipgloss.Color("#15556f")
+	waterTop := lipgloss.Color("#0c3b56")
+	waterMid := lipgloss.Color("#0a3149")
+	waterDeep := lipgloss.Color("#072235")
+	foamGlow := lipgloss.Color("#5ca6bf")
 
-func aboutWaveForeground(bg lipgloss.Color) lipgloss.Color {
-	fg := lipgloss.Color("#eef8fb")
-	if contrastRatio(lipgloss.Color("#103847"), bg) >= 4.5 {
-		fg = lipgloss.Color("#103847")
+	x := float64(col) / math.Max(1, float64(width-1))
+	t := float64(frame) * 0.08
+
+	switch row {
+	case 0:
+		glow := clamp01(0.22 + 0.18*math.Sin(x*math.Pi+t*0.7))
+		bg := blendLipglossColor(skyTop, skyMid, glow)
+		bg = blendLipglossColor(bg, horizon, clamp01(0.12+0.10*math.Sin(x*6.4-t*0.5)))
+		return bg
+	case 1:
+		horizonGlow := clamp01(0.42 + 0.24*math.Sin((x-0.5)*math.Pi+t*0.4))
+		bg := blendLipglossColor(skyMid, horizon, horizonGlow)
+		return blendLipglossColor(bg, foamGlow, clamp01(0.05+0.08*math.Sin(x*9.0+t*0.6)))
+	case 2:
+		swell := clamp01(0.26 + 0.18*math.Sin(x*8.8-t*1.2) + 0.12*math.Sin(x*15.0+t*0.4))
+		bg := blendLipglossColor(waterTop, waterMid, swell)
+		return blendLipglossColor(bg, horizon, clamp01(0.10+0.08*math.Sin(x*6.5-t*0.6)))
+	default:
+		trough := clamp01(0.22 + 0.16*math.Sin(x*10.5+t*1.4) + 0.08*math.Sin(x*21.0-t*0.8))
+		bg := blendLipglossColor(waterMid, waterDeep, trough)
+		return blendLipglossColor(bg, foamGlow, clamp01(0.06+0.05*math.Sin(x*12.0+t)))
 	}
-	return fg
 }
 
-func aboutMarineForeground(bg lipgloss.Color, spotlight float64) lipgloss.Color {
-	base := aboutWaveForeground(bg)
-	if spotlight <= 0 {
-		return base
+func aboutHeroTextForeground(bg lipgloss.Color, row int, ch rune) lipgloss.Color {
+	if ch == ' ' {
+		return readableText(lipgloss.Color("#dceef6"), bg, 4.5)
 	}
-	return blendLipglossColor(base, lipgloss.Color("#f5fdff"), clamp01(spotlight*0.46))
+	switch row {
+	case 0:
+		return readableText(lipgloss.Color("#f4fbff"), bg, 5)
+	default:
+		return readableText(lipgloss.Color("#c2dde9"), bg, 4.5)
+	}
 }
 
-func aboutTaglineBaseForeground(bg, fg lipgloss.Color) lipgloss.Color {
-	base := blendLipglossColor(fg, lipgloss.Color("#55748a"), 0.68)
+func aboutHeroWavePattern(frame, row, width int) string {
+	switch row {
+	case 2:
+		return aboutScrollRight("   ~~~      __/\\__      ~~~~      _/\\_      ", width, frame/4)
+	default:
+		return aboutScrollLeft("  __/\\\\____/\\\\\\___..___/\\\\____/\\\\\\__  ", width, frame/2)
+	}
+}
+
+func aboutHeroFoamSample(frame, row, col, width int) float64 {
+	if row != 3 {
+		return 0
+	}
+	head := aboutHeroFoamCenter(frame, width)
+	rx := math.Max(2.0, float64(width)*0.055)
+	dx := (float64(col) - head) / rx
+	return clamp01(math.Exp(-(dx * dx)))
+}
+
+func aboutHeroFoamCenter(frame, width int) float64 {
+	span := math.Max(6, float64(width-1))
+	travel := span + 10
+	pos := math.Mod(float64(frame)*0.75, travel)
+	return pos - 5
+}
+
+func aboutHeroWaveForeground(bg lipgloss.Color, row int, ch rune, foam float64) lipgloss.Color {
+	base := lipgloss.Color("#9fd1df")
+	if row == 3 {
+		base = lipgloss.Color("#d8f2fb")
+	}
+	if ch == ' ' {
+		base = lipgloss.Color("#6ba0b3")
+	}
+	if ch == '.' {
+		base = lipgloss.Color("#eefcff")
+	}
+	if foam > 0 && ch != ' ' {
+		base = blendLipglossColor(base, lipgloss.Color("#ffffff"), clamp01(foam*0.75))
+	}
 	if contrastRatio(base, bg) < 4.5 {
 		return readableText(base, bg, 4.5)
 	}
 	return base
 }
 
-func aboutTaglineCodexForeground(bg, fg lipgloss.Color, sweep, head float64) lipgloss.Color {
-	intensity := clamp01(sweep*1.12 + head*1.34)
-	if intensity <= 0 {
-		return fg
+func aboutCenterText(s string, width int) string {
+	runes := []rune(s)
+	if len(runes) >= width {
+		return string(runes[:width])
 	}
-	glow := blendLipglossColor(lipgloss.Color("#c8f2ff"), lipgloss.Color("#ffffff"), clamp01(head*1.18+sweep*0.52))
-	return blendLipglossColor(fg, glow, clamp01(0.28+intensity))
+	left := (width - len(runes)) / 2
+	right := width - len(runes) - left
+	return strings.Repeat(" ", left) + s + strings.Repeat(" ", right)
 }
 
-func aboutTaglineCodexBackground(bg lipgloss.Color, sweep, head float64) lipgloss.Color {
-	intensity := clamp01(sweep*0.40 + head*0.56)
-	if intensity <= 0 {
-		return bg
+func aboutRepeatToLen(pattern string, n int) string {
+	if pattern == "" {
+		return strings.Repeat(" ", n)
 	}
-	glow := blendLipglossColor(lipgloss.Color("#0a2030"), lipgloss.Color("#1d4b69"), clamp01(head*0.78+sweep*0.16))
-	return blendLipglossColor(bg, glow, clamp01(intensity*0.14))
-}
-
-func aboutMarineBackground(frame, row, col, width int) lipgloss.Color {
-	base := lipgloss.Color("#041a2b")
-	deep := lipgloss.Color("#083a59")
-	shallow := lipgloss.Color("#0c5d84")
-	bright := lipgloss.Color("#4b93b7")
-
-	x := float64(col)
-	y := float64(row)
-	t := float64(frame) * 0.16
-
-	gradient := clamp01(0.20 + y*0.12 + 0.18*math.Sin(x*0.032+t*0.35))
-	bg := blendLipglossColor(base, deep, gradient)
-	bg = blendLipglossColor(bg, shallow, clamp01(0.22+0.16*math.Sin(x*0.055-t*0.28+y*0.40)))
-
-	spotlight := aboutSpotlightSample(frame, row, col, width)
-	if spotlight > 0 {
-		bg = blendLipglossColor(bg, bright, clamp01(spotlight*0.50))
+	var b strings.Builder
+	for b.Len() < n+len(pattern) {
+		b.WriteString(pattern)
 	}
-	return bg
+	return b.String()[:n]
 }
 
-func aboutSpotlightSample(frame, row, col, width int) float64 {
-	cx, cy := aboutSpotlightCenter(frame, width)
-	span := math.Max(6, float64(width-1))
-	rx := math.Max(4.2, span*0.17)
-	ry := rx * 0.46
-	dx := (float64(col) - cx) / rx
-	dy := (float64(row) - cy) / ry
-	return clamp01(math.Exp(-(dx*dx + dy*dy)))
+func aboutScrollLeft(pattern string, width, offset int) string {
+	base := aboutRepeatToLen(pattern, width+len(pattern))
+	shift := offset % len(pattern)
+	return base[shift : shift+width]
 }
 
-func aboutTaglineCodexSweepSample(frame, col, width int) float64 {
-	head := aboutTaglineCodexCenter(frame, width)
-	rx := math.Max(4.6, float64(width)*0.13)
-	dx := (float64(col) - (head - rx*0.35)) / rx
-	return clamp01(math.Exp(-(dx * dx)))
-}
-
-func aboutTaglineCodexHeadSample(frame, col, width int) float64 {
-	head := aboutTaglineCodexCenter(frame, width)
-	rx := math.Max(1.3, float64(width)*0.028)
-	dx := (float64(col) - head) / rx
-	return clamp01(math.Exp(-(dx * dx)))
-}
-
-func aboutTaglineCodexCenter(frame, width int) float64 {
-	span := math.Max(6, float64(width-1))
-	travel := span + 10
-	pos := math.Mod(float64(frame)*0.88, travel)
-	return pos - 5
-}
-
-func aboutSpotlightCenter(frame, width int) (float64, float64) {
-	t := float64(frame) * 0.07
-	span := math.Max(6, float64(width-1))
-	cx := span * (0.14 + 0.72*(0.5+0.5*math.Sin(t*0.47+0.35*math.Sin(t*0.21))))
-	cy := 0.9 + 1.6*(0.5+0.5*math.Cos(t*0.58+0.4))
-	return cx, cy
+func aboutScrollRight(pattern string, width, offset int) string {
+	shift := offset % len(pattern)
+	base := aboutRepeatToLen(pattern, width+len(pattern))
+	start := len(pattern) - shift
+	if start == len(pattern) {
+		start = 0
+	}
+	return base[start : start+width]
 }
 
 func clamp01(v float64) float64 {

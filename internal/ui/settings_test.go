@@ -212,95 +212,52 @@ func TestSettingsAboutAnimationDoesNotWrapEarly(t *testing.T) {
 	}
 }
 
-func TestAboutMarineBackgroundChangesAcrossFrames(t *testing.T) {
+func TestAboutHeroBackgroundChangesAcrossFrames(t *testing.T) {
 	changed := false
 	for _, col := range []int{4, 11, 19} {
-		if aboutMarineBackground(0, 1, col, 24) != aboutMarineBackground(4, 1, col, 24) {
+		if aboutHeroBackground(0, 2, col, 24) != aboutHeroBackground(8, 2, col, 24) {
 			changed = true
 			break
 		}
 	}
 	if !changed {
-		t.Fatal("expected about marine background to change across frames")
+		t.Fatal("expected about hero background to change across frames")
 	}
 }
 
-func TestAboutSpotlightBrightensForeground(t *testing.T) {
-	frame := 18
-	spotCol := 26
-	row := 2
-	width := 48
-	spot := aboutSpotlightSample(frame, row, spotCol, width)
-	far := aboutSpotlightSample(frame, row, 0, width)
-	if spot <= far {
-		t.Fatalf("expected spotlight intensity %.2f to exceed far intensity %.2f", spot, far)
-	}
-
-	bg := aboutMarineBackground(frame, row, spotCol, width)
-	spotFg := aboutMarineForeground(bg, spot)
-	farFg := aboutMarineForeground(bg, far)
-	if spotFg == farFg {
-		t.Fatalf("expected spotlight foreground %q to differ from far foreground %q", spotFg, farFg)
-	}
-}
-
-func TestAboutSpotlightIsApproximatelyRound(t *testing.T) {
+func TestAboutHeroWavePatternsChangeAcrossFrames(t *testing.T) {
 	frame := 18
 	width := 48
-	cx, cy := aboutSpotlightCenter(frame, width)
-	centerCol := int(math.Round(cx))
-	centerRow := int(math.Round(cy))
-	left := aboutSpotlightSample(frame, centerRow, centerCol-4, width)
-	right := aboutSpotlightSample(frame, centerRow, centerCol+4, width)
-	up := aboutSpotlightSample(frame, centerRow-1, centerCol, width)
-	down := aboutSpotlightSample(frame, centerRow+1, centerCol, width)
-
-	if math.Abs(left-right) > 0.12 {
-		t.Fatalf("expected round spotlight horizontally, got left=%.2f right=%.2f", left, right)
+	if got, want := aboutHeroWavePattern(frame, 2, width), aboutHeroWavePattern(frame+2, 2, width); got == want {
+		t.Fatalf("expected back wave pattern to move across frames, got %q", got)
 	}
-	if math.Abs(up-down) > 0.12 {
-		t.Fatalf("expected round spotlight vertically, got up=%.2f down=%.2f", up, down)
+	if got, want := aboutHeroWavePattern(frame, 3, width), aboutHeroWavePattern(frame+2, 3, width); got == want {
+		t.Fatalf("expected front wave pattern to move across frames, got %q", got)
 	}
 }
 
-func TestAboutTaglineCodexSweepChangesAcrossFrames(t *testing.T) {
-	changed := false
-	for _, col := range []int{12, 20, 28} {
-		if aboutTaglineCodexSweepSample(8, col, 48) != aboutTaglineCodexSweepSample(18, col, 48) {
-			changed = true
-			break
-		}
-	}
-	if !changed {
-		t.Fatal("expected tagline codex sweep to change across frames")
+func TestAboutHeroWaveLayersDiffer(t *testing.T) {
+	frame := 10
+	width := 48
+	if back, front := aboutHeroWavePattern(frame, 2, width), aboutHeroWavePattern(frame, 3, width); back == front {
+		t.Fatalf("expected distinct back and front wave patterns, got %q", back)
 	}
 }
 
-func TestAboutTaglineCodexHeadIsSharperThanSweep(t *testing.T) {
+func TestAboutHeroFoamBrightensForeground(t *testing.T) {
 	frame := 18
 	width := 48
-	centerCol := int(math.Round(aboutTaglineCodexCenter(frame, width)))
-	headNear := aboutTaglineCodexHeadSample(frame, centerCol, width)
-	headFar := aboutTaglineCodexHeadSample(frame, centerCol+4, width)
-	sweepFar := aboutTaglineCodexSweepSample(frame, centerCol+4, width)
-	if headNear <= headFar {
-		t.Fatalf("expected codex head %.2f to exceed far head %.2f", headNear, headFar)
+	headCol := int(math.Round(aboutHeroFoamCenter(frame, width)))
+	near := aboutHeroFoamSample(frame, 3, headCol, width)
+	far := aboutHeroFoamSample(frame, 3, 0, width)
+	if near <= far {
+		t.Fatalf("expected foam intensity %.2f to exceed far intensity %.2f", near, far)
 	}
-	if headFar >= sweepFar {
-		t.Fatalf("expected codex head %.2f to fall off faster than sweep %.2f", headFar, sweepFar)
-	}
-}
-
-func TestAboutTaglineCodexSweepIsVisiblyDifferent(t *testing.T) {
-	bg := lipgloss.Color("#083a59")
-	fg := lipgloss.Color("#eef8fb")
-	sweep := 0.7
-	head := 0.45
-	if got := aboutTaglineCodexForeground(bg, fg, sweep, head); got == fg {
-		t.Fatalf("expected codex foreground to differ from base foreground %q", fg)
-	}
-	if got := aboutTaglineCodexBackground(bg, sweep, head); got == bg {
-		t.Fatalf("expected codex background to differ from base background %q", bg)
+	bg := aboutHeroBackground(frame, 3, headCol, width)
+	nearFg := aboutHeroWaveForeground(bg, 3, '~', near)
+	farFg := aboutHeroWaveForeground(bg, 3, '~', far)
+	if nearFg == farFg {
+		t.Fatalf("expected foam-highlight foreground %q to differ from base foreground %q", nearFg, farFg)
 	}
 }
 
@@ -318,8 +275,8 @@ func TestSettingsAboutHeroKeepsPreviousHeight(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setActiveSection(ssAbout)
 	view := s.renderAboutHero(56, newManagerChrome(84, CatppuccinMocha))
-	if got := lipgloss.Height(view); got != 5 {
-		t.Fatalf("expected about hero height 5, got %d", got)
+	if got := lipgloss.Height(view); got != 6 {
+		t.Fatalf("expected about hero height 6, got %d", got)
 	}
 }
 
@@ -363,5 +320,35 @@ func TestSettingsActionURLMapping(t *testing.T) {
 	}
 	if got := settingsActionURL(settingsActionOpenIssues); got != tideIssuesURL {
 		t.Fatalf("expected issues action URL %q, got %q", tideIssuesURL, got)
+	}
+}
+
+func TestSettingsScrollOffsetCentersFocusedLineWhenNeeded(t *testing.T) {
+	if got := settingsScrollOffset(5, 1, 8); got != 0 {
+		t.Fatalf("expected no scroll when content fits, got %d", got)
+	}
+	if got := settingsScrollOffset(20, 12, 6); got != 9 {
+		t.Fatalf("expected centered scroll offset 9, got %d", got)
+	}
+	if got := settingsScrollOffset(20, 19, 6); got != 14 {
+		t.Fatalf("expected scroll to clamp at end, got %d", got)
+	}
+}
+
+func TestSettingsRightPaneScrollsToFocusedFieldOnShortView(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.providerIdx = 4
+	s.ensureSectionFieldVisible(ssAI)
+	s.setFocusedField(sfSavePath)
+
+	chrome := newManagerChrome(62, CatppuccinMocha)
+	view := ansi.Strip(s.View(62, 12, chrome))
+
+	if !strings.Contains(view, "Save summaries to") {
+		t.Fatalf("expected short settings view to scroll save path into view, got %q", view)
+	}
+	if strings.Contains(view, "Provider") {
+		t.Fatalf("expected provider row to scroll out of the short detail pane, got %q", view)
 	}
 }
