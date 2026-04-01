@@ -40,7 +40,7 @@ jobs:
           for entry in "${targets[@]}"; do
             read -r goos goarch name <<< "$entry"
             CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build \
-              -ldflags="-s -w" \
+              -ldflags="-s -w -X main.version=${{ steps.version.outputs.tag }}" \
               -o "dist/$name" \
               .
             tar -czf "dist/$name.tar.gz" -C dist "$name"

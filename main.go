@@ -71,8 +71,24 @@ func resolvedVersion() string {
 	}
 
 	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return version
+	if ok {
+		if resolved := resolvedVersionFromBuildInfo(info); resolved != "" {
+			return resolved
+		}
+	}
+	if desc := gitDescribeVersion(); desc != "" {
+		return desc
+	}
+
+	return version
+}
+
+func resolvedVersionFromBuildInfo(info *debug.BuildInfo) string {
+	if info == nil {
+		return ""
+	}
+	if info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return strings.TrimSpace(info.Main.Version)
 	}
 
 	revision := ""
@@ -85,24 +101,22 @@ func resolvedVersion() string {
 			modified = setting.Value == "true"
 		}
 	}
-	if revision != "" {
-		if len(revision) > 7 {
-			revision = revision[:7]
-		}
-		if modified {
-			revision += "-dirty"
-		}
-		return revision
+	if revision == "" {
+		return ""
 	}
-	if info.Main.Version != "" && info.Main.Version != "(devel)" {
-		return info.Main.Version
+	if len(revision) > 7 {
+		revision = revision[:7]
 	}
+	if modified {
+		revision += "-dirty"
+	}
+	return revision
+}
 
-	if out, err := exec.Command("git", "describe", "--always", "--dirty").Output(); err == nil {
-		if desc := strings.TrimSpace(string(out)); desc != "" {
-			return desc
-		}
+func gitDescribeVersion() string {
+	out, err := exec.Command("git", "describe", "--tags", "--dirty", "--always").Output()
+	if err != nil {
+		return ""
 	}
-
-	return version
+	return strings.TrimSpace(string(out))
 }

@@ -1095,17 +1095,17 @@ func (s Settings) renderAboutHero(width int, chrome managerChrome) string {
 	tagline := aboutCenterText(truncate("Your feeds, no algorithm, no bullshit", contentW), contentW)
 	lines := []string{
 		s.renderAboutHeroTextLine(aboutCenterText("TIDE", contentW), contentW, 0, true),
-		s.renderAboutHeroTextLine(tagline, contentW, 1, false),
-		s.renderAboutHeroWaveLine(contentW, 2),
-		s.renderAboutHeroWaveLine(contentW, 3),
+		s.renderAboutHeroTextLine("", contentW, 1, false),
+		s.renderAboutHeroTextLine(tagline, contentW, 2, false),
+		s.renderAboutHeroTextLine("", contentW, 3, false),
 	}
 
-	panelBg := lipgloss.Color("#071622")
+	panelBg := lipgloss.Color("#000000")
 	panel := lipgloss.NewStyle().
 		Width(panelW).
 		Background(panelBg).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#3a6f85")).
+		BorderForeground(lipgloss.Color("#193847")).
 		BorderBackground(panelBg).
 		Padding(0, 1).
 		Render(strings.Join(lines, "\n"))
@@ -1191,10 +1191,15 @@ func (s Settings) renderAboutClosingNote(width int, chrome managerChrome) string
 		Align(lipgloss.Center).
 		Render("♥")
 
+	heartBlock := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		PaddingTop(2).
+		Render(heart)
+
 	return lipgloss.NewStyle().
 		Background(chrome.baseBg).
 		PaddingTop(4).
-		Render(lipgloss.JoinVertical(lipgloss.Left, signoff, heart))
+		Render(lipgloss.JoinVertical(lipgloss.Left, signoff, heartBlock))
 }
 
 func (s Settings) renderAboutHeroTextLine(text string, width, row int, bold bool) string {
@@ -1209,9 +1214,12 @@ func (s Settings) renderAboutHeroTextLine(text string, width, row int, bold bool
 		if i < len(runes) {
 			ch = runes[i]
 		}
-		bg := aboutHeroBackground(s.aboutGradientFrame, row, i, width)
-		fg := aboutHeroTextForeground(bg, row, ch)
-		b.WriteString(renderAboutHeroCell(ch, bg, fg, bold))
+		sceneBg := aboutHeroBackground(s.aboutGradientFrame, row, i, width)
+		sceneFg := aboutHeroTextForeground(sceneBg, row, ch)
+		reveal, shimmer := aboutHeroRevealMask(s.aboutGradientFrame, row, i, width)
+		bg := aboutHeroMaskedBackground(sceneBg, reveal, shimmer)
+		fg := aboutHeroMaskedForeground(sceneFg, bg, reveal, shimmer, ch != ' ')
+		b.WriteString(renderAboutHeroCell(ch, bg, fg, bold && reveal > 0.32))
 	}
 	return b.String()
 }
@@ -1221,10 +1229,13 @@ func (s Settings) renderAboutHeroWaveLine(width, row int) string {
 
 	var b strings.Builder
 	for i, ch := range []rune(pattern) {
-		bg := aboutHeroBackground(s.aboutGradientFrame, row, i, width)
+		sceneBg := aboutHeroBackground(s.aboutGradientFrame, row, i, width)
 		foam := aboutHeroFoamSample(s.aboutGradientFrame, row, i, width)
-		fg := aboutHeroWaveForeground(bg, row, ch, foam)
-		b.WriteString(renderAboutHeroCell(ch, bg, fg, foam > 0.45 && ch != ' '))
+		sceneFg := aboutHeroWaveForeground(sceneBg, row, ch, foam)
+		reveal, shimmer := aboutHeroRevealMask(s.aboutGradientFrame, row, i, width)
+		bg := aboutHeroMaskedBackground(sceneBg, reveal, shimmer)
+		fg := aboutHeroMaskedForeground(sceneFg, bg, reveal, shimmer, ch != ' ')
+		b.WriteString(renderAboutHeroCell(ch, bg, fg, foam > 0.45 && ch != ' ' && reveal > 0.28))
 	}
 	return b.String()
 }
@@ -1247,26 +1258,25 @@ func aboutHeroBackground(frame, row, col, width int) lipgloss.Color {
 	foamGlow := lipgloss.Color("#5ca6bf")
 
 	x := float64(col) / math.Max(1, float64(width-1))
-	t := float64(frame) * 0.08
 
 	switch row {
 	case 0:
-		glow := clamp01(0.22 + 0.18*math.Sin(x*math.Pi+t*0.7))
+		glow := clamp01(0.22 + 0.18*math.Sin(x*math.Pi))
 		bg := blendLipglossColor(skyTop, skyMid, glow)
-		bg = blendLipglossColor(bg, horizon, clamp01(0.12+0.10*math.Sin(x*6.4-t*0.5)))
+		bg = blendLipglossColor(bg, horizon, clamp01(0.12+0.10*math.Sin(x*6.4)))
 		return bg
 	case 1:
-		horizonGlow := clamp01(0.42 + 0.24*math.Sin((x-0.5)*math.Pi+t*0.4))
+		horizonGlow := clamp01(0.42 + 0.24*math.Sin((x-0.5)*math.Pi))
 		bg := blendLipglossColor(skyMid, horizon, horizonGlow)
-		return blendLipglossColor(bg, foamGlow, clamp01(0.05+0.08*math.Sin(x*9.0+t*0.6)))
+		return blendLipglossColor(bg, foamGlow, clamp01(0.05+0.08*math.Sin(x*9.0)))
 	case 2:
-		swell := clamp01(0.26 + 0.18*math.Sin(x*8.8-t*1.2) + 0.12*math.Sin(x*15.0+t*0.4))
+		swell := clamp01(0.26 + 0.18*math.Sin(x*8.8) + 0.12*math.Sin(x*15.0))
 		bg := blendLipglossColor(waterTop, waterMid, swell)
-		return blendLipglossColor(bg, horizon, clamp01(0.10+0.08*math.Sin(x*6.5-t*0.6)))
+		return blendLipglossColor(bg, horizon, clamp01(0.10+0.08*math.Sin(x*6.5)))
 	default:
-		trough := clamp01(0.22 + 0.16*math.Sin(x*10.5+t*1.4) + 0.08*math.Sin(x*21.0-t*0.8))
+		trough := clamp01(0.22 + 0.16*math.Sin(x*10.5) + 0.08*math.Sin(x*21.0))
 		bg := blendLipglossColor(waterMid, waterDeep, trough)
-		return blendLipglossColor(bg, foamGlow, clamp01(0.06+0.05*math.Sin(x*12.0+t)))
+		return blendLipglossColor(bg, foamGlow, clamp01(0.06+0.05*math.Sin(x*12.0)))
 	}
 }
 
@@ -1285,27 +1295,14 @@ func aboutHeroTextForeground(bg lipgloss.Color, row int, ch rune) lipgloss.Color
 func aboutHeroWavePattern(frame, row, width int) string {
 	switch row {
 	case 2:
-		return aboutScrollRight("   ~~~      __/\\__      ~~~~      _/\\_      ", width, frame/4)
+		return aboutRepeatToLen("   ~~~      __/\\__      ~~~~      _/\\_      ", width)
 	default:
-		return aboutScrollLeft("  __/\\\\____/\\\\\\___..___/\\\\____/\\\\\\__  ", width, frame/2)
+		return aboutRepeatToLen("  __/\\\\____/\\\\\\___..___/\\\\____/\\\\\\__  ", width)
 	}
 }
 
 func aboutHeroFoamSample(frame, row, col, width int) float64 {
-	if row != 3 {
-		return 0
-	}
-	head := aboutHeroFoamCenter(frame, width)
-	rx := math.Max(2.0, float64(width)*0.055)
-	dx := (float64(col) - head) / rx
-	return clamp01(math.Exp(-(dx * dx)))
-}
-
-func aboutHeroFoamCenter(frame, width int) float64 {
-	span := math.Max(6, float64(width-1))
-	travel := span + 10
-	pos := math.Mod(float64(frame)*0.75, travel)
-	return pos - 5
+	return 0
 }
 
 func aboutHeroWaveForeground(bg lipgloss.Color, row int, ch rune, foam float64) lipgloss.Color {
@@ -1326,6 +1323,47 @@ func aboutHeroWaveForeground(bg lipgloss.Color, row int, ch rune, foam float64) 
 		return readableText(base, bg, 4.5)
 	}
 	return base
+}
+
+func aboutHeroRevealMask(frame, row, col, width int) (float64, float64) {
+	span := math.Max(6, float64(width-1))
+	travel := span + 16
+	head := math.Mod(float64(frame)*0.78, travel) - 8
+	center := head + float64(row)*1.2
+	x := float64(col)
+
+	trailWidth := math.Max(4.5, float64(width)*0.12)
+	headWidth := math.Max(1.4, float64(width)*0.03)
+	trailCenter := center - 4.2
+
+	trail := math.Exp(-math.Pow((x-trailCenter)/trailWidth, 2))
+	band := math.Exp(-math.Pow((x-center)/(trailWidth*0.62), 2))
+	shimmer := math.Exp(-math.Pow((x-center)/headWidth, 2))
+
+	reveal := clamp01(trail*0.72 + band*0.54)
+	return reveal, clamp01(shimmer)
+}
+
+func aboutHeroMaskedBackground(sceneBg lipgloss.Color, reveal, shimmer float64) lipgloss.Color {
+	bg := blendLipglossColor(lipgloss.Color("#000000"), sceneBg, clamp01(reveal))
+	if shimmer > 0 {
+		bg = blendLipglossColor(bg, lipgloss.Color("#7edfff"), clamp01(shimmer*0.22))
+	}
+	return bg
+}
+
+func aboutHeroMaskedForeground(sceneFg, bg lipgloss.Color, reveal, shimmer float64, visible bool) lipgloss.Color {
+	if !visible || reveal <= 0.03 {
+		return lipgloss.Color("#000000")
+	}
+	fg := blendLipglossColor(lipgloss.Color("#000000"), sceneFg, clamp01(reveal*1.08))
+	if shimmer > 0 {
+		fg = blendLipglossColor(fg, lipgloss.Color("#ffffff"), clamp01(0.32+shimmer*0.46))
+	}
+	if contrastRatio(fg, bg) < 4.5 {
+		return readableText(fg, bg, 4.5)
+	}
+	return fg
 }
 
 func aboutCenterText(s string, width int) string {
