@@ -1017,8 +1017,14 @@ func TestUpdateCheckedMsgMarksAvailableRelease(t *testing.T) {
 	if m.updateInfo.Version != "v1.1.0" {
 		t.Fatalf("expected latest version v1.1.0, got %q", m.updateInfo.Version)
 	}
+	if !m.updateInfoFresh {
+		t.Fatal("expected fresh update check to mark release info as fresh")
+	}
 	if m.settings.update.latestVersion != "v1.1.0" {
 		t.Fatalf("expected settings update state to sync latest version, got %q", m.settings.update.latestVersion)
+	}
+	if !m.settings.update.latestIsFresh {
+		t.Fatal("expected settings update state to mark latest version as fresh")
 	}
 	if m.cfg.Updates.AvailableVersion != "v1.1.0" {
 		t.Fatalf("expected available update to persist in config, got %q", m.cfg.Updates.AvailableVersion)
@@ -1045,6 +1051,9 @@ func TestNewModelRestoresCachedAvailableUpdate(t *testing.T) {
 	if m.updateInfo.Version != "v1.1.0" {
 		t.Fatalf("expected cached update version v1.1.0, got %q", m.updateInfo.Version)
 	}
+	if m.updateInfoFresh {
+		t.Fatal("expected restored cached update to remain marked as stale")
+	}
 }
 
 func TestSettingsViewRendersUpdateActions(t *testing.T) {
@@ -1067,6 +1076,24 @@ func TestSettingsViewRendersUpdateActions(t *testing.T) {
 	}
 	if !containsString(view, "Update now") {
 		t.Fatalf("expected update action in settings view: %q", view)
+	}
+}
+
+func TestSettingsViewShowsLatestVersionLabelForRestoredRelease(t *testing.T) {
+	cfg := config.DefaultConfig()
+	s := newSettings(cfg, settingsUpdateState{
+		currentVersion: "v1.0.0",
+		state:          updateStateAvailable,
+		latestVersion:  "v1.1.0",
+		latestIsFresh:  false,
+		summary:        "Faster update flow.",
+	})
+	s.setActiveSection(ssUpdates)
+	chrome := newManagerChrome(62, CatppuccinMocha)
+	view := s.View(62, 40, chrome)
+
+	if !containsString(view, "Latest version") {
+		t.Fatalf("expected latest version label in settings view: %q", view)
 	}
 }
 

@@ -212,52 +212,38 @@ func TestSettingsAboutAnimationDoesNotWrapEarly(t *testing.T) {
 	}
 }
 
-func TestAboutHeroBackgroundChangesAcrossFrames(t *testing.T) {
-	changed := false
+func TestAboutHeroBackgroundStaysStaticAcrossFrames(t *testing.T) {
 	for _, col := range []int{4, 11, 19} {
-		if aboutHeroBackground(0, 2, col, 24) != aboutHeroBackground(8, 2, col, 24) {
-			changed = true
-			break
+		if got, want := aboutHeroBackground(0, 2, col, 24), aboutHeroBackground(8, 2, col, 24); got != want {
+			t.Fatalf("expected static hero background at col %d, got %q want %q", col, got, want)
 		}
 	}
-	if !changed {
-		t.Fatal("expected about hero background to change across frames")
+}
+
+func TestAboutHeroSpacerRowsAreBlank(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	for _, row := range []int{1, 3} {
+		line := ansi.Strip(s.renderAboutHeroTextLine("", 28, row, false))
+		if strings.TrimSpace(line) != "" {
+			t.Fatalf("expected blank spacer row %d, got %q", row, line)
+		}
 	}
 }
 
-func TestAboutHeroWavePatternsChangeAcrossFrames(t *testing.T) {
+func TestAboutHeroRevealMaskRevealsSceneUnderShimmer(t *testing.T) {
 	frame := 18
 	width := 48
-	if got, want := aboutHeroWavePattern(frame, 2, width), aboutHeroWavePattern(frame+2, 2, width); got == want {
-		t.Fatalf("expected back wave pattern to move across frames, got %q", got)
+	headCol := int(math.Round(math.Mod(float64(frame)*0.78, math.Max(6, float64(width-1))+16) - 8))
+	revealNear, shimmerNear := aboutHeroRevealMask(frame, 2, headCol, width)
+	revealFar, shimmerFar := aboutHeroRevealMask(frame, 2, 0, width)
+	if revealNear <= revealFar {
+		t.Fatalf("expected reveal %.2f to exceed far reveal %.2f", revealNear, revealFar)
 	}
-	if got, want := aboutHeroWavePattern(frame, 3, width), aboutHeroWavePattern(frame+2, 3, width); got == want {
-		t.Fatalf("expected front wave pattern to move across frames, got %q", got)
-	}
-}
-
-func TestAboutHeroWaveLayersDiffer(t *testing.T) {
-	frame := 10
-	width := 48
-	if back, front := aboutHeroWavePattern(frame, 2, width), aboutHeroWavePattern(frame, 3, width); back == front {
-		t.Fatalf("expected distinct back and front wave patterns, got %q", back)
-	}
-}
-
-func TestAboutHeroFoamBrightensForeground(t *testing.T) {
-	frame := 18
-	width := 48
-	headCol := int(math.Round(aboutHeroFoamCenter(frame, width)))
-	near := aboutHeroFoamSample(frame, 3, headCol, width)
-	far := aboutHeroFoamSample(frame, 3, 0, width)
-	if near <= far {
-		t.Fatalf("expected foam intensity %.2f to exceed far intensity %.2f", near, far)
-	}
-	bg := aboutHeroBackground(frame, 3, headCol, width)
-	nearFg := aboutHeroWaveForeground(bg, 3, '~', near)
-	farFg := aboutHeroWaveForeground(bg, 3, '~', far)
-	if nearFg == farFg {
-		t.Fatalf("expected foam-highlight foreground %q to differ from base foreground %q", nearFg, farFg)
+	sceneBg := aboutHeroBackground(frame, 2, headCol, width)
+	nearBg := aboutHeroMaskedBackground(sceneBg, revealNear, shimmerNear)
+	farBg := aboutHeroMaskedBackground(sceneBg, revealFar, shimmerFar)
+	if nearBg == farBg {
+		t.Fatalf("expected shimmer reveal background %q to differ from masked background %q", nearBg, farBg)
 	}
 }
 

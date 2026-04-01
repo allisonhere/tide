@@ -148,10 +148,12 @@ type Model struct {
 	// Update flow
 	updateState      updateState
 	updateInfo       update.ReleaseInfo
+	updateInfoFresh  bool
 	downloadedUpdate *update.DownloadedAsset
 	updateInstall    update.InstallResult
 	updateErr        string
 	updateDismissed  bool
+	pendingUpdateInstall bool
 
 	// AI summary overlay
 	summarizer        ai.Summarizer // nil when not configured
@@ -241,6 +243,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateErr = ""
 		m.cfg.Updates.LastCheckedUnix = time.Now().Unix()
 		if msg.Err != nil {
+			m.pendingUpdateInstall = false
 			m.updateState = updateStateError
 			m.updateErr = msg.Err.Error()
 			m.syncSettingsUpdateState()
@@ -253,6 +256,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.updateInfo = msg.Result.Latest
+		m.updateInfoFresh = true
 		m.updateDismissed = msg.Result.Latest.Version != "" && msg.Result.Latest.Version == m.cfg.Updates.DismissedVersion
 		if msg.Result.Available {
 			m.updateState = updateStateAvailable
@@ -261,6 +265,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cfg.Updates.AvailablePublished = msg.Result.Latest.PublishedAt.Unix()
 			m.syncSettingsUpdateState()
 			config.Save(m.cfg) //nolint:errcheck
+			if m.pendingUpdateInstall {
+				m.pendingUpdateInstall = false
+				if !m.updateDismissed {
+					m.overlay = overlayUpdateConfirm
+					return m, nil
+				}
+			}
 			if !m.updateDismissed && (msg.Manual || update.IsStableVersion(m.currentVersion)) {
 				m.setStatus("Update available: "+msg.Result.Latest.Version, false)
 				return m, m.clearStatusCmd()
@@ -269,6 +280,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.updateState = updateStateIdle
+		m.pendingUpdateInstall = false
 		m.updateDismissed = false
 		m.cfg.Updates.DismissedVersion = ""
 		m.clearCachedAvailableUpdate()
@@ -1014,15 +1026,17 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	action := m.settings.takeAction()
 	switch action {
 	case settingsActionCheckUpdates:
+		m.pendingUpdateInstall = false
 		m.updateState = updateStateChecking
 		m.updateErr = ""
 		m.syncSettingsUpdateState()
 		return m, m.checkForUpdatesCmd(true)
 	case settingsActionInstallUpdate:
-		if m.updateInfo.Version != "" {
-			m.overlay = overlayUpdateConfirm
-		}
-		return m, nil
+		m.pendingUpdateInstall = true
+		m.updateState = updateStateChecking
+		m.updateErr = ""
+		m.syncSettingsUpdateState()
+		return m, m.checkForUpdatesCmd(true)
 	case settingsActionDismissVersion:
 		return m, m.dismissAvailableUpdate()
 	case settingsActionRestartAfterUpdate:
@@ -2000,6 +2014,7 @@ func (m Model) settingsUpdateState() settingsUpdateState {
 		currentVersion:   m.currentVersion,
 		state:            m.updateState,
 		latestVersion:    m.updateInfo.Version,
+		latestIsFresh:    m.updateInfoFresh,
 		publishedAt:      m.updateInfo.PublishedAt,
 		summary:          m.updateInfo.Summary,
 		lastChecked:      lastChecked,
@@ -2045,6 +2060,7 @@ func (m *Model) restoreCachedUpdateState() {
 		Summary:     strings.TrimSpace(m.cfg.Updates.AvailableSummary),
 		PublishedAt: publishedAt,
 	}
+	m.updateInfoFresh = false
 	m.updateState = updateStateAvailable
 	m.updateDismissed = version == m.cfg.Updates.DismissedVersion
 }
