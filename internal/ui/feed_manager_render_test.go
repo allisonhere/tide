@@ -622,8 +622,12 @@ func TestEditableFeedManagerEnterBrowsesRemoteFeed(t *testing.T) {
 	}
 }
 
-func TestEditableFeedManagerEditRemoteFeedShowsBrowseOnlyStatus(t *testing.T) {
-	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+func TestEditableFeedManagerEditRemoteFeedOpensGReaderSettings(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{
+		GReaderURL:      "https://rss.example.com/api/greader.php",
+		GReaderLogin:    "alice",
+		GReaderPassword: "secret",
+	})
 	fm.setData([]db.Feed{{
 		ID:    -1,
 		Title: "Remote Feed",
@@ -631,11 +635,38 @@ func TestEditableFeedManagerEditRemoteFeedShowsBrowseOnlyStatus(t *testing.T) {
 	}}, nil)
 
 	next, _ := fm.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}, DefaultKeys)
-	if next.mode != fmList {
-		t.Fatalf("expected remote edit attempt to stay in list mode, got %v", next.mode)
+	if next.mode != fmEdit {
+		t.Fatalf("expected remote edit attempt to open settings edit mode, got %v", next.mode)
 	}
-	if !strings.Contains(next.statusMsg, "BROWSE-ONLY") {
-		t.Fatalf("expected browse-only status for remote edit attempt, got %q", next.statusMsg)
+	if next.listPaneFocused() {
+		t.Fatal("expected remote edit to focus the right pane")
+	}
+	if !next.remoteSettingsEdit {
+		t.Fatal("expected remote edit to enter greader settings mode")
+	}
+	if next.addSourceIdx != fmAddSourceGReader {
+		t.Fatalf("expected remote edit to stay on greader source, got %d", next.addSourceIdx)
+	}
+	if next.focusedField != fmFieldGReaderURL {
+		t.Fatalf("expected remote edit to focus API URL, got %d", next.focusedField)
+	}
+	if got := next.titleInput.Value(); got != "Remote Feed" {
+		t.Fatalf("expected remote edit to keep selected feed title, got %q", got)
+	}
+	if got := next.urlInput.Value(); got != "https://example.com/feed" {
+		t.Fatalf("expected remote edit to keep selected feed URL, got %q", got)
+	}
+	if got := next.greaderURLInput.Value(); got != "https://rss.example.com/api/greader.php" {
+		t.Fatalf("expected remote edit to prefill API URL, got %q", got)
+	}
+	view := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	for _, want := range []string{"GREADER SETTINGS", "FEED", "FEED URL", "API URL", "LOGIN"} {
+		if !strings.Contains(strings.ToUpper(view), want) {
+			t.Fatalf("expected remote edit view to contain %q, got %q", want, view)
+		}
+	}
+	if strings.Contains(view, "secret") {
+		t.Fatalf("expected remote edit to keep password masked, got %q", view)
 	}
 }
 

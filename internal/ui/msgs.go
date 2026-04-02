@@ -34,6 +34,7 @@ type RemoteFeedAddedMsg struct {
 	StreamID  string
 	Title     string
 	FeedCount int
+	SettingsOnly bool
 	Source    config.SourceConfig
 	Err       error
 }
