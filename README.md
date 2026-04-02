@@ -70,7 +70,8 @@ Config and database are stored in `~/.config/rss/`.
 Open the feed manager with `m`. Tide keeps one shared manager flow for local feeds and Google Reader-compatible sources.
 
 - Press `a` to open the add dialog from anywhere
-- The add dialog starts on the left list/details pane; press `Enter`, `→`, or `Tab` to move into the form
+- `a` opens the add dialog focused on the form
+- Opening the manager with `m` starts on the left list/details pane
 - From a text field, `←` moves back to the left pane once the cursor is already at the start of the field
 - The `Source` toggle in the add form switches between `Local` and `GReader`
 
@@ -81,6 +82,8 @@ GReader source:
 - Uses the same add dialog with `Title`, optional feed `URL`, `API URL`, `Login`, and `Password`
 - If `URL` is blank, Tide saves the source connection and loads your existing remote subscriptions
 - If `URL` is set, Tide also quick-adds that subscription on the remote server
+- Press `e` on a remote feed to open GReader settings for that source
+- GReader settings include local `Folder` and `Color` assignment inside Tide; this is app-only organization and does not modify remote server categories
 - Selecting a remote feed in the manager shows the current saved GReader connection info on the right, with the password masked
 
 FreshRSS works through its Google Reader-compatible endpoint. Use the full API URL, for example:
@@ -90,6 +93,7 @@ https://example.com/FreshRSS/p/api/greader.php
 ```
 
 Saved Google Reader credentials are stored in `~/.config/rss/config.toml` under `[source]`.
+Local folder assignments for remote feeds are stored in Tide's SQLite database.
 
 ## Settings
 
@@ -242,8 +246,8 @@ Tide can check GitHub releases for a newer version and install the matching bina
 |-----|--------|
 | `a` | Add feed or GReader source |
 | `n` | Add folder |
-| `Enter` | Edit selected feed or enter the form from the left pane |
-| `e` | Edit selected local feed |
+| `Enter` | Browse selected remote feed, edit selected local feed, or enter the form from the left pane |
+| `e` | Edit selected local feed or GReader settings |
 | `d` | Delete selected local feed |
 | `i` | Import OPML |
 | `x` | Export OPML |

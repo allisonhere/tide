@@ -56,9 +56,9 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 			entries: []entry{
 				{keys.Add.Help().Key, "add feed or GReader source"},
 				{keys.AddFolder.Help().Key, "add folder"},
-				{keys.Enter.Help().Key, "edit selected feed / enter form"},
+				{keys.Enter.Help().Key, "browse remote feed / edit local feed / enter form"},
 				{keys.Left.Help().Key, "from field start, back to left list"},
-				{keys.Edit.Help().Key, "edit selected local feed"},
+				{keys.Edit.Help().Key, "edit local feed or GReader settings"},
 				{keys.Delete.Help().Key, "delete selected local feed"},
 				bind(keys.Import),
 				bind(keys.Export),
