@@ -23,6 +23,7 @@ const (
 	sfDateFormat
 	sfMarkReadOnOpen
 	sfBrowser
+	sfKittyGraphics
 	sfFeedMaxBody
 	sfUpdateCheckOnStartup
 	sfUpdateCheckNow
@@ -127,6 +128,7 @@ type Settings struct {
 	icons                bool
 	dateAbsolute         bool // false = relative, true = absolute
 	markReadOnOpen       bool
+	kittyGraphics        bool
 	browserInput         textinput.Model
 	feedMaxBodyInput     textinput.Model
 	updateCheckOnStartup bool
@@ -169,6 +171,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		icons:                cfg.Display.Icons,
 		dateAbsolute:         cfg.Display.DateFormat == "absolute",
 		markReadOnOpen:       cfg.Display.MarkReadOnOpen,
+		kittyGraphics:        cfg.Display.KittyGraphics,
 		browserInput:         mkInput(cfg.Display.Browser, "xdg-open", false),
 		feedMaxBodyInput:     mkInput(strconv.Itoa(cfg.Feed.MaxBodyMiB), "10", false),
 		updateCheckOnStartup: cfg.Updates.CheckOnStartup,
@@ -198,6 +201,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 // ApplyTo merges the settings screen state back into a Config.
 func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	cfg.Display.Icons = s.icons
+	cfg.Display.KittyGraphics = s.kittyGraphics
 	if s.dateAbsolute {
 		cfg.Display.DateFormat = "absolute"
 	} else {
@@ -334,7 +338,7 @@ func (s Settings) visibleFields() []settingsField {
 func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
-		return []settingsField{sfIcons, sfDateFormat, sfMarkReadOnOpen, sfBrowser}
+		return []settingsField{sfIcons, sfDateFormat, sfMarkReadOnOpen, sfBrowser, sfKittyGraphics}
 	case ssFeeds:
 		return []settingsField{sfFeedMaxBody}
 	case ssUpdates:
@@ -660,6 +664,15 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
+	case sfKittyGraphics:
+		if key.String() == " " || keyMatches(key, keys.Enter) {
+			s.kittyGraphics = !s.kittyGraphics
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
 	case sfUpdateCheckOnStartup:
 		if key.String() == " " || keyMatches(key, keys.Enter) {
 			s.updateCheckOnStartup = !s.updateCheckOnStartup
@@ -935,6 +948,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		addToggle("Use relative dates", !s.dateAbsolute, sfDateFormat)
 		addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
 		addInput("Browser command", s.browserInput, sfBrowser)
+		addToggle("Kitty graphics", s.kittyGraphics, sfKittyGraphics)
 
 	case ssFeeds:
 		addInput("Feed max size (MiB)", s.feedMaxBodyInput, sfFeedMaxBody)

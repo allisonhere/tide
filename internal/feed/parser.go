@@ -22,6 +22,7 @@ type ParsedItem struct {
 	Title       string
 	Link        string
 	Content     string // raw HTML
+	ImageURL    string // lead image URL
 	PublishedAt time.Time
 }
 
@@ -133,13 +134,60 @@ func parseItem(item *gofeed.Item) ParsedItem {
 		pub = *item.UpdatedParsed
 	}
 
+	imageURL := extractLeadImage(item, content)
+
 	return ParsedItem{
 		GUID:        guid,
 		Title:       item.Title,
 		Link:        item.Link,
 		Content:     content,
+		ImageURL:    imageURL,
 		PublishedAt: pub,
 	}
+}
+
+// extractLeadImage returns the best lead image URL for an item.
+// Priority: gofeed Image > first <img> in content > first image enclosure.
+func extractLeadImage(item *gofeed.Item, content string) string {
+	if item.Image != nil && item.Image.URL != "" {
+		return item.Image.URL
+	}
+	if src := firstImgSrc(content); src != "" {
+		return src
+	}
+	for _, enc := range item.Enclosures {
+		if strings.HasPrefix(enc.Type, "image/") && enc.URL != "" {
+			return enc.URL
+		}
+	}
+	return ""
+}
+
+// firstImgSrc returns the src attribute of the first <img> tag in HTML.
+func firstImgSrc(htmlContent string) string {
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		return ""
+	}
+	var src string
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if src != "" {
+			return
+		}
+		if n.Type == html.ElementNode && n.Data == "img" {
+			attrs := attrMap(n.Attr)
+			if attrs["src"] != "" {
+				src = attrs["src"]
+				return
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	return src
 }
 
 func min(a, b int) int {

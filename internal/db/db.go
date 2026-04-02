@@ -120,6 +120,16 @@ func (db *DB) migrateSchema() error {
 			return err
 		}
 	}
+	if version < 5 {
+		if _, err := db.Exec(`ALTER TABLE articles ADD COLUMN image_url TEXT NOT NULL DEFAULT ''`); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return err
+			}
+		}
+		if _, err := db.Exec(`PRAGMA user_version = 5`); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

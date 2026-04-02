@@ -12,13 +12,14 @@ type Article struct {
 	Link        string
 	Content     string
 	Summary     string
+	ImageURL    string
 	PublishedAt time.Time
 	Read        bool
 }
 
 func (db *DB) ListArticles(feedID int64) ([]Article, error) {
 	rows, err := db.Query(`
-		SELECT id, feed_id, guid, title, link, content, summary, published_at, read
+		SELECT id, feed_id, guid, title, link, content, summary, image_url, published_at, read
 		FROM articles
 		WHERE feed_id = ?
 		ORDER BY published_at DESC
@@ -42,14 +43,15 @@ func (db *DB) ListArticles(feedID int64) ([]Article, error) {
 
 func (db *DB) UpsertArticle(a Article) error {
 	_, err := db.Exec(`
-		INSERT INTO articles (feed_id, guid, title, link, content, published_at, read)
-		VALUES (?, ?, ?, ?, ?, ?, 0)
+		INSERT INTO articles (feed_id, guid, title, link, content, image_url, published_at, read)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 0)
 		ON CONFLICT(feed_id, guid) DO UPDATE SET
 			title        = excluded.title,
 			link         = excluded.link,
 			content      = excluded.content,
+			image_url    = excluded.image_url,
 			published_at = excluded.published_at
-	`, a.FeedID, a.GUID, a.Title, a.Link, a.Content, a.PublishedAt.Unix())
+	`, a.FeedID, a.GUID, a.Title, a.Link, a.Content, a.ImageURL, a.PublishedAt.Unix())
 	return err
 }
 
@@ -85,7 +87,7 @@ func scanArticle(s scanner) (Article, error) {
 	var a Article
 	var publishedAt int64
 	var read int
-	err := s.Scan(&a.ID, &a.FeedID, &a.GUID, &a.Title, &a.Link, &a.Content, &a.Summary, &publishedAt, &read)
+	err := s.Scan(&a.ID, &a.FeedID, &a.GUID, &a.Title, &a.Link, &a.Content, &a.Summary, &a.ImageURL, &publishedAt, &read)
 	if err != nil {
 		return Article{}, err
 	}

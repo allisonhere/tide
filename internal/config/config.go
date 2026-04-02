@@ -21,6 +21,7 @@ type DisplayConfig struct {
 	DateFormat     string `toml:"date_format"` // "relative" | "absolute"
 	MarkReadOnOpen bool   `toml:"mark_read_on_open"`
 	Browser        string `toml:"browser"`
+	KittyGraphics  bool   `toml:"kitty_graphics"`
 }
 
 type FeedConfig struct {
@@ -60,6 +61,7 @@ func DefaultConfig() Config {
 			Icons:          false,
 			DateFormat:     "relative",
 			MarkReadOnOpen: true,
+			KittyGraphics:  true,
 		},
 		Feed: FeedConfig{
 			MaxBodyMiB: 10,

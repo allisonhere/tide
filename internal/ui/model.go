@@ -162,6 +162,11 @@ type Model struct {
 	summaryArticle    db.Article
 	summaryGenerating bool
 	summaryErr        string
+
+	// Kitty graphics
+	kittySupported bool
+	kittyImages    map[int64]*kittyImage // keyed by article ID
+	kittyArticleID int64                 // currently displayed article's ID
 }
 
 func NewModel(database *db.DB, cfg config.Config, currentVersion string) Model {
@@ -196,6 +201,8 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string) Model {
 		firstLoad:        true,
 		keys:             DefaultKeys,
 		summarizer:       summarizer,
+		kittySupported:   cfg.Display.KittyGraphics && detectKittySupport(),
+		kittyImages:      map[int64]*kittyImage{},
 	}
 	m.resetSourceClient()
 	m.restoreCachedUpdateState()
@@ -220,13 +227,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.viewport = viewport.New(m.contentBodyWidth(), m.contentBodyHeight())
 		m.viewport.Style = lipgloss.NewStyle()
+		cmds := []tea.Cmd{m.kittyClearCurrentImageCmd()}
 		if len(m.filteredArticles) > 0 {
 			m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+			cmds = append(cmds, m.kittyPlaceCurrentImageCmd())
 		}
 		if m.overlay == overlayHelp {
 			m.resetHelpVP()
 		}
-		return m, nil
+		return m, tea.Batch(cmds...)
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -428,13 +437,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyFilter()
 			m.articleCursor = clamp(m.articleCursor, 0, max(0, len(m.filteredArticles)-1))
 			m.listOffset = 0
-			var cmd tea.Cmd
+			cmds := []tea.Cmd{m.kittyClearCurrentImageCmd()}
 			if len(m.filteredArticles) > 0 {
-				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+				a := m.filteredArticles[m.articleCursor]
+				m.viewport.SetContent(m.renderArticleContent(a))
 				m.viewport.GotoTop()
-				cmd = m.maybeFetchArticleContentCmd(m.filteredArticles[m.articleCursor])
+				if cmd := m.maybeFetchArticleContentCmd(a); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				if cmd := m.maybeFetchKittyImageCmd(a); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				if cmd := m.kittyPlaceCurrentImageCmd(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			}
-			return m, cmd
+			return m, tea.Batch(cmds...)
 		}
 		return m, nil
 
@@ -660,6 +678,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if cmd := m.maybeFetchArticleContentCmd(current); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
+			if cmd := m.maybeFetchKittyImageCmd(current); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 		return m, tea.Batch(cmds...)
 
@@ -671,6 +692,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(fmt.Sprintf("mark read failed: %v", msg.Err), true)
 			return m, m.clearStatusCmd()
 		}
+		return m, nil
+
+	case kittyImageMsg:
+		if msg.err != nil || msg.img == nil {
+			return m, nil
+		}
+		ki := prepareKittyImage(msg.img, m.contentBodyWidth()/defaultCellWidth)
+		m.kittyImages[msg.articleID] = ki
+		return m, kittyTransmitCmd(msg.articleID, ki)
+
+	case kittyUploadedMsg:
+		// Image has been transmitted — re-render with blank lines and place it.
+		if len(m.filteredArticles) > 0 && m.filteredArticles[m.articleCursor].ID == msg.articleID {
+			m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+			m.kittyArticleID = msg.articleID
+			return m, m.kittyPlaceCurrentImageCmd()
+		}
+		return m, nil
+
+	case kittyPlacedMsg:
 		return m, nil
 
 	case ArticleContentFetchedMsg:
@@ -943,9 +984,10 @@ func (m Model) handleUp() (tea.Model, tea.Cmd) {
 				m.listOffset = m.articleCursor
 			}
 			if len(m.filteredArticles) > 0 {
-				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+				a := m.filteredArticles[m.articleCursor]
+				m.viewport.SetContent(m.renderArticleContent(a))
 				m.viewport.GotoTop()
-				return m, m.maybeFetchArticleContentCmd(m.filteredArticles[m.articleCursor])
+				return m, tea.Batch(m.kittyClearCurrentImageCmd(), m.maybeFetchArticleContentCmd(a), m.maybeFetchKittyImageCmd(a), m.kittyPlaceCurrentImageCmd())
 			}
 		}
 	case paneContent:
@@ -972,9 +1014,10 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 				m.listOffset = m.articleCursor - visible + 1
 			}
 			if len(m.filteredArticles) > 0 {
-				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+				a := m.filteredArticles[m.articleCursor]
+				m.viewport.SetContent(m.renderArticleContent(a))
 				m.viewport.GotoTop()
-				return m, m.maybeFetchArticleContentCmd(m.filteredArticles[m.articleCursor])
+				return m, tea.Batch(m.kittyClearCurrentImageCmd(), m.maybeFetchArticleContentCmd(a), m.maybeFetchKittyImageCmd(a), m.kittyPlaceCurrentImageCmd())
 			}
 		}
 	case paneContent:
@@ -1376,7 +1419,16 @@ func (m Model) renderArticleContent(a db.Article) string {
 	}
 	body := indentBlock(m.styles.ContentBody.Width(bodyWidth).Render(formatArticleBody(content, bodyWidth)), 1)
 
-	return fillViewWidth(title+"\n"+meta+"\n\n"+body, m.articlesPaneWidth(), m.styles.Theme.Bg)
+	var imageBlock string
+	if m.kittySupported {
+		if ki, ok := m.kittyImages[a.ID]; ok && ki.uploaded {
+			imageBlock = kittyImageBlankLines(ki.rows) + "\n"
+		} else if a.ImageURL != "" {
+			imageBlock = " Loading image...\n\n"
+		}
+	}
+
+	return fillViewWidth(title+"\n"+meta+"\n\n"+imageBlock+body, m.articlesPaneWidth(), m.styles.Theme.Bg)
 }
 
 func (m Model) renderStatusBar() string {
@@ -1859,6 +1911,7 @@ func (m *Model) refreshFeedCmd(feedID int64, feedURL string, manual bool) tea.Cm
 				Title:       item.Title,
 				Link:        item.Link,
 				Content:     content,
+				ImageURL:    item.ImageURL,
 				PublishedAt: item.PublishedAt,
 			})
 		}
@@ -1929,6 +1982,68 @@ func (m *Model) maybeFetchArticleContentCmd(a db.Article) tea.Cmd {
 		}
 		return ArticleContentFetchedMsg{ArticleID: a.ID, Content: content}
 	}
+}
+
+// maybeFetchKittyImageCmd triggers an async image fetch if kitty is supported
+// and the article has a lead image that isn't already cached.
+func (m *Model) maybeFetchKittyImageCmd(a db.Article) tea.Cmd {
+	if !m.kittySupported || a.ImageURL == "" {
+		return nil
+	}
+	if _, ok := m.kittyImages[a.ID]; ok {
+		return nil // already fetched or in-flight
+	}
+	return fetchArticleImageCmd(a.ID, a.ImageURL)
+}
+
+// kittyImageScreenRow returns the 1-based screen row where the lead image
+// should be placed, accounting for viewport scroll. Returns 0 if the image
+// is scrolled out of view.
+func (m *Model) kittyImageScreenRow() int {
+	// Image starts at line 3 in viewport content (title=0, meta=1, blank=2, image=3).
+	const imageContentLine = 3
+	if m.viewport.YOffset > imageContentLine {
+		return 0 // scrolled past
+	}
+	// Screen row = articles pane height + content pane header (1 line) + visible offset + 1 (1-based).
+	return m.articlesPaneOuterHeight() + 1 + (imageContentLine - m.viewport.YOffset) + 1
+}
+
+// kittyImageScreenCol returns the 1-based screen column where the lead image
+// should be placed.
+func (m *Model) kittyImageScreenCol() int {
+	return m.feedsPaneWidth() + 2 // +1 for border, +1 for content indent
+}
+
+// kittyPlaceCurrentImageCmd places the current article's image on screen
+// if one is available and the viewport position allows it.
+func (m *Model) kittyPlaceCurrentImageCmd() tea.Cmd {
+	if !m.kittySupported || len(m.filteredArticles) == 0 {
+		return nil
+	}
+	a := m.filteredArticles[m.articleCursor]
+	ki, ok := m.kittyImages[a.ID]
+	if !ok || !ki.uploaded {
+		return nil
+	}
+	row := m.kittyImageScreenRow()
+	if row == 0 {
+		return nil
+	}
+	col := m.kittyImageScreenCol()
+	return kittyPlaceCmd(ki, row, col)
+}
+
+// kittyClearCurrentImageCmd clears the currently displayed kitty image.
+func (m *Model) kittyClearCurrentImageCmd() tea.Cmd {
+	if !m.kittySupported || m.kittyArticleID == 0 {
+		return nil
+	}
+	if ki, ok := m.kittyImages[m.kittyArticleID]; ok {
+		m.kittyArticleID = 0
+		return kittyDeleteCmd(ki.id)
+	}
+	return nil
 }
 
 func (m *Model) markAllReadCmd(feedID int64) tea.Cmd {

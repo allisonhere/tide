@@ -182,8 +182,8 @@ func TestOpenMigratesFolderSchemaToVersion4(t *testing.T) {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 4 {
-		t.Fatalf("expected schema version 4, got %d", version)
+	if version != 5 {
+		t.Fatalf("expected schema version 5, got %d", version)
 	}
 
 	rows, err := db.Query(`PRAGMA table_info(feeds)`)
