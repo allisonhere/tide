@@ -109,7 +109,7 @@ func TestStreamContentsParsesEntries(t *testing.T) {
 	if !strings.Contains(entries[0].ContentHTML, "Hello world") {
 		t.Fatalf("unexpected content %q", entries[0].ContentHTML)
 	}
-	wantURL := "https://rss.example.com/api/greader.php/reader/api/0/stream/contents/feed%2Fhttp:%2F%2Fexample.com%2Ffeed.xml?n=25&output=json"
+	wantURL := "https://rss.example.com/api/greader.php/reader/api/0/stream/contents/feed%2Fhttp:%2F%2Fexample.com%2Ffeed.xml?n=25&output=json&xt=user%2F-%2Fstate%2Fcom.google%2Fread"
 	if requestedURL != wantURL {
 		t.Fatalf("unexpected stream request %q want %q", requestedURL, wantURL)
 	}
@@ -153,6 +153,73 @@ func TestQuickAddReturnsStreamID(t *testing.T) {
 	}
 	if result.StreamName != "Example Feed" {
 		t.Fatalf("unexpected stream name %q", result.StreamName)
+	}
+}
+
+func TestMarkEntryReadUsesTokenAndEditTag(t *testing.T) {
+	client := New("https://rss.example.com/api/greader.php", "alice", "secret")
+	tokenCalls := 0
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
+			return responseWithBody(http.StatusOK, "Auth=alice/token\n"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/token":
+			tokenCalls++
+			if got := req.Header.Get("Authorization"); got != "GoogleLogin auth=alice/token" {
+				t.Fatalf("unexpected Authorization header %q", got)
+			}
+			return responseWithBody(http.StatusOK, "csrf-token"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/edit-tag":
+			if req.Method != http.MethodPost {
+				t.Fatalf("expected POST, got %s", req.Method)
+			}
+			body, _ := io.ReadAll(req.Body)
+			if got := string(body); got != "T=csrf-token&a=user%2F-%2Fstate%2Fcom.google%2Fread&i=tag%3Agoogle.com%2C2005%3Areader%2Fitem%2Fabc123&r=user%2F-%2Fstate%2Fcom.google%2Fkept-unread" {
+				t.Fatalf("unexpected edit-tag body %q", got)
+			}
+			return responseWithBody(http.StatusOK, "OK"), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	if err := client.MarkEntryRead(context.Background(), "tag:google.com,2005:reader/item/abc123", true); err != nil {
+		t.Fatalf("MarkEntryRead returned error: %v", err)
+	}
+	if err := client.MarkEntryRead(context.Background(), "tag:google.com,2005:reader/item/abc123", true); err != nil {
+		t.Fatalf("MarkEntryRead returned error on cached token: %v", err)
+	}
+	if tokenCalls != 1 {
+		t.Fatalf("expected token endpoint to be called once, got %d", tokenCalls)
+	}
+}
+
+func TestMarkAllReadUsesTokenAndStreamID(t *testing.T) {
+	client := New("https://rss.example.com/api/greader.php", "alice", "secret")
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
+			return responseWithBody(http.StatusOK, "Auth=alice/token\n"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/token":
+			return responseWithBody(http.StatusOK, "csrf-token"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/mark-all-as-read":
+			if req.Method != http.MethodPost {
+				t.Fatalf("expected POST, got %s", req.Method)
+			}
+			body, _ := io.ReadAll(req.Body)
+			if got := string(body); got != "T=csrf-token&s=feed%2Fhttp%3A%2F%2Fexample.com%2Ffeed.xml" {
+				t.Fatalf("unexpected mark-all-as-read body %q", got)
+			}
+			return responseWithBody(http.StatusOK, "OK"), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	if err := client.MarkAllRead(context.Background(), "feed/http://example.com/feed.xml"); err != nil {
+		t.Fatalf("MarkAllRead returned error: %v", err)
 	}
 }
 

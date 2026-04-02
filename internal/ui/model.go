@@ -620,13 +620,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+		if msg.FeedID != 0 && msg.WasRead != msg.Read {
+			delta := int64(1)
+			if msg.Read {
+				delta = -1
+			}
+			m.adjustFeedUnreadCount(msg.FeedID, delta)
+		}
 		m.applyFilter()
 
 		if len(m.filteredArticles) == 0 {
 			m.articleCursor = 0
 			m.listOffset = 0
 			m.viewport.SetContent("")
-			return m, m.loadFeedsCmd()
+			return m, nil
 		}
 
 		if idx := m.indexOfFilteredArticle(msg.ArticleID); msg.Advance && idx >= 0 && idx == m.articleCursor && idx < len(m.filteredArticles)-1 {
@@ -645,13 +652,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.SetContent(m.renderArticleContent(current))
 		m.viewport.GotoTop()
 
-		cmds := []tea.Cmd{m.loadFeedsCmd()}
+		cmds := []tea.Cmd{}
+		if msg.FeedID == 0 || !m.isRemoteFeed(msg.FeedID) {
+			cmds = append(cmds, m.loadFeedsCmd())
+		}
 		if current.ID != msg.ArticleID || !msg.Read {
 			if cmd := m.maybeFetchArticleContentCmd(current); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 		}
 		return m, tea.Batch(cmds...)
+
+	case FeedsReadUpdatedMsg:
+		if len(msg.FeedIDs) > 0 {
+			m.markFeedsReadInMemory(msg.FeedIDs)
+		}
+		if msg.Err != nil {
+			m.setStatus(fmt.Sprintf("mark read failed: %v", msg.Err), true)
+			return m, m.clearStatusCmd()
+		}
+		return m, nil
 
 	case ArticleContentFetchedMsg:
 		if msg.Err != nil {
@@ -804,8 +824,9 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.focused == paneArticles && len(m.filteredArticles) > 0 {
 			m.focused = paneContent
-			if m.cfg.Display.MarkReadOnOpen && !m.isRemoteFeed(m.filteredArticles[m.articleCursor].FeedID) {
-				return m, m.setArticleReadCmd(m.filteredArticles[m.articleCursor].ID, true, false)
+			current := m.filteredArticles[m.articleCursor]
+			if m.cfg.Display.MarkReadOnOpen && !current.Read {
+				return m, m.setArticleReadCmd(current, true, false)
 			}
 		}
 		return m, nil
@@ -840,32 +861,20 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, m.keys.MarkRead):
 		if len(m.filteredArticles) > 0 {
-			if m.isRemoteFeed(m.filteredArticles[m.articleCursor].FeedID) {
-				m.setStatus("Google Reader mode is browse-only for now", false)
-				return m, m.clearStatusCmd()
-			}
 			a := m.filteredArticles[m.articleCursor]
 			advance := m.focused == paneArticles
 			if !advance && a.Read {
 				return m, nil
 			}
-			return m, m.setArticleReadCmd(a.ID, true, advance)
+			return m, m.setArticleReadCmd(a, true, advance)
 		}
 		return m, nil
 
 	case keyMatches(msg, m.keys.MarkAllRead):
 		if feed := m.selectedFeed(); feed != nil {
-			if m.isRemoteFeed(feed.ID) {
-				m.setStatus("Google Reader mode is browse-only for now", false)
-				return m, m.clearStatusCmd()
-			}
 			return m, m.markAllReadCmd(feed.ID)
 		}
 		if folderID, ok := m.selectedFolderID(); ok {
-			if m.selectedFolderHasRemoteFeeds() {
-				m.setStatus("Google Reader mode is browse-only for now", false)
-				return m, m.clearStatusCmd()
-			}
 			return m, m.markFolderReadCmd(folderID)
 		}
 		return m, nil
@@ -1861,12 +1870,49 @@ func (m *Model) refreshFeedCmd(feedID int64, feedURL string, manual bool) tea.Cm
 	}
 }
 
-func (m *Model) setArticleReadCmd(articleID int64, read, advance bool) tea.Cmd {
+func (m *Model) setArticleReadCmd(article db.Article, read, advance bool) tea.Cmd {
+	database := m.db
+	client := m.greaderClient
+	isRemote := m.isRemoteFeed(article.FeedID)
 	return func() tea.Msg {
-		if err := m.db.MarkRead(articleID, read); err != nil {
-			return ArticleReadUpdatedMsg{ArticleID: articleID, Read: read, Advance: advance, Err: err}
+		if isRemote {
+			if client == nil {
+				return ArticleReadUpdatedMsg{
+					ArticleID: article.ID,
+					FeedID:    article.FeedID,
+					WasRead:   article.Read,
+					Read:      read,
+					Advance:   advance,
+					Err:       fmt.Errorf("google reader source not configured"),
+				}
+			}
+			if err := client.MarkEntryRead(context.Background(), article.GUID, read); err != nil {
+				return ArticleReadUpdatedMsg{
+					ArticleID: article.ID,
+					FeedID:    article.FeedID,
+					WasRead:   article.Read,
+					Read:      read,
+					Advance:   advance,
+					Err:       err,
+				}
+			}
+		} else if err := database.MarkRead(article.ID, read); err != nil {
+			return ArticleReadUpdatedMsg{
+				ArticleID: article.ID,
+				FeedID:    article.FeedID,
+				WasRead:   article.Read,
+				Read:      read,
+				Advance:   advance,
+				Err:       err,
+			}
 		}
-		return ArticleReadUpdatedMsg{ArticleID: articleID, Read: read, Advance: advance}
+		return ArticleReadUpdatedMsg{
+			ArticleID: article.ID,
+			FeedID:    article.FeedID,
+			WasRead:   article.Read,
+			Read:      read,
+			Advance:   advance,
+		}
 	}
 }
 
@@ -1884,34 +1930,54 @@ func (m *Model) maybeFetchArticleContentCmd(a db.Article) tea.Cmd {
 }
 
 func (m *Model) markAllReadCmd(feedID int64) tea.Cmd {
+	database := m.db
+	client := m.greaderClient
+	streamID := strings.TrimSpace(m.greaderStreams[feedID])
+	isRemote := m.isRemoteFeed(feedID)
 	return func() tea.Msg {
-		if err := m.db.MarkAllRead(feedID); err != nil {
-			return ErrMsg{err}
-		}
-		for i := range m.articles {
-			if m.articles[i].FeedID == feedID {
-				m.articles[i].Read = true
+		if isRemote {
+			if client == nil {
+				return FeedsReadUpdatedMsg{Err: fmt.Errorf("google reader source not configured")}
 			}
+			if err := client.MarkAllRead(context.Background(), streamID); err != nil {
+				return FeedsReadUpdatedMsg{Err: err}
+			}
+		} else if err := database.MarkAllRead(feedID); err != nil {
+			return FeedsReadUpdatedMsg{Err: err}
 		}
-		m.applyFilter()
-		return m.loadFeedsCmd()()
+		return FeedsReadUpdatedMsg{FeedIDs: []int64{feedID}}
 	}
 }
 
 func (m *Model) markFolderReadCmd(folderID int64) tea.Cmd {
 	feedIDs := make([]int64, 0)
+	streamIDs := make(map[int64]string)
 	for _, feed := range m.feeds {
 		if feed.FolderID == folderID {
 			feedIDs = append(feedIDs, feed.ID)
-		}
-	}
-	return func() tea.Msg {
-		for _, feedID := range feedIDs {
-			if err := m.db.MarkAllRead(feedID); err != nil {
-				return ErrMsg{err}
+			if streamID, ok := m.greaderStreams[feed.ID]; ok {
+				streamIDs[feed.ID] = streamID
 			}
 		}
-		return m.loadFeedsCmd()()
+	}
+	database := m.db
+	client := m.greaderClient
+	return func() tea.Msg {
+		applied := make([]int64, 0, len(feedIDs))
+		for _, feedID := range feedIDs {
+			if streamID, ok := streamIDs[feedID]; ok {
+				if client == nil {
+					return FeedsReadUpdatedMsg{FeedIDs: applied, Err: fmt.Errorf("google reader source not configured")}
+				}
+				if err := client.MarkAllRead(context.Background(), streamID); err != nil {
+					return FeedsReadUpdatedMsg{FeedIDs: applied, Err: err}
+				}
+			} else if err := database.MarkAllRead(feedID); err != nil {
+				return FeedsReadUpdatedMsg{FeedIDs: applied, Err: err}
+			}
+			applied = append(applied, feedID)
+		}
+		return FeedsReadUpdatedMsg{FeedIDs: applied}
 	}
 }
 
@@ -2268,6 +2334,56 @@ func (m Model) feedByID(feedID int64) *db.Feed {
 		}
 	}
 	return nil
+}
+
+func (m *Model) adjustFeedUnreadCount(feedID int64, delta int64) {
+	for i := range m.feeds {
+		if m.feeds[i].ID == feedID {
+			m.feeds[i].UnreadCount = max(0, m.feeds[i].UnreadCount+delta)
+			return
+		}
+	}
+}
+
+func (m *Model) markFeedsReadInMemory(feedIDs []int64) {
+	if len(feedIDs) == 0 {
+		return
+	}
+
+	feedSet := make(map[int64]struct{}, len(feedIDs))
+	for _, feedID := range feedIDs {
+		feedSet[feedID] = struct{}{}
+		for i := range m.feeds {
+			if m.feeds[i].ID == feedID {
+				m.feeds[i].UnreadCount = 0
+				break
+			}
+		}
+	}
+
+	changedArticles := false
+	for i := range m.articles {
+		if _, ok := feedSet[m.articles[i].FeedID]; ok && !m.articles[i].Read {
+			m.articles[i].Read = true
+			changedArticles = true
+		}
+	}
+	if !changedArticles {
+		return
+	}
+
+	m.applyFilter()
+	if len(m.filteredArticles) == 0 {
+		m.articleCursor = 0
+		m.listOffset = 0
+		m.viewport.SetContent("")
+		return
+	}
+	m.articleCursor = clamp(m.articleCursor, 0, max(0, len(m.filteredArticles)-1))
+	maxOffset := max(0, len(m.filteredArticles)-1)
+	m.listOffset = clamp(m.listOffset, 0, maxOffset)
+	m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+	m.viewport.GotoTop()
 }
 
 func (m Model) folderName(folderID int64) string {
