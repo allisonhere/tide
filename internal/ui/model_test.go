@@ -720,7 +720,7 @@ func TestLoadArticlesCmdUsesGReaderFeedWhenSelected(t *testing.T) {
 			}`), nil
 		case "https://rss.example.com/api/greader.php/reader/api/0/unread-count?output=json":
 			return uiResponseWithJSON(http.StatusOK, `{"unreadcounts":[{"id":"feed/http://example.com/feed.xml","count":1}]}`), nil
-		case "https://rss.example.com/api/greader.php/reader/api/0/stream/contents/feed%2Fhttp:%2F%2Fexample.com%2Ffeed.xml?n=100&output=json":
+		case "https://rss.example.com/api/greader.php/reader/api/0/stream/contents/feed%2Fhttp:%2F%2Fexample.com%2Ffeed.xml?n=100&output=json&xt=user%2F-%2Fstate%2Fcom.google%2Fread":
 			return uiResponseWithJSON(http.StatusOK, `{
 				"items": [
 					{
@@ -758,6 +758,383 @@ func TestLoadArticlesCmdUsesGReaderFeedWhenSelected(t *testing.T) {
 	}
 	if !strings.Contains(m.articles[0].Content, "Hello remote world") {
 		t.Fatalf("expected remote content to be normalized into article body, got %q", m.articles[0].Content)
+	}
+}
+
+func TestRemoteMarkReadUsesGReaderAndUpdatesUnreadCount(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	m := NewModel(nil, cfg, "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feedID := remoteStableID("feed", "feed/http://example.com/feed.xml")
+	m2, _ = m.Update(FeedsLoadedMsg{
+		Feeds: []db.Feed{{
+			ID:          feedID,
+			Title:       "Remote Feed",
+			URL:         "https://example.com/feed.xml",
+			UnreadCount: 2,
+		}},
+		RemoteStreams: map[int64]string{feedID: "feed/http://example.com/feed.xml"},
+	})
+	m = m2.(Model)
+
+	articleOneID := remoteStableID("article", "tag:google.com,2005:reader/item/abc123")
+	articleTwoID := remoteStableID("article", "tag:google.com,2005:reader/item/abc124")
+	articles := []db.Article{
+		{ID: articleOneID, FeedID: feedID, GUID: "tag:google.com,2005:reader/item/abc123", Title: "Remote Article", Link: "https://example.com/a", Content: "one", PublishedAt: unixTestTime(1710000100), Read: false},
+		{ID: articleTwoID, FeedID: feedID, GUID: "tag:google.com,2005:reader/item/abc124", Title: "Remote Article 2", Link: "https://example.com/b", Content: "two", PublishedAt: unixTestTime(1710000000), Read: false},
+	}
+	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: feedID, Articles: articles})
+	m = m2.(Model)
+	m.focused = paneArticles
+
+	editTagCalled := false
+	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
+			return uiResponseWithBody(http.StatusOK, "Auth=test-token\n"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/token":
+			return uiResponseWithBody(http.StatusOK, "csrf-token"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/edit-tag":
+			editTagCalled = true
+			body, _ := io.ReadAll(req.Body)
+			if got := string(body); got != "T=csrf-token&a=user%2F-%2Fstate%2Fcom.google%2Fread&i=tag%3Agoogle.com%2C2005%3Areader%2Fitem%2Fabc123&r=user%2F-%2Fstate%2Fcom.google%2Fkept-unread" {
+				t.Fatalf("unexpected edit-tag body %q", got)
+			}
+			return uiResponseWithBody(http.StatusOK, "OK"), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = m2.(Model)
+	if cmd == nil {
+		t.Fatal("expected remote mark-read to return a command")
+	}
+
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+
+	if !editTagCalled {
+		t.Fatal("expected remote mark-read to call edit-tag")
+	}
+	if !m.articles[0].Read {
+		t.Fatal("expected first remote article to be marked read")
+	}
+	if got := m.feeds[0].UnreadCount; got != 1 {
+		t.Fatalf("expected remote unread count to decrement to 1, got %d", got)
+	}
+	if m.articleCursor != 1 {
+		t.Fatalf("expected remote mark-read to advance to next article, got %d", m.articleCursor)
+	}
+}
+
+func TestRemoteMarkAllReadUsesGReaderAndClearsUnreadState(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	m := NewModel(nil, cfg, "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feedID := remoteStableID("feed", "feed/http://example.com/feed.xml")
+	m2, _ = m.Update(FeedsLoadedMsg{
+		Feeds: []db.Feed{{
+			ID:          feedID,
+			Title:       "Remote Feed",
+			URL:         "https://example.com/feed.xml",
+			UnreadCount: 3,
+		}},
+		RemoteStreams: map[int64]string{feedID: "feed/http://example.com/feed.xml"},
+	})
+	m = m2.(Model)
+
+	articles := []db.Article{
+		{ID: remoteStableID("article", "tag:google.com,2005:reader/item/abc123"), FeedID: feedID, GUID: "tag:google.com,2005:reader/item/abc123", Title: "Remote Article", Link: "https://example.com/a", Content: "one", PublishedAt: unixTestTime(1710000100), Read: false},
+		{ID: remoteStableID("article", "tag:google.com,2005:reader/item/abc124"), FeedID: feedID, GUID: "tag:google.com,2005:reader/item/abc124", Title: "Remote Article 2", Link: "https://example.com/b", Content: "two", PublishedAt: unixTestTime(1710000000), Read: false},
+	}
+	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: feedID, Articles: articles})
+	m = m2.(Model)
+
+	markAllCalled := false
+	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
+			return uiResponseWithBody(http.StatusOK, "Auth=test-token\n"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/token":
+			return uiResponseWithBody(http.StatusOK, "csrf-token"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/mark-all-as-read":
+			markAllCalled = true
+			body, _ := io.ReadAll(req.Body)
+			if got := string(body); got != "T=csrf-token&s=feed%2Fhttp%3A%2F%2Fexample.com%2Ffeed.xml" {
+				t.Fatalf("unexpected mark-all-as-read body %q", got)
+			}
+			return uiResponseWithBody(http.StatusOK, "OK"), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	m = m2.(Model)
+	if cmd == nil {
+		t.Fatal("expected remote mark-all-read to return a command")
+	}
+
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+
+	if !markAllCalled {
+		t.Fatal("expected remote mark-all-read to call mark-all-as-read")
+	}
+	if got := m.feeds[0].UnreadCount; got != 0 {
+		t.Fatalf("expected remote unread count to clear, got %d", got)
+	}
+	for i, article := range m.articles {
+		if !article.Read {
+			t.Fatalf("expected remote article %d to be marked read", i)
+		}
+	}
+}
+
+func TestRemoteMarkReadOnOpenUsesGReader(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Display.MarkReadOnOpen = true
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	m := NewModel(nil, cfg, "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feedID := remoteStableID("feed", "feed/http://example.com/feed.xml")
+	m2, _ = m.Update(FeedsLoadedMsg{
+		Feeds: []db.Feed{{
+			ID:          feedID,
+			Title:       "Remote Feed",
+			URL:         "https://example.com/feed.xml",
+			UnreadCount: 1,
+		}},
+		RemoteStreams: map[int64]string{feedID: "feed/http://example.com/feed.xml"},
+	})
+	m = m2.(Model)
+
+	articleID := remoteStableID("article", "tag:google.com,2005:reader/item/abc123")
+	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: feedID, Articles: []db.Article{{
+		ID:          articleID,
+		FeedID:      feedID,
+		GUID:        "tag:google.com,2005:reader/item/abc123",
+		Title:       "Remote Article",
+		Link:        "https://example.com/a",
+		Content:     "one",
+		PublishedAt: unixTestTime(1710000100),
+		Read:        false,
+	}}})
+	m = m2.(Model)
+	m.focused = paneArticles
+
+	editTagCalled := false
+	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
+			return uiResponseWithBody(http.StatusOK, "Auth=test-token\n"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/token":
+			return uiResponseWithBody(http.StatusOK, "csrf-token"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/edit-tag":
+			editTagCalled = true
+			return uiResponseWithBody(http.StatusOK, "OK"), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+	if m.focused != paneContent {
+		t.Fatalf("expected enter to move focus to content pane, got %v", m.focused)
+	}
+	if cmd == nil {
+		t.Fatal("expected remote mark-read-on-open to return a command")
+	}
+
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+
+	if !editTagCalled {
+		t.Fatal("expected mark-read-on-open to call edit-tag")
+	}
+	if !m.articles[0].Read {
+		t.Fatal("expected remote article to be marked read on open")
+	}
+	if got := m.feeds[0].UnreadCount; got != 0 {
+		t.Fatalf("expected unread count to drop to 0, got %d", got)
+	}
+}
+
+func TestRemoteMarkReadFailureLeavesStateUnchanged(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	m := NewModel(nil, cfg, "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feedID := remoteStableID("feed", "feed/http://example.com/feed.xml")
+	m2, _ = m.Update(FeedsLoadedMsg{
+		Feeds: []db.Feed{{
+			ID:          feedID,
+			Title:       "Remote Feed",
+			URL:         "https://example.com/feed.xml",
+			UnreadCount: 1,
+		}},
+		RemoteStreams: map[int64]string{feedID: "feed/http://example.com/feed.xml"},
+	})
+	m = m2.(Model)
+
+	articleID := remoteStableID("article", "tag:google.com,2005:reader/item/abc123")
+	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: feedID, Articles: []db.Article{{
+		ID:          articleID,
+		FeedID:      feedID,
+		GUID:        "tag:google.com,2005:reader/item/abc123",
+		Title:       "Remote Article",
+		Link:        "https://example.com/a",
+		Content:     "one",
+		PublishedAt: unixTestTime(1710000100),
+		Read:        false,
+	}}})
+	m = m2.(Model)
+	m.focused = paneArticles
+
+	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
+			return uiResponseWithBody(http.StatusOK, "Auth=test-token\n"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/token":
+			return uiResponseWithBody(http.StatusOK, "csrf-token"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/edit-tag":
+			return uiResponseWithBody(http.StatusUnauthorized, "denied"), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = m2.(Model)
+	if cmd == nil {
+		t.Fatal("expected remote mark-read to return a command")
+	}
+
+	m2, clearCmd := m.Update(cmd())
+	m = m2.(Model)
+
+	if m.articles[0].Read {
+		t.Fatal("expected failed remote mark-read to leave article unread")
+	}
+	if got := m.feeds[0].UnreadCount; got != 1 {
+		t.Fatalf("expected failed remote mark-read to leave unread count at 1, got %d", got)
+	}
+	if !strings.Contains(m.statusMsg, "mark read failed") {
+		t.Fatalf("expected status error after failed remote mark-read, got %q", m.statusMsg)
+	}
+	if clearCmd == nil {
+		t.Fatal("expected failed remote mark-read to schedule status clear")
+	}
+}
+
+func TestRemoteReadArticleDoesNotReturnAfterReload(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	m := NewModel(nil, cfg, "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feedID := remoteStableID("feed", "feed/http://example.com/feed.xml")
+	m2, _ = m.Update(FeedsLoadedMsg{
+		Feeds: []db.Feed{{
+			ID:          feedID,
+			Title:       "Remote Feed",
+			URL:         "https://example.com/feed.xml",
+			UnreadCount: 2,
+		}},
+		RemoteStreams: map[int64]string{feedID: "feed/http://example.com/feed.xml"},
+	})
+	m = m2.(Model)
+
+	readArticleID := remoteStableID("article", "tag:google.com,2005:reader/item/readme")
+	unreadArticleID := remoteStableID("article", "tag:google.com,2005:reader/item/keepme")
+	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: feedID, Articles: []db.Article{
+		{ID: readArticleID, FeedID: feedID, GUID: "tag:google.com,2005:reader/item/readme", Title: "Read Me", Link: "https://example.com/read", Content: "one", PublishedAt: unixTestTime(1710000100), Read: false},
+		{ID: unreadArticleID, FeedID: feedID, GUID: "tag:google.com,2005:reader/item/keepme", Title: "Keep Me", Link: "https://example.com/keep", Content: "two", PublishedAt: unixTestTime(1710000000), Read: false},
+	}})
+	m = m2.(Model)
+	m.focused = paneArticles
+
+	state := "mark"
+	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
+			return uiResponseWithBody(http.StatusOK, "Auth=test-token\n"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/token":
+			return uiResponseWithBody(http.StatusOK, "csrf-token"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/edit-tag":
+			if state != "mark" {
+				t.Fatalf("unexpected edit-tag during state %q", state)
+			}
+			return uiResponseWithBody(http.StatusOK, "OK"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/stream/contents/feed%2Fhttp:%2F%2Fexample.com%2Ffeed.xml?n=100&output=json&xt=user%2F-%2Fstate%2Fcom.google%2Fread":
+			if state != "reload" {
+				t.Fatalf("unexpected stream reload during state %q", state)
+			}
+			return uiResponseWithJSON(http.StatusOK, `{
+				"items": [
+					{
+						"id":"tag:google.com,2005:reader/item/keepme",
+						"title":"Keep Me",
+						"published":1710000000,
+						"alternate":[{"href":"https://example.com/keep"}],
+						"summary":{"content":"<p>two</p>"},
+						"origin":{"streamId":"feed/http://example.com/feed.xml"}
+					}
+				]
+			}`), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = m2.(Model)
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+
+	state = "reload"
+	m2, _ = m.Update(m.loadArticlesCmd(feedID)())
+	m = m2.(Model)
+
+	if len(m.articles) != 1 {
+		t.Fatalf("expected only unread remote article after reload, got %d", len(m.articles))
+	}
+	if m.articles[0].ID != unreadArticleID {
+		t.Fatalf("expected only unread article to remain after reload, got %d", m.articles[0].ID)
 	}
 }
 

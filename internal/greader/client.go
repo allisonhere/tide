@@ -19,6 +19,7 @@ type Client struct {
 	HTTPClient *http.Client
 
 	authToken string
+	csrfToken string
 }
 
 type Subscription struct {
@@ -54,6 +55,11 @@ func New(baseURL, login, password string) *Client {
 	}
 }
 
+const (
+	readTag       = "user/-/state/com.google/read"
+	keptUnreadTag = "user/-/state/com.google/kept-unread"
+)
+
 func (c *Client) QuickAdd(ctx context.Context, feedURL string) (QuickAddResult, error) {
 	feedURL = strings.TrimSpace(feedURL)
 	if feedURL == "" {
@@ -83,6 +89,34 @@ func (c *Client) QuickAdd(ctx context.Context, feedURL string) (QuickAddResult, 
 		StreamID:   strings.TrimSpace(resp.StreamID),
 		StreamName: strings.TrimSpace(resp.StreamName),
 	}, nil
+}
+
+func (c *Client) MarkEntryRead(ctx context.Context, itemID string, read bool) error {
+	itemID = strings.TrimSpace(itemID)
+	if itemID == "" {
+		return fmt.Errorf("item ID is required")
+	}
+
+	form := url.Values{
+		"i": []string{itemID},
+	}
+	if read {
+		form["a"] = []string{readTag}
+		form["r"] = []string{keptUnreadTag}
+	} else {
+		form["r"] = []string{readTag}
+	}
+	return c.postFormText(ctx, "/reader/api/0/edit-tag", form, true)
+}
+
+func (c *Client) MarkAllRead(ctx context.Context, streamID string) error {
+	streamID = strings.TrimSpace(streamID)
+	if streamID == "" {
+		return fmt.Errorf("stream ID is required")
+	}
+	return c.postFormText(ctx, "/reader/api/0/mark-all-as-read", url.Values{
+		"s": []string{streamID},
+	}, true)
 }
 
 func (c *Client) ListSubscriptions(ctx context.Context) ([]Subscription, error) {
@@ -183,6 +217,7 @@ func (c *Client) StreamContents(ctx context.Context, streamID string, limit int)
 	q := url.Values{
 		"output": []string{"json"},
 		"n":      []string{strconv.Itoa(limit)},
+		"xt":     []string{readTag},
 	}
 	if err := c.getJSON(ctx, "/reader/api/0/stream/contents/"+url.PathEscape(streamID), q, &resp); err != nil {
 		return nil, err
@@ -286,6 +321,42 @@ func (c *Client) postFormJSON(ctx context.Context, path string, form url.Values,
 	return nil
 }
 
+func (c *Client) postFormText(ctx context.Context, path string, form url.Values, withToken bool) error {
+	if err := c.ensureAuth(ctx); err != nil {
+		return err
+	}
+	if withToken {
+		token, err := c.ensureToken(ctx)
+		if err != nil {
+			return err
+		}
+		form = cloneValues(form)
+		form.Set("T", token)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Authorization", "GoogleLogin auth="+c.authToken)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return fmt.Errorf("read %s response: %w", path, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("greader %s failed: HTTP %d: %s", path, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
 func (c *Client) ensureAuth(ctx context.Context) error {
 	if c.authToken != "" {
 		return nil
@@ -322,6 +393,7 @@ func (c *Client) ensureAuth(ctx context.Context) error {
 		line = strings.TrimSpace(line)
 		if value, ok := strings.CutPrefix(line, "Auth="); ok {
 			c.authToken = strings.TrimSpace(value)
+			c.csrfToken = ""
 			break
 		}
 	}
@@ -329,6 +401,41 @@ func (c *Client) ensureAuth(ctx context.Context) error {
 		return fmt.Errorf("ClientLogin response missing Auth token")
 	}
 	return nil
+}
+
+func (c *Client) ensureToken(ctx context.Context) (string, error) {
+	if c.csrfToken != "" {
+		return c.csrfToken, nil
+	}
+	if err := c.ensureAuth(ctx); err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/reader/api/0/token", nil)
+	if err != nil {
+		return "", fmt.Errorf("build token request: %w", err)
+	}
+	req.Header.Set("Authorization", "GoogleLogin auth="+c.authToken)
+
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return "", fmt.Errorf("read token response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("greader /reader/api/0/token failed: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	c.csrfToken = strings.TrimSpace(string(body))
+	if c.csrfToken == "" {
+		return "", fmt.Errorf("greader token response was empty")
+	}
+	return c.csrfToken, nil
 }
 
 func (c *Client) httpClient() *http.Client {
@@ -345,6 +452,14 @@ func hasReadState(categories []string) bool {
 		}
 	}
 	return false
+}
+
+func cloneValues(v url.Values) url.Values {
+	out := make(url.Values, len(v))
+	for key, values := range v {
+		out[key] = append([]string(nil), values...)
+	}
+	return out
 }
 
 func toInt64(v any) int64 {

@@ -65,9 +65,15 @@ type ArticleContentFetchedMsg struct {
 }
 type ArticleReadUpdatedMsg struct {
 	ArticleID int64
+	FeedID    int64
+	WasRead   bool
 	Read      bool
 	Advance   bool
 	Err       error
+}
+type FeedsReadUpdatedMsg struct {
+	FeedIDs []int64
+	Err     error
 }
 type UpdateCheckedMsg struct {
 	Result update.CheckResult
