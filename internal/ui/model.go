@@ -24,6 +24,7 @@ import (
 	"tide/internal/config"
 	"tide/internal/db"
 	"tide/internal/feed"
+	"tide/internal/greader"
 	"tide/internal/update"
 )
 
@@ -130,9 +131,6 @@ type Model struct {
 	// Fetch error details overlay
 	lastFetchError *feed.FetchResult
 
-	// Pending permanent-redirect URL update (shown in status bar)
-	pendingURLUpdate *pendingURLUpdate
-
 	// Async
 	refreshing  map[int64]bool
 	spinner     spinner.Model
@@ -145,14 +143,18 @@ type Model struct {
 	// Settings overlay
 	settings Settings
 
+	// Optional Google Reader-compatible source
+	greaderClient  *greader.Client
+	greaderStreams map[int64]string
+
 	// Update flow
-	updateState      updateState
-	updateInfo       update.ReleaseInfo
-	updateInfoFresh  bool
-	downloadedUpdate *update.DownloadedAsset
-	updateInstall    update.InstallResult
-	updateErr        string
-	updateDismissed  bool
+	updateState          updateState
+	updateInfo           update.ReleaseInfo
+	updateInfoFresh      bool
+	downloadedUpdate     *update.DownloadedAsset
+	updateInstall        update.InstallResult
+	updateErr            string
+	updateDismissed      bool
 	pendingUpdateInstall bool
 
 	// AI summary overlay
@@ -160,11 +162,6 @@ type Model struct {
 	summaryArticle    db.Article
 	summaryGenerating bool
 	summaryErr        string
-}
-
-type pendingURLUpdate struct {
-	feedID int64
-	newURL string
 }
 
 func NewModel(database *db.DB, cfg config.Config, currentVersion string) Model {
@@ -195,10 +192,12 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string) Model {
 		refreshing:       make(map[int64]bool),
 		collapsedFolders: map[int64]bool{},
 		mdConverter:      md.NewConverter("", true, nil),
+		greaderStreams:   map[int64]string{},
 		firstLoad:        true,
 		keys:             DefaultKeys,
 		summarizer:       summarizer,
 	}
+	m.resetSourceClient()
 	m.restoreCachedUpdateState()
 	return m
 }
@@ -273,8 +272,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			if !m.updateDismissed && (msg.Manual || update.IsStableVersion(m.currentVersion)) {
-				m.setStatus("Update available: "+msg.Result.Latest.Version, false)
-				return m, m.clearStatusCmd()
+				return m, nil
 			}
 			return m, nil
 		}
@@ -338,9 +336,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case FeedsLoadedMsg:
+		if msg.Err != nil && len(msg.Feeds) == 0 && len(msg.Folders) == 0 && len(msg.RemoteStreams) == 0 {
+			m.greaderStreams = map[int64]string{}
+			m.feeds = nil
+			m.folders = nil
+			m.rebuildSidebar()
+			m.clearArticles()
+			m.setStatus(msg.Err.Error(), true)
+			return m, m.clearStatusCmd()
+		}
 		prevKind, prevID := m.currentSidebarSelection()
 		m.feeds = msg.Feeds
 		m.folders = msg.Folders
+		m.greaderStreams = msg.RemoteStreams
+		if m.greaderStreams == nil {
+			m.greaderStreams = map[int64]string{}
+		}
+		statusCmd := tea.Cmd(nil)
+		if msg.Err != nil {
+			m.setStatus(msg.Err.Error(), true)
+			statusCmd = m.clearStatusCmd()
+		}
 		m.rebuildSidebar()
 		isFirstLoad := m.firstLoad
 		m.firstLoad = false
@@ -367,6 +383,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.sidebarCursor = clamp(m.sidebarCursor, 0, max(0, len(m.sidebarRows)-1))
+		if m.overlay == overlayFeedManager && m.feedManager.mode == fmList {
+			m.feedManager.setData(m.feeds, m.folders)
+			if feed := m.selectedFeed(); feed != nil {
+				m.feedManager.selectFeed(feed.ID)
+			} else if folderID, ok := m.selectedFolderID(); ok && folderID >= 0 {
+				m.feedManager.selectFolder(folderID)
+			}
+		}
 		if len(m.feeds) == 0 {
 			m.clearArticles()
 			return m, nil
@@ -380,12 +404,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Only auto-refresh on startup — manual refresh uses f/F keys.
 		if isFirstLoad {
 			for _, f := range m.feeds {
+				if m.isRemoteFeed(f.ID) {
+					continue
+				}
 				cmds = append(cmds, m.refreshFeedCmd(f.ID, f.URL, false))
 			}
+		}
+		if statusCmd != nil {
+			cmds = append(cmds, statusCmd)
 		}
 		return m, tea.Batch(cmds...)
 
 	case ArticlesLoadedMsg:
+		if msg.Err != nil {
+			if selected := m.selectedFeed(); selected != nil && msg.FeedID == selected.ID {
+				m.clearArticles()
+			}
+			m.setStatus(msg.Err.Error(), true)
+			return m, m.clearStatusCmd()
+		}
 		if selected := m.selectedFeed(); selected != nil && msg.FeedID == selected.ID {
 			m.articles = msg.Articles
 			m.applyFilter()
@@ -422,11 +459,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		// Success — check for permanent redirect suggestion.
-		if r := msg.Result; r != nil && r.SuggestURLUpdate {
-			m.pendingURLUpdate = &pendingURLUpdate{feedID: msg.FeedID, newURL: r.SuggestedURL}
-			m.setStatus("feed moved permanently — press u to update stored URL", false)
-		}
 		cmds := []tea.Cmd{}
 		for _, a := range msg.Articles {
 			if err := m.db.UpsertArticle(a); err != nil {
@@ -438,13 +470,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.db.TouchFeedFetched(msg.FeedID, time.Now()) //nolint:errcheck
 		}
+		if r := msg.Result; r != nil && r.SuggestURLUpdate {
+			if err := m.db.UpdateFeedURL(msg.FeedID, r.SuggestedURL); err != nil {
+				m.setStatus(fmt.Sprintf("URL update failed: %v", err), true)
+			} else {
+				m.setStatus(fmt.Sprintf("feed URL updated to %s", r.SuggestedURL), false)
+			}
+		}
 		if selected := m.selectedFeed(); selected != nil && msg.FeedID == selected.ID {
 			cmds = append(cmds, m.loadArticlesCmd(msg.FeedID))
 		}
 		cmds = append(cmds, m.loadFeedsCmd())
-		if m.pendingURLUpdate == nil {
-			cmds = append(cmds, m.clearStatusCmd())
-		}
+		cmds = append(cmds, m.clearStatusCmd())
 		return m, tea.Batch(cmds...)
 
 	case FeedSavedMsg:
@@ -455,12 +492,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(fmt.Sprintf("save failed: %v", msg.Err), true)
 			return m, m.clearStatusCmd()
 		}
-		m.feedManager = NewFeedManager(m.db)
+		m.feedManager = m.newFeedManager()
 		m.feedManager.mode = fmList
 		m.feedManager.selectFeed(msg.Feed.ID)
 		m.feedManager.statusMsg = fmt.Sprintf("SAVED: %s", strings.ToUpper(msg.Feed.Title))
 		m.setStatus(fmt.Sprintf("saved: %s", msg.Feed.Title), false)
 		m.pendingSelectFeedID = msg.Feed.ID
+		return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
+
+	case RemoteFeedAddedMsg:
+		m.feedManager.busy = false
+		m.feedManager.busyMsg = ""
+		if msg.Err != nil {
+			m.feedManager.statusMsg = fmt.Sprintf("SAVE FAILED: %v", msg.Err)
+			m.setStatus(fmt.Sprintf("save failed: %v", msg.Err), true)
+			return m, m.clearStatusCmd()
+		}
+		m.cfg.Source.GReaderURL = msg.Source.GReaderURL
+		m.cfg.Source.GReaderLogin = msg.Source.GReaderLogin
+		m.cfg.Source.GReaderPassword = msg.Source.GReaderPassword
+		config.Save(m.cfg) //nolint:errcheck
+		m.resetSourceClient()
+		m.feedManager = m.newFeedManager()
+		m.feedManager.mode = fmList
+		if msg.StreamID == "" {
+			m.feedManager.statusMsg = fmt.Sprintf("CONNECTED GREADER · %d FEEDS", msg.FeedCount)
+			m.setStatus(fmt.Sprintf("connected greader: %d feeds", msg.FeedCount), false)
+			return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
+		}
+		title := strings.TrimSpace(msg.Title)
+		if title == "" {
+			title = "Google Reader feed"
+		}
+		m.feedManager.statusMsg = fmt.Sprintf("ADDED: %s", strings.ToUpper(title))
+		m.setStatus(fmt.Sprintf("added: %s", title), false)
+		if msg.StreamID != "" {
+			m.pendingSelectFeedID = remoteStableID("feed", msg.StreamID)
+		}
 		return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
 
 	case FeedDeletedMsg:
@@ -474,7 +542,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sidebarCursor = 0
 		m.articleCursor = 0
 		m.clearArticles()
-		m.feedManager = NewFeedManager(m.db)
+		m.feedManager = m.newFeedManager()
 		m.feedManager.mode = fmList
 		m.feedManager.statusMsg = "DELETED FEED"
 		return m, m.loadFeedsCmd()
@@ -488,7 +556,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.clearStatusCmd()
 		}
 		m.setStatus(fmt.Sprintf("saved folder: %s", msg.Folder.Name), false)
-		m.feedManager = NewFeedManager(m.db)
+		m.feedManager = m.newFeedManager()
 		m.feedManager.mode = fmList
 		m.feedManager.selectFolder(msg.Folder.ID)
 		m.feedManager.statusMsg = fmt.Sprintf("SAVED FOLDER: %s", strings.ToUpper(msg.Folder.Name))
@@ -502,18 +570,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(fmt.Sprintf("delete failed: %v", msg.Err), true)
 			return m, m.clearStatusCmd()
 		}
-		m.feedManager = NewFeedManager(m.db)
+		m.feedManager = m.newFeedManager()
 		m.feedManager.mode = fmList
 		m.feedManager.statusMsg = "DELETED FOLDER"
-		return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
-
-	case FeedURLUpdatedMsg:
-		if msg.Err != nil {
-			m.setStatus(fmt.Sprintf("URL update failed: %v", msg.Err), true)
-		} else {
-			m.setStatus(fmt.Sprintf("feed URL updated to %s", msg.NewURL), false)
-		}
-		m.pendingURLUpdate = nil
 		return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
 
 	case OPMLImportedMsg:
@@ -523,7 +582,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.feedManager.statusMsg = fmt.Sprintf("IMPORT FAILED: %v", msg.Err)
 			m.setStatus(fmt.Sprintf("import failed: %v", msg.Err), true)
 		}
-		m.feedManager = NewFeedManager(m.db)
+		m.feedManager = m.newFeedManager()
 		m.feedManager.mode = fmList
 		if msg.Err == nil {
 			m.setStatus(fmt.Sprintf("imported %d feeds", msg.Count), false)
@@ -588,8 +647,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			return m, nil
 		}
-		if err := m.db.UpdateArticleContent(msg.ArticleID, msg.Content); err != nil {
-			return m, nil
+		if !m.articleIsRemote(msg.ArticleID) {
+			if err := m.db.UpdateArticleContent(msg.ArticleID, msg.Content); err != nil {
+				return m, nil
+			}
 		}
 		for i := range m.articles {
 			if m.articles[i].ID == msg.ArticleID {
@@ -611,7 +672,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.summaryErr = msg.Err.Error()
 			return m, nil
 		}
-		_ = m.db.SaveSummary(msg.ArticleID, msg.Summary)
+		if !m.articleIsRemote(msg.ArticleID) {
+			_ = m.db.SaveSummary(msg.ArticleID, msg.Summary)
+		}
 		for i := range m.articles {
 			if m.articles[i].ID == msg.ArticleID {
 				m.articles[i].Summary = msg.Summary
@@ -679,15 +742,13 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, m.keys.FeedManager):
 		m.overlay = overlayFeedManager
-		m.feedManager = NewFeedManager(m.db)
+		m.feedManager = m.newFeedManager()
 		return m, nil
 
 	case keyMatches(msg, m.keys.Add):
 		m.overlay = overlayFeedManager
-		m.feedManager = NewFeedManager(m.db)
-		if len(m.feedManager.feeds) == 0 {
-			m.feedManager.focusAdd()
-		}
+		m.feedManager = m.newFeedManager()
+		m.feedManager.focusAdd()
 		return m, nil
 
 	case keyMatches(msg, m.keys.ThemePicker):
@@ -733,7 +794,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.focused == paneArticles && len(m.filteredArticles) > 0 {
 			m.focused = paneContent
-			if m.cfg.Display.MarkReadOnOpen {
+			if m.cfg.Display.MarkReadOnOpen && !m.isRemoteFeed(m.filteredArticles[m.articleCursor].FeedID) {
 				return m, m.setArticleReadCmd(m.filteredArticles[m.articleCursor].ID, true, false)
 			}
 		}
@@ -747,6 +808,9 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, m.keys.Refresh):
 		if selected := m.selectedFeed(); selected != nil {
+			if m.isRemoteFeed(selected.ID) {
+				return m, tea.Batch(m.loadFeedsCmd(), m.loadArticlesCmd(selected.ID))
+			}
 			return m, m.refreshFeedCmd(selected.ID, selected.URL, true)
 		}
 		return m, nil
@@ -754,12 +818,22 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, m.keys.RefreshAll):
 		var cmds []tea.Cmd
 		for _, f := range m.feeds {
+			if m.isRemoteFeed(f.ID) {
+				continue
+			}
 			cmds = append(cmds, m.refreshFeedCmd(f.ID, f.URL, false))
+		}
+		if m.greaderClient != nil {
+			cmds = append(cmds, m.loadFeedsCmd())
 		}
 		return m, tea.Batch(cmds...)
 
 	case keyMatches(msg, m.keys.MarkRead):
 		if len(m.filteredArticles) > 0 {
+			if m.isRemoteFeed(m.filteredArticles[m.articleCursor].FeedID) {
+				m.setStatus("Google Reader mode is browse-only for now", false)
+				return m, m.clearStatusCmd()
+			}
 			a := m.filteredArticles[m.articleCursor]
 			advance := m.focused == paneArticles
 			if !advance && a.Read {
@@ -771,9 +845,17 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, m.keys.MarkAllRead):
 		if feed := m.selectedFeed(); feed != nil {
+			if m.isRemoteFeed(feed.ID) {
+				m.setStatus("Google Reader mode is browse-only for now", false)
+				return m, m.clearStatusCmd()
+			}
 			return m, m.markAllReadCmd(feed.ID)
 		}
 		if folderID, ok := m.selectedFolderID(); ok {
+			if m.selectedFolderHasRemoteFeeds() {
+				m.setStatus("Google Reader mode is browse-only for now", false)
+				return m, m.clearStatusCmd()
+			}
 			return m, m.markFolderReadCmd(folderID)
 		}
 		return m, nil
@@ -793,14 +875,6 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, m.keys.Settings):
 		m.settings = newSettings(m.cfg, m.settingsUpdateState())
 		m.overlay = overlaySettings
-		return m, nil
-
-	case msg.String() == "u":
-		if m.pendingURLUpdate != nil {
-			p := m.pendingURLUpdate
-			m.pendingURLUpdate = nil
-			return m, m.updateFeedURLCmd(p.feedID, p.newURL)
-		}
 		return m, nil
 
 	case msg.String() == "U":
@@ -982,18 +1056,6 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = overlayNone
 			m.lastFetchError = nil
 			return m, m.clearStatusCmd()
-		case "u":
-			if m.lastFetchError != nil && m.lastFetchError.SuggestURLUpdate {
-				r := m.lastFetchError
-				m.overlay = overlayNone
-				m.lastFetchError = nil
-				m.pendingURLUpdate = nil
-				for _, f := range m.feeds {
-					if f.URL == r.OriginalURL {
-						return m, m.updateFeedURLCmd(f.ID, r.SuggestedURL)
-					}
-				}
-			}
 		}
 		return m, nil
 
@@ -1056,6 +1118,12 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			feed.SetMaxFeedBodyBytes(m.cfg.Feed.MaxBodyMiB << 20)
 			config.Save(m.cfg)
 			m.summarizer, _ = ai.New(m.cfg.AI)
+			m.resetSourceClient()
+			m.overlay = overlayNone
+			m.sidebarCursor = 0
+			m.articleCursor = 0
+			m.clearArticles()
+			return m, m.loadFeedsCmd()
 		}
 		m.overlay = overlayNone
 		return m, nil
@@ -1084,8 +1152,17 @@ func (m Model) handleFeedManager(msg tea.Msg) (tea.Model, tea.Cmd) {
 	newFM, cmd, exit := m.feedManager.Update(msg, m.keys)
 	m.feedManager = newFM
 	if exit {
+		browseFeedID := m.feedManager.browseFeedID
+		editable := m.feedManager.editable()
 		m.overlay = overlayNone
-		return m, m.loadFeedsCmd()
+		if browseFeedID != 0 && m.selectSidebarFeed(browseFeedID) {
+			m.clearArticles()
+			return m, m.loadArticlesCmd(browseFeedID)
+		}
+		if editable {
+			return m, m.loadFeedsCmd()
+		}
+		return m, nil
 	}
 	return m, cmd
 }
@@ -1291,11 +1368,10 @@ func (m Model) renderStatusBar() string {
 		if m.statusErr {
 			style = m.styles.StatusError
 		}
-		parts := []string{}
+		parts := []string{m.statusMsg}
 		if updateInfoPart != "" && !m.statusMsgCoversUpdateState() {
 			parts = append(parts, updateInfoPart)
 		}
-		parts = append(parts, m.statusMsg)
 		return style.Width(w).Render(m.statusLine(strings.Join(parts, "  ·  "), updateActionPart))
 	}
 
@@ -1338,10 +1414,12 @@ func (m Model) renderStatusBar() string {
 func (m Model) statusUpdateInfoPart() string {
 	switch m.updateState {
 	case updateStateChecking:
-		return m.styles.StatusSpinner.Render(m.spinner.View() + " checking updates...")
+		return m.styles.StatusSpinner.Render(m.spinner.View() + " checking Tide updates...")
+	case updateStateAvailable:
+		return ""
 	case updateStateInstalled:
 		if m.updateInstall.Version != "" {
-			return "restart for " + m.updateInstall.Version
+			return "restart to use Tide " + m.updateInstall.Version
 		}
 	}
 	return ""
@@ -1351,7 +1429,7 @@ func (m Model) statusUpdateActionPart() string {
 	if !m.showAvailableUpdatePrompt() {
 		return ""
 	}
-	return m.styles.StatusHint.Render(m.updateInfo.Version + "  U update  i ignore")
+	return m.styles.StatusNotice.Render("App update available  U install  i ignore")
 }
 
 func (m Model) statusMsgCoversUpdateState() bool {
@@ -1360,9 +1438,9 @@ func (m Model) statusMsgCoversUpdateState() bool {
 	case updateStateChecking:
 		return strings.Contains(msg, "checking update")
 	case updateStateAvailable:
-		return strings.Contains(msg, "update available")
+		return strings.Contains(msg, "app update")
 	case updateStateInstalled:
-		return strings.Contains(msg, "restart") || strings.Contains(msg, "updated to")
+		return strings.Contains(msg, "restart") || strings.Contains(msg, "tide updated to")
 	default:
 		return false
 	}
@@ -1551,18 +1629,23 @@ func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) str
 }
 
 func (m Model) renderUpdateConfirmOverlay(width int, chrome managerChrome) string {
-	header := renderManagerHeader("INSTALL UPDATE?", width, chrome)
+	header := renderManagerHeader("INSTALL TIDE UPDATE?", width, chrome)
 
 	target, _ := os.Executable()
-	bodyText := strings.Join([]string{
-		"Install the latest Tide release?",
+	bodyLines := []string{
+		"Install Tide " + m.updateInfo.Version + "?",
+	}
+	if summary := strings.TrimSpace(m.updateInfo.Summary); summary != "" {
+		bodyLines = append(bodyLines, "", "What's new: "+summary)
+	}
+	bodyLines = append(bodyLines,
 		"",
-		"Version: " + m.updateInfo.Version,
-		"Asset: " + m.updateInfo.AssetName + ".tar.gz",
-		"Target: " + target,
+		"Asset: "+m.updateInfo.AssetName+".tar.gz",
+		"Target: "+target,
 		"",
 		"The update will download first, then replace the current binary if the install path is writable.",
-	}, "\n")
+	)
+	bodyText := strings.Join(bodyLines, "\n")
 
 	body := lipgloss.NewStyle().
 		Background(chrome.baseBg).
@@ -1653,24 +1736,40 @@ func (m Model) renderThemePicker(width int, chrome managerChrome) string {
 
 func (m *Model) loadFeedsCmd() tea.Cmd {
 	db := m.db
+	client := m.greaderClient
 	return func() tea.Msg {
 		feeds, err := db.ListFeeds()
 		if err != nil {
-			return ErrMsg{err}
+			return FeedsLoadedMsg{Err: err}
 		}
 		folders, err := db.ListFolders()
 		if err != nil {
-			return ErrMsg{err}
+			return FeedsLoadedMsg{Err: err}
 		}
-		return FeedsLoadedMsg{Feeds: feeds, Folders: folders}
+		streams := map[int64]string{}
+		if client != nil {
+			remoteFeeds, remoteStreams, remoteErr := m.loadGReaderFeeds(context.Background())
+			feeds = append(feeds, remoteFeeds...)
+			if remoteStreams != nil {
+				streams = remoteStreams
+			}
+			return FeedsLoadedMsg{Feeds: feeds, Folders: folders, RemoteStreams: streams, Err: remoteErr}
+		}
+		return FeedsLoadedMsg{Feeds: feeds, Folders: folders, RemoteStreams: streams}
 	}
 }
 
 func (m *Model) loadArticlesCmd(feedID int64) tea.Cmd {
+	if m.isRemoteFeed(feedID) {
+		return func() tea.Msg {
+			articles, err := m.loadGReaderArticles(context.Background(), feedID)
+			return ArticlesLoadedMsg{FeedID: feedID, Articles: articles, Err: err}
+		}
+	}
 	return func() tea.Msg {
 		articles, err := m.db.ListArticles(feedID)
 		if err != nil {
-			return ErrMsg{err}
+			return ArticlesLoadedMsg{FeedID: feedID, Err: err}
 		}
 		return ArticlesLoadedMsg{FeedID: feedID, Articles: articles}
 	}
@@ -1749,13 +1848,6 @@ func (m *Model) refreshFeedCmd(feedID int64, feedURL string, manual bool) tea.Cm
 			Result:   result,
 			Manual:   manual,
 		}
-	}
-}
-
-func (m *Model) updateFeedURLCmd(feedID int64, newURL string) tea.Cmd {
-	return func() tea.Msg {
-		err := m.db.UpdateFeedURL(feedID, newURL)
-		return FeedURLUpdatedMsg{FeedID: feedID, NewURL: newURL, Err: err}
 	}
 }
 
@@ -1969,15 +2061,28 @@ func summaryFilename(title string) string {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func (m *Model) rebuildSidebar() {
+	m.sidebarRows = buildSidebarRows(m.feeds, m.folders, m.collapsedFolders, true)
+	m.sidebarCursor = clamp(m.sidebarCursor, 0, max(0, len(m.sidebarRows)-1))
+}
+
+func buildSidebarRows(feeds []db.Feed, folders []db.Folder, collapsedFolders map[int64]bool, showUncategorized bool) []sidebarRow {
+	if len(folders) == 0 {
+		rows := make([]sidebarRow, 0, len(feeds))
+		for _, feed := range feeds {
+			rows = append(rows, sidebarRow{kind: rowKindFeed, feedID: feed.ID})
+		}
+		return rows
+	}
+
 	byFolder := make(map[int64][]int64)
-	for _, feed := range m.feeds {
+	for _, feed := range feeds {
 		byFolder[feed.FolderID] = append(byFolder[feed.FolderID], feed.ID)
 	}
 
-	rows := make([]sidebarRow, 0, len(m.feeds)+len(m.folders)+1)
-	for _, folder := range m.folders {
+	rows := make([]sidebarRow, 0, len(feeds)+len(folders)+1)
+	for _, folder := range folders {
 		rows = append(rows, sidebarRow{kind: rowKindFolder, folderID: folder.ID})
-		if m.collapsedFolders[folder.ID] {
+		if collapsedFolders[folder.ID] {
 			continue
 		}
 		for _, feedID := range byFolder[folder.ID] {
@@ -1985,15 +2090,53 @@ func (m *Model) rebuildSidebar() {
 		}
 	}
 	if uncategorized := byFolder[0]; len(uncategorized) > 0 {
-		rows = append(rows, sidebarRow{kind: rowKindFolder, folderID: 0})
-		if !m.collapsedFolders[0] {
-			for _, feedID := range uncategorized {
-				rows = append(rows, sidebarRow{kind: rowKindFeed, feedID: feedID})
+		if showUncategorized {
+			rows = append(rows, sidebarRow{kind: rowKindFolder, folderID: 0})
+			if collapsedFolders[0] {
+				return rows
 			}
 		}
+		for _, feedID := range uncategorized {
+			rows = append(rows, sidebarRow{kind: rowKindFeed, feedID: feedID})
+		}
 	}
-	m.sidebarRows = rows
-	m.sidebarCursor = clamp(m.sidebarCursor, 0, max(0, len(m.sidebarRows)-1))
+	return rows
+}
+
+func (m Model) newFeedManager() FeedManager {
+	fm := NewFeedManagerWithSource(m.db, m.cfg.Source)
+	fm.setData(m.feeds, m.folders)
+	if feed := m.selectedFeed(); feed != nil {
+		fm.selectFeed(feed.ID)
+	} else if folderID, ok := m.selectedFolderID(); ok {
+		if folderID >= 0 {
+			fm.selectFolder(folderID)
+		}
+	}
+	return fm
+}
+
+func (m *Model) selectSidebarFeed(feedID int64) bool {
+	for i, row := range m.sidebarRows {
+		if row.kind == rowKindFeed && row.feedID == feedID {
+			m.sidebarCursor = i
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) selectedFolderHasRemoteFeeds() bool {
+	folderID, ok := m.selectedFolderID()
+	if !ok {
+		return false
+	}
+	for _, feed := range m.feeds {
+		if feed.FolderID == folderID && m.isRemoteFeed(feed.ID) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Model) clearArticles() {
@@ -2038,7 +2181,7 @@ func (m *Model) dismissAvailableUpdate() tea.Cmd {
 	config.Save(m.cfg) //nolint:errcheck
 	m.updateDismissed = true
 	m.syncSettingsUpdateState()
-	m.setStatus("Update "+m.updateInfo.Version+" dismissed", false)
+	m.setStatus("Tide update "+m.updateInfo.Version+" dismissed", false)
 	return m.clearStatusCmd()
 }
 
@@ -2379,16 +2522,12 @@ func (m Model) renderFetchErrorOverlay(w int, chrome managerChrome) string {
 			Width(textW).Padding(0, 1).Render(snip))
 	}
 
-	// URL update suggestion
-	var actions string
 	if r.SuggestURLUpdate {
 		rows = append(rows, "")
 		rows = append(rows, lipgloss.NewStyle().Background(bg).Foreground(accent).
 			Render("↳ Feed permanently moved to new URL"))
-		actions = renderManagerActions(w, chrome, "u", "update URL", "esc", "dismiss")
-	} else {
-		actions = renderManagerActions(w, chrome, "esc", "dismiss")
 	}
+	actions := renderManagerActions(w, chrome, "esc", "dismiss")
 
 	body := lipgloss.NewStyle().Background(bg).Width(w).Padding(0, 2).
 		Render(lipgloss.JoinVertical(lipgloss.Left, title, strings.Join(rows, "\n")))

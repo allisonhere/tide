@@ -1,18 +1,22 @@
 package ui
 
 import (
+	"tide/internal/config"
 	"tide/internal/db"
 	"tide/internal/feed"
 	"tide/internal/update"
 )
 
 type FeedsLoadedMsg struct {
-	Feeds   []db.Feed
-	Folders []db.Folder
+	Feeds         []db.Feed
+	Folders       []db.Folder
+	RemoteStreams map[int64]string
+	Err           error
 }
 type ArticlesLoadedMsg struct {
 	FeedID   int64
 	Articles []db.Article
+	Err      error
 }
 type FeedRefreshedMsg struct {
 	FeedID   int64
@@ -25,6 +29,13 @@ type FeedRefreshedMsg struct {
 type FeedSavedMsg struct {
 	Feed db.Feed
 	Err  error
+}
+type RemoteFeedAddedMsg struct {
+	StreamID  string
+	Title     string
+	FeedCount int
+	Source    config.SourceConfig
+	Err       error
 }
 type FeedDeletedMsg struct {
 	FeedID int64
@@ -56,11 +67,6 @@ type ArticleReadUpdatedMsg struct {
 	Read      bool
 	Advance   bool
 	Err       error
-}
-type FeedURLUpdatedMsg struct {
-	FeedID int64
-	NewURL string
-	Err    error
 }
 type UpdateCheckedMsg struct {
 	Result update.CheckResult

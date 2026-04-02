@@ -147,6 +147,7 @@ type Settings struct {
 	sectionField       [settingsSectionCount]settingsField
 	focusedField       settingsField
 	aboutGradientFrame int
+	saveError          string
 	shouldSave         bool
 	shouldExit         bool
 }
@@ -234,6 +235,10 @@ func (s *Settings) setFocusedField(field settingsField) {
 	s.focusedField = field
 	s.sectionField[s.activeSection] = field
 	s.applyFocus()
+}
+
+func (s *Settings) clearSaveError() {
+	s.saveError = ""
 }
 
 func (s *Settings) setFocusedPane(pane settingsPaneFocus) {
@@ -420,6 +425,7 @@ func (s Settings) isTextInput() bool {
 }
 
 func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) {
+	s.clearSaveError()
 	var cmd tea.Cmd
 	switch s.focusedField {
 	case sfBrowser:
@@ -443,6 +449,67 @@ func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) 
 		s.savePathInput, cmd = s.savePathInput.Update(msg)
 	}
 	return s, cmd, false
+}
+
+func selectedAIKeyFormat(value string) string {
+	value = strings.TrimSpace(value)
+	switch {
+	case strings.HasPrefix(value, "sk-ant-"):
+		return "Claude"
+	case strings.HasPrefix(value, "AIza"):
+		return "Gemini"
+	case strings.HasPrefix(value, "sk-"):
+		return "OpenAI"
+	default:
+		return ""
+	}
+}
+
+func selectedAIKeyExpectation(providerIdx int) (providerName, expectedPrefix string) {
+	switch providerIdx {
+	case 1:
+		return "OpenAI", "sk-"
+	case 2:
+		return "Claude", "sk-ant-"
+	case 3:
+		return "Gemini", "AIza"
+	default:
+		return "", ""
+	}
+}
+
+func (s Settings) selectedAIKeyValue() string {
+	switch s.providerIdx {
+	case 1:
+		return strings.TrimSpace(s.openaiInput.Value())
+	case 2:
+		return strings.TrimSpace(s.claudeInput.Value())
+	case 3:
+		return strings.TrimSpace(s.geminiInput.Value())
+	default:
+		return ""
+	}
+}
+
+func (s Settings) selectedAIKeyValidation() (string, bool) {
+	providerName, expectedPrefix := selectedAIKeyExpectation(s.providerIdx)
+	if providerName == "" {
+		return "", true
+	}
+
+	value := s.selectedAIKeyValue()
+	if value == "" {
+		return fmt.Sprintf("%s key is empty; expected prefix %s", providerName, expectedPrefix), false
+	}
+
+	format := selectedAIKeyFormat(value)
+	if format == "" {
+		return fmt.Sprintf("%s keys usually start with %s", providerName, expectedPrefix), false
+	}
+	if format != providerName {
+		return fmt.Sprintf("looks like %s, but %s is selected", format, providerName), false
+	}
+	return fmt.Sprintf("format looks like %s", providerName), true
 }
 
 func (s Settings) focusedTextInputCursorPosition() int {
@@ -501,6 +568,13 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 	// Global: ctrl+s saves, esc cancels.
 	switch key.String() {
 	case "ctrl+s":
+		if msg, ok := s.selectedAIKeyValidation(); !ok {
+			s.saveError = msg
+			s.setActiveSection(ssAI)
+			s.setFocusedPane(settingsPaneDetail)
+			s.setFocusedField(sfAPIKey)
+			return s, nil, false
+		}
 		s.shouldSave = true
 		s.shouldExit = true
 		return s, nil, true
@@ -650,6 +724,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 	case sfProvider:
 		switch {
 		case key.String() == " " || keyMatches(key, keys.Enter):
+			s.clearSaveError()
 			s.providerIdx = (s.providerIdx + 1) % len(aiProviderLabels)
 			s.ensureSectionFieldVisible(ssAI)
 			s.setFocusedField(sfProvider)
@@ -797,9 +872,9 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		addLine(blank)
 	}
 
-	addSecretInput := func(label string, input textinput.Model) {
-		focused := s.focusedField == sfAPIKey
-		markAnchor(sfAPIKey)
+	addSecretField := func(label string, input textinput.Model, field settingsField) {
+		focused := s.focusedField == field
+		markAnchor(field)
 		if focused {
 			hintW := max(1, width-2-labelColW-7)
 			header := s.renderFieldLabel(label, true, width-2, chrome) +
@@ -811,14 +886,14 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 					Render(" "+truncate("masked while typing", max(1, hintW-1)))
 			addLine(ind.Render(header))
 			addLine(ind.Render(renderSecretEditor(input, width-2, chrome)))
-			if hint := s.fieldHint(sfAPIKey); hint != "" {
+			if hint := s.fieldHint(field); hint != "" {
 				addLine(ind.Render(s.renderInlineHint(hint, width-2, chrome)))
 			}
 		} else {
 			row := s.renderFieldLabel(label, false, width-2, chrome) +
 				renderSecretSummary(input.Value(), max(1, width-2-labelColW), chrome)
 			addLine(ind.Render(row))
-			if hint := s.fieldHint(sfAPIKey); hint != "" {
+			if hint := s.fieldHint(field); hint != "" {
 				addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
 			}
 		}
@@ -886,11 +961,11 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		addLine(blank)
 		switch s.providerIdx {
 		case 1:
-			addSecretInput("OpenAI key", s.openaiInput)
+			addSecretField("OpenAI key", s.openaiInput, sfAPIKey)
 		case 2:
-			addSecretInput("Claude key", s.claudeInput)
+			addSecretField("Claude key", s.claudeInput, sfAPIKey)
 		case 3:
-			addSecretInput("Gemini key", s.geminiInput)
+			addSecretField("Gemini key", s.geminiInput, sfAPIKey)
 		case 4:
 			addInput("Ollama URL", s.ollamaURLInput, sfOllamaURL)
 			addInput("Model", s.ollamaModelInput, sfOllamaModel)
@@ -1032,21 +1107,21 @@ func (s Settings) renderToggle(label string, on bool, focused bool, width int, c
 func (u settingsUpdateState) statusLabel() string {
 	switch u.state {
 	case updateStateChecking:
-		return "checking for updates..."
+		return "checking for Tide updates..."
 	case updateStateAvailable:
 		if u.dismissed {
-			return "update dismissed"
+			return "Tide update dismissed"
 		}
-		return "update available"
+		return "Tide update available"
 	case updateStateDownloading:
-		return "downloading update..."
+		return "downloading Tide update..."
 	case updateStateInstalling:
-		return "installing update..."
+		return "installing Tide update..."
 	case updateStateInstalled:
 		if u.installedVersion != "" {
-			return "updated to " + u.installedVersion
+			return "Tide updated to " + u.installedVersion
 		}
-		return "update installed"
+		return "Tide update installed"
 	case updateStateNeedsElevation:
 		return "admin permission required"
 	case updateStateError:
@@ -1129,6 +1204,15 @@ func (s Settings) fieldHint(field settingsField) string {
 	case sfFeedMaxBody:
 		return "larger feeds need more memory; default is 10 MiB"
 	case sfAPIKey:
+		if s.saveError != "" {
+			return s.saveError
+		}
+		if msg, ok := s.selectedAIKeyValidation(); msg != "" {
+			if ok {
+				return msg + "; only the active provider key is used"
+			}
+			return msg
+		}
 		return "only the active provider key is used; press enter or tab when done"
 	case sfOllamaURL:
 		return "local Ollama endpoint"

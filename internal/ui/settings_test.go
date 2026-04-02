@@ -79,7 +79,7 @@ func TestSettingsSidebarDownChangesSection(t *testing.T) {
 		t.Fatalf("expected active section to move to FEEDS, got %v", next.activeSection)
 	}
 	if next.focusedField != sfFeedMaxBody {
-		t.Fatalf("expected FEEDS section to restore feed max field, got %v", next.focusedField)
+		t.Fatalf("expected FEEDS section to restore feed max body field, got %v", next.focusedField)
 	}
 }
 
@@ -94,7 +94,7 @@ func TestSettingsSidebarRightEntersDetail(t *testing.T) {
 		t.Fatalf("expected right key to enter detail pane, got %v", next.focusedPane)
 	}
 	if next.focusedField != sfFeedMaxBody {
-		t.Fatalf("expected FEEDS section to focus feed max field, got %v", next.focusedField)
+		t.Fatalf("expected FEEDS section to focus feed max body field, got %v", next.focusedField)
 	}
 }
 
@@ -169,6 +169,59 @@ func TestSettingsAPIKeyLeftArrowMovesToSidebarAtCursorStart(t *testing.T) {
 	}
 	if next.activeSection != ssAI {
 		t.Fatalf("expected active section to remain AI, got %v", next.activeSection)
+	}
+}
+
+func TestSettingsAPIKeyHintFlagsProviderMismatch(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "claude"
+	cfg.AI.ClaudeKey = "sk-proj-test123"
+
+	s := newSettings(cfg, settingsUpdateState{})
+
+	if got := s.fieldHint(sfAPIKey); !strings.Contains(got, "looks like OpenAI, but Claude is selected") {
+		t.Fatalf("expected mismatch hint, got %q", got)
+	}
+}
+
+func TestSettingsAPIKeyHintConfirmsMatchingFormat(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "gemini"
+	cfg.AI.GeminiKey = "AIzaTestKey"
+
+	s := newSettings(cfg, settingsUpdateState{})
+
+	if got := s.fieldHint(sfAPIKey); !strings.Contains(got, "format looks like Gemini") {
+		t.Fatalf("expected matching format hint, got %q", got)
+	}
+}
+
+func TestSettingsCtrlSSaveBlockedByInvalidSelectedProviderKey(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "claude"
+	cfg.AI.ClaudeKey = "sk-proj-test123"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfSavePath)
+
+	next, _, done := s.Update(tea.KeyMsg{Type: tea.KeyCtrlS}, DefaultKeys)
+
+	if done {
+		t.Fatal("expected invalid provider/key pair to block save")
+	}
+	if next.shouldSave {
+		t.Fatal("expected invalid provider/key pair not to mark settings for save")
+	}
+	if next.activeSection != ssAI {
+		t.Fatalf("expected validation failure to keep AI section active, got %v", next.activeSection)
+	}
+	if next.focusedField != sfAPIKey {
+		t.Fatalf("expected validation failure to focus API key field, got %v", next.focusedField)
+	}
+	if !strings.Contains(next.saveError, "looks like OpenAI, but Claude is selected") {
+		t.Fatalf("expected save error to explain mismatch, got %q", next.saveError)
 	}
 }
 
@@ -484,4 +537,36 @@ func TestSettingsSavePathRowStaysSingleLineInNarrowPane(t *testing.T) {
 		}
 	}
 	t.Fatal("expected save path row to be present")
+}
+
+func TestSettingsFeedsSectionShowsFeedMaxSizeFieldOnly(t *testing.T) {
+	cfg := config.DefaultConfig()
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssFeeds)
+
+	view := ansi.Strip(s.View(96, 24, newManagerChrome(96, CatppuccinMocha)))
+
+	if !strings.Contains(view, "Feed max size (MiB)") {
+		t.Fatalf("expected feeds settings view to contain feed max size, got %q", view)
+	}
+	for _, unwanted := range []string{"GReader API URL", "Login", "Password", "Source"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("expected feeds settings view to hide %q, got %q", unwanted, view)
+		}
+	}
+}
+
+func TestSettingsApplyToPreservesSourceConfig(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	got := s.ApplyTo(cfg)
+
+	if got.Source != cfg.Source {
+		t.Fatalf("expected settings save to preserve hidden source config, got %#v want %#v", got.Source, cfg.Source)
+	}
 }

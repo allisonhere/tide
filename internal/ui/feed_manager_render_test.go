@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"tide/internal/config"
 	"tide/internal/db"
 )
 
@@ -80,6 +81,18 @@ func TestManagerChromeKeepsReadableLightThemeContrast(t *testing.T) {
 	}
 }
 
+func TestFeedManagerListModeStartsWithLeftPaneFocus(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	if !fm.listPaneFocused() {
+		t.Fatal("expected manager list mode to start focused on the left pane")
+	}
+
+	fm.focusAdd()
+	if !fm.listPaneFocused() {
+		t.Fatal("expected add dialog to start focused on the left pane")
+	}
+}
+
 func TestRenderTextInputCompactsUnfocusedSecretPreview(t *testing.T) {
 	input := textinput.New()
 	input.EchoMode = textinput.EchoPassword
@@ -133,12 +146,13 @@ func TestRenderSecretEditorKeepsExpectedGeometry(t *testing.T) {
 func TestFeedManagerEditViewShowsBusyStatus(t *testing.T) {
 	fm := FeedManager{
 		mode:      fmEdit,
+		paneFocus: fmPaneDetail,
 		statusMsg: "ADDING FEED...",
 		busy:      true,
 		busyMsg:   "ADDING FEED...",
 	}
 
-	view := ansi.Strip(fm.View(80, 20, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(fm.View(80, 24, BuildStyles(CatppuccinMocha), true))
 
 	if !strings.Contains(view, "ADDING FEED...") {
 		t.Fatalf("expected busy status in edit view, got %q", view)
@@ -175,6 +189,8 @@ func TestFeedManagerDeleteRequiresY(t *testing.T) {
 func TestFeedManagerEditViewShowsFolderPickerAndNewField(t *testing.T) {
 	fm := FeedManager{
 		mode:          fmEdit,
+		paneFocus:     fmPaneDetail,
+		editTarget:    1,
 		folders:       []db.Folder{{ID: 1, Name: "Tech"}},
 		folderCursor:  2,
 		showNewFolder: true,
@@ -310,6 +326,341 @@ func TestFeedManagerListOmitsIconsWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestRemoteFeedManagerViewShowsBrowseOnlyActions(t *testing.T) {
+	fm := NewRemoteFeedManager("Google Reader", []db.Feed{{
+		ID:          -1,
+		Title:       "Remote Feed",
+		URL:         "https://example.com/feed",
+		Description: "Tech",
+	}}, nil)
+
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+
+	if !strings.Contains(view, "SUBSCRIPTIONS") {
+		t.Fatalf("expected remote manager list title, got %q", view)
+	}
+	if strings.Contains(view, "ADD FEED") || strings.Contains(view, "DELETE") {
+		t.Fatalf("expected remote manager to omit local CRUD actions, got %q", view)
+	}
+	if !strings.Contains(view, "BROWSE-ONLY") || !strings.Contains(view, "GOOGLE READER") {
+		t.Fatalf("expected remote browse-only footer, got %q", view)
+	}
+}
+
+func TestRemoteFeedManagerReadOnlyKeysStayInListMode(t *testing.T) {
+	fm := NewRemoteFeedManager("Google Reader", []db.Feed{{
+		ID:    -1,
+		Title: "Remote Feed",
+		URL:   "https://example.com/feed",
+	}}, nil)
+
+	next, _ := fm.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}, DefaultKeys)
+	if next.mode != fmList {
+		t.Fatalf("expected browse-only manager to stay in list mode, got %v", next.mode)
+	}
+	if !strings.Contains(next.statusMsg, "BROWSE-ONLY") {
+		t.Fatalf("expected browse-only status after add key, got %q", next.statusMsg)
+	}
+
+	next, _ = next.updateList(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+	if !next.shouldExit {
+		t.Fatal("expected enter to exit remote manager into browse flow")
+	}
+	if next.browseFeedID != -1 {
+		t.Fatalf("expected enter to target selected remote feed, got %d", next.browseFeedID)
+	}
+}
+
+func TestFeedManagerAddDialogCanSwitchToGReaderFields(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{
+		GReaderURL:      "https://rss.example.com/api/greader.php",
+		GReaderLogin:    "alice",
+		GReaderPassword: "secret",
+	})
+	fm.focusAdd()
+
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+	if next.listPaneFocused() {
+		t.Fatal("expected enter to move add dialog focus into the right pane")
+	}
+
+	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+	if next.addSourceIdx != fmAddSourceGReader {
+		t.Fatalf("expected enter on source toggle to switch to greader, got %d", next.addSourceIdx)
+	}
+
+	view := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	for _, want := range []string{"ADD FEED", "Source", "Title", "URL (optional)", "API URL", "Login", "Password", "alice", "https://rss.example.com/api/greader.php"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected greader add dialog to contain %q, got %q", want, view)
+		}
+	}
+	if strings.Contains(view, "secret") {
+		t.Fatalf("expected greader password to stay masked, got %q", view)
+	}
+	if !strings.Contains(view, "●") {
+		t.Fatalf("expected masked password preview in greader add dialog, got %q", view)
+	}
+	for _, unwanted := range []string{"Folder", "Color"} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("expected greader add dialog to hide %q, got %q", unwanted, view)
+		}
+	}
+}
+
+func TestFeedManagerSourceToggleShowsToggleHint(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.focusAdd()
+
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	if !strings.Contains(view, "EDIT FORM") {
+		t.Fatalf("expected add dialog left-pane entry hint, got %q", view)
+	}
+}
+
+func TestFeedManagerAddDialogStartsLeftPaneFocused(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.focusAdd()
+
+	if !fm.listPaneFocused() {
+		t.Fatal("expected add dialog to start on the left pane")
+	}
+
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+	if next.listPaneFocused() {
+		t.Fatal("expected enter to move add dialog focus to the right pane")
+	}
+}
+
+func TestFeedManagerTextInputLeftArrowMovesToLeftPaneAtCursorStart(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.focusAdd()
+
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+	next.focusedField = 0
+	next.focusCurrentEditField()
+	next.titleInput.SetValue("abc")
+	next.titleInput.CursorStart()
+
+	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyLeft}, DefaultKeys)
+
+	if !next.listPaneFocused() {
+		t.Fatal("expected left arrow at cursor start to move focus to the left pane")
+	}
+	if next.mode != fmEdit {
+		t.Fatalf("expected add dialog to remain in edit mode, got %v", next.mode)
+	}
+}
+
+func TestFeedManagerTextInputLeftArrowStaysInDetailWhenCursorCanMove(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.focusAdd()
+
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+	next.focusedField = 0
+	next.focusCurrentEditField()
+	next.titleInput.SetValue("abc")
+	next.titleInput.CursorEnd()
+
+	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyLeft}, DefaultKeys)
+
+	if next.listPaneFocused() {
+		t.Fatal("expected left arrow to stay in the detail pane while the cursor can still move left")
+	}
+	if got := next.titleInput.Position(); got != 2 {
+		t.Fatalf("expected title cursor to move left to position 2, got %d", got)
+	}
+}
+
+func TestFeedManagerGReaderInputLeftArrowMovesToLeftPaneAtCursorStart(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.focusAdd()
+
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+	next.focusedField = fmFieldGReaderURL
+	next.focusCurrentEditField()
+	next.greaderURLInput.SetValue("https://rss.example.com/api/greader.php")
+	next.greaderURLInput.CursorStart()
+
+	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyLeft}, DefaultKeys)
+
+	if !next.listPaneFocused() {
+		t.Fatal("expected greader API URL left arrow at cursor start to move focus to the left pane")
+	}
+	if next.addSourceIdx != fmAddSourceGReader {
+		t.Fatalf("expected greader source to remain selected, got %d", next.addSourceIdx)
+	}
+}
+
+func TestFeedManagerLeftPaneNavigationUpdatesRightPaneDetails(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.setData([]db.Feed{
+		{ID: 1, Title: "Alpha", URL: "https://example.com/alpha.xml"},
+		{ID: 2, Title: "Beta", URL: "https://example.com/beta.xml"},
+	}, nil)
+	fm.focusAdd()
+
+	firstView := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	if !strings.Contains(firstView, "DETAILS") {
+		t.Fatalf("expected left-pane add state to show details workspace, got %q", firstView)
+	}
+	if !strings.Contains(firstView, "HTTPS://EXAMPLE.COM/ALPHA.XML") {
+		t.Fatalf("expected initial details pane to show first feed info, got %q", firstView)
+	}
+	if strings.Contains(firstView, "HTTPS://EXAMPLE.COM/BETA.XML") {
+		t.Fatalf("expected initial details pane not to show second feed info, got %q", firstView)
+	}
+
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyDown}, DefaultKeys)
+	secondView := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	if !strings.Contains(secondView, "HTTPS://EXAMPLE.COM/BETA.XML") {
+		t.Fatalf("expected moving down in left pane to update details for second feed, got %q", secondView)
+	}
+	if strings.Contains(secondView, "HTTPS://EXAMPLE.COM/ALPHA.XML") {
+		t.Fatalf("expected second details pane not to keep first feed info, got %q", secondView)
+	}
+}
+
+func TestFeedManagerRemoteFeedDetailsShowGReaderConfig(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{
+		GReaderURL:      "https://rss.example.com/api/greader.php",
+		GReaderLogin:    "alice",
+		GReaderPassword: "secret",
+	})
+	fm.setData([]db.Feed{{
+		ID:          -1,
+		Title:       "Remote Feed",
+		URL:         "https://example.com/feed",
+		Description: "Tech",
+	}}, nil)
+
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+
+	for _, want := range []string{
+		"SOURCE: GOOGLE READER",
+		"API URL: HTTPS://RSS.EXAMPLE.COM/API/GREADER.PHP",
+		"LOGIN: ALICE",
+		"PASSWORD: ●●●●●●",
+		"CATEGORY: TECH",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected remote feed details to contain %q, got %q", want, view)
+		}
+	}
+	if strings.Contains(view, "secret") {
+		t.Fatalf("expected remote feed details to mask the stored password, got %q", view)
+	}
+}
+
+func TestFeedManagerEnteringRightPaneFromRemoteRowPrefillsGReaderForm(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{
+		GReaderURL:      "https://rss.example.com/api/greader.php",
+		GReaderLogin:    "alice",
+		GReaderPassword: "secret",
+	})
+	fm.setData([]db.Feed{{
+		ID:    -1,
+		Title: "Remote Feed",
+		URL:   "https://example.com/feed",
+	}}, nil)
+	fm.focusAdd()
+
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+
+	if next.listPaneFocused() {
+		t.Fatal("expected enter on a selected remote row to move focus to the right pane")
+	}
+	if next.addSourceIdx != fmAddSourceGReader {
+		t.Fatalf("expected remote row to switch add form to greader, got %d", next.addSourceIdx)
+	}
+	if got := next.titleInput.Value(); got != "Remote Feed" {
+		t.Fatalf("expected remote row to prefill title, got %q", got)
+	}
+	if got := next.urlInput.Value(); got != "https://example.com/feed" {
+		t.Fatalf("expected remote row to prefill feed URL, got %q", got)
+	}
+	if got := next.greaderURLInput.Value(); got != "https://rss.example.com/api/greader.php" {
+		t.Fatalf("expected greader API URL to stay populated, got %q", got)
+	}
+	if got := next.greaderLoginInput.Value(); got != "alice" {
+		t.Fatalf("expected greader login to stay populated, got %q", got)
+	}
+	if got := next.greaderPasswordInput.Value(); got != "secret" {
+		t.Fatalf("expected greader password to stay populated internally, got %q", got)
+	}
+
+	view := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	for _, want := range []string{"ADD FEED", "API URL", "LOGIN", "REMOTE FEED", "HTTPS://EXAMPLE.COM/FEED"} {
+		if !strings.Contains(strings.ToUpper(view), want) {
+			t.Fatalf("expected prefilled greader form to contain %q, got %q", want, view)
+		}
+	}
+	if strings.Contains(view, "secret") {
+		t.Fatalf("expected greader password to remain masked in the prefilled form, got %q", view)
+	}
+}
+
+func TestEditableFeedManagerEnterBrowsesRemoteFeed(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.setData([]db.Feed{{
+		ID:          -1,
+		Title:       "Remote Feed",
+		URL:         "https://example.com/feed",
+		Description: "Tech",
+	}}, nil)
+
+	next, _ := fm.updateList(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+	if !next.shouldExit {
+		t.Fatal("expected enter on remote feed to exit into browse flow")
+	}
+	if next.browseFeedID != -1 {
+		t.Fatalf("expected remote browse target -1, got %d", next.browseFeedID)
+	}
+}
+
+func TestEditableFeedManagerEditRemoteFeedShowsBrowseOnlyStatus(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.setData([]db.Feed{{
+		ID:    -1,
+		Title: "Remote Feed",
+		URL:   "https://example.com/feed",
+	}}, nil)
+
+	next, _ := fm.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}, DefaultKeys)
+	if next.mode != fmList {
+		t.Fatalf("expected remote edit attempt to stay in list mode, got %v", next.mode)
+	}
+	if !strings.Contains(next.statusMsg, "BROWSE-ONLY") {
+		t.Fatalf("expected browse-only status for remote edit attempt, got %q", next.statusMsg)
+	}
+}
+
+func TestFeedManagerRowsDoNotInsertUncategorizedFolderRow(t *testing.T) {
+	fm := FeedManager{
+		folders: []db.Folder{{ID: 1, Name: "Tech", Color: "#7aa2f7"}},
+		feeds: []db.Feed{
+			{ID: 2, Title: "Folder Feed", URL: "https://example.com/tech", FolderID: 1},
+			{ID: 3, Title: "Loose Feed", URL: "https://example.com/loose"},
+		},
+		mode: fmList,
+	}
+	fm.rebuildRows()
+
+	rows := fm.managerRows()
+	if got := len(rows); got != 3 {
+		t.Fatalf("expected folder plus two feed rows, got %d", got)
+	}
+	if rows[0].kind != fmRowFolder || rows[1].kind != fmRowFeed || rows[2].kind != fmRowFeed {
+		t.Fatalf("unexpected manager row order: %#v", rows)
+	}
+
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	if !strings.Contains(view, "LOOSE FEED") {
+		t.Fatalf("expected uncategorized feed to remain visible in manager list, got %q", view)
+	}
+}
+
 func TestFeedManagerFolderEditViewShowsNameAndColor(t *testing.T) {
 	fm := FeedManager{
 		mode:             fmFolderEdit,
@@ -388,6 +739,7 @@ func TestFeedManagerEditTextInputsAcceptMovementRunes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fm := FeedManager{
 				mode:           fmEdit,
+				paneFocus:      fmPaneDetail,
 				titleInput:     textinput.New(),
 				urlInput:       textinput.New(),
 				newFolderInput: textinput.New(),
