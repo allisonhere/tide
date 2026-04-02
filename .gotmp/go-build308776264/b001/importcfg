@@ -1,0 +1,12 @@
+# import config
+packagefile fmt=/home/allie/Projects/rss/.gocache/33/3339d79ce30d7636873151519d8657b87a9d51f308858fd6744b5daed677bdd7-d
+packagefile github.com/charmbracelet/bubbletea=/home/allie/Projects/rss/.gocache/37/370541842bd4f73296d62f33859c8535d4a6adf4abbab4a2490cfc3d3559031d-d
+packagefile os=/home/allie/Projects/rss/.gocache/34/34a1ddc14337785e6ef83270d9ab2fa1c46bf87eb66a5738c8ac69d6b44c769a-d
+packagefile os/exec=/home/allie/Projects/rss/.gocache/91/9106730d0748a572b5f0ca451dd37b4986ce06692970b53f177a4476123931bf-d
+packagefile runtime/debug=/home/allie/Projects/rss/.gocache/0f/0f4a24d6b478529be392fc2ee9ca24d474d2b5ef94cd23fd70fe0df40d382b89-d
+packagefile strings=/home/allie/Projects/rss/.gocache/87/8732b79b259055524ca0c17606c417f5d696893d0001b6043cfeef9b7589a6ec-d
+packagefile tide/internal/config=/home/allie/Projects/rss/.gocache/d6/d62c8e5ac8d1c9142e9804c16ba9d2697156f0c7ae9994cab7a9947628a73c26-d
+packagefile tide/internal/db=/home/allie/Projects/rss/.gocache/03/03c016e0cbc5eca452dc84836d91226fc8ef3585380b1d9c1c611125ccc71b1b-d
+packagefile tide/internal/feed=/home/allie/Projects/rss/.gocache/52/526fb86e3bf06c3d0a1a6e2e9a6e0d4e4b2bf2a1a5d746c1a0dc8aec5a44d85b-d
+packagefile tide/internal/ui=/home/allie/Projects/rss/.gotmp/go-build308776264/b273/_pkg_.a
+packagefile runtime=/home/allie/Projects/rss/.gocache/8a/8ac5a7f4fe57678c406d2ee90d0b24366182395487c188706a6a5e615297bb8e-d
