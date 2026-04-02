@@ -96,6 +96,40 @@ func TestRenderTextInputCompactsUnfocusedSecretPreview(t *testing.T) {
 	}
 }
 
+func TestRenderSecretSummaryUsesFingerprintInsteadOfRawValue(t *testing.T) {
+	rendered := ansi.Strip(renderSecretSummary("sk-abcdefghijklmnopqrstuvwxyz123456", 40, newManagerChrome(60, CatppuccinMocha)))
+
+	if strings.Contains(rendered, "abcdefghijklmnopqrstuvwxyz") {
+		t.Fatalf("secret summary leaked raw value: %q", rendered)
+	}
+	if !strings.Contains(rendered, "saved") {
+		t.Fatalf("expected saved status, got %q", rendered)
+	}
+	if !strings.Contains(rendered, "chars") || !strings.Contains(rendered, "id ") {
+		t.Fatalf("expected fingerprint summary, got %q", rendered)
+	}
+}
+
+func TestRenderSecretEditorKeepsExpectedGeometry(t *testing.T) {
+	input := textinput.New()
+	input.EchoMode = textinput.EchoPassword
+	input.EchoCharacter = '●'
+	input.Focus()
+	input.SetValue("sk-abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqrstuvwxyz1234567890")
+
+	rendered := renderSecretEditor(input, 40, newManagerChrome(60, CatppuccinMocha))
+	lines := strings.Split(rendered, "\n")
+
+	if got := len(lines); got != 3 {
+		t.Fatalf("expected 3-line secret editor, got %d", got)
+	}
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got != 40 {
+			t.Fatalf("expected secret editor line %d width 40, got %d", i+1, got)
+		}
+	}
+}
+
 func TestFeedManagerEditViewShowsBusyStatus(t *testing.T) {
 	fm := FeedManager{
 		mode:      fmEdit,

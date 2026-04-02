@@ -445,6 +445,31 @@ func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) 
 	return s, cmd, false
 }
 
+func (s Settings) focusedTextInputCursorPosition() int {
+	switch s.focusedField {
+	case sfBrowser:
+		return s.browserInput.Position()
+	case sfFeedMaxBody:
+		return s.feedMaxBodyInput.Position()
+	case sfAPIKey:
+		switch s.providerIdx {
+		case 1:
+			return s.openaiInput.Position()
+		case 2:
+			return s.claudeInput.Position()
+		case 3:
+			return s.geminiInput.Position()
+		}
+	case sfOllamaURL:
+		return s.ollamaURLInput.Position()
+	case sfOllamaModel:
+		return s.ollamaModelInput.Position()
+	case sfSavePath:
+		return s.savePathInput.Position()
+	}
+	return -1
+}
+
 // ── Update ────────────────────────────────────────────────────────────────────
 
 func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
@@ -498,6 +523,14 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		default:
 			return s, nil, false
 		}
+	}
+
+	if s.isTextInput() && keyMatches(key, keys.Left) {
+		if s.focusedTextInputCursorPosition() == 0 {
+			s.setFocusedPane(settingsPaneSidebar)
+			return s, nil, false
+		}
+		return s.updateFocusedTextInput(msg)
 	}
 
 	if !s.isTextInput() && keyMatches(key, keys.Left) {
@@ -675,7 +708,11 @@ func (s Settings) viewSectionsPane(width, height int, chrome managerChrome) stri
 	rows := make([]string, 0, settingsSectionCount)
 	for i, label := range settingsSectionLabels {
 		selected := settingsSection(i) == s.activeSection
-		rows = append(rows, s.renderSectionNavRow(width, label, selected, s.focusedPane == settingsPaneSidebar, chrome))
+		subtitle := ""
+		if settingsSection(i) == ssAI && s.providerIdx > 0 {
+			subtitle = strings.ToLower(aiProviderLabels[s.providerIdx])
+		}
+		rows = append(rows, s.renderSectionNavRow(width, label, subtitle, selected, s.focusedPane == settingsPaneSidebar, chrome))
 	}
 	body := lipgloss.JoinVertical(lipgloss.Left, rows...)
 	title := "CATEGORIES"
@@ -734,8 +771,6 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		body.anchors[field] = len(body.lines)
 	}
 
-	// inputW: full inner width minus the 2-char left padding of ind.
-	inputW := width - 3
 	hintIndent := strings.Repeat(" ", labelColW)
 
 	addToggle := func(label string, on bool, field settingsField) {
@@ -751,13 +786,41 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 
 	addInput := func(label string, input textinput.Model, field settingsField) {
 		focused := s.focusedField == field
-		compactSecretPreview := field == sfAPIKey
-		fieldW := s.inputWidth(field, inputW)
-		row := s.renderFieldLabel(label, focused, width-2, chrome) + renderTextInput(input, fieldW, focused, compactSecretPreview, chrome)
+		rowFieldW := max(1, width-2-labelColW-1)
+		fieldW := min(rowFieldW, s.inputWidth(field, rowFieldW))
+		row := s.renderFieldLabel(label, focused, width-2, chrome) + renderTextInput(input, fieldW, focused, false, chrome)
 		markAnchor(field)
 		addLine(ind.Render(row))
 		if hint := s.fieldHint(field); hint != "" {
 			addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
+		}
+		addLine(blank)
+	}
+
+	addSecretInput := func(label string, input textinput.Model) {
+		focused := s.focusedField == sfAPIKey
+		markAnchor(sfAPIKey)
+		if focused {
+			hintW := max(1, width-2-labelColW-7)
+			header := s.renderFieldLabel(label, true, width-2, chrome) +
+				s.renderBadge("EDIT", true, chrome) +
+				lipgloss.NewStyle().
+					Background(chrome.baseBg).
+					Foreground(chrome.muted).
+					Width(hintW).
+					Render(" "+truncate("masked while typing", max(1, hintW-1)))
+			addLine(ind.Render(header))
+			addLine(ind.Render(renderSecretEditor(input, width-2, chrome)))
+			if hint := s.fieldHint(sfAPIKey); hint != "" {
+				addLine(ind.Render(s.renderInlineHint(hint, width-2, chrome)))
+			}
+		} else {
+			row := s.renderFieldLabel(label, false, width-2, chrome) +
+				renderSecretSummary(input.Value(), max(1, width-2-labelColW), chrome)
+			addLine(ind.Render(row))
+			if hint := s.fieldHint(sfAPIKey); hint != "" {
+				addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
+			}
 		}
 		addLine(blank)
 	}
@@ -823,11 +886,11 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		addLine(blank)
 		switch s.providerIdx {
 		case 1:
-			addInput("OpenAI key", s.openaiInput, sfAPIKey)
+			addSecretInput("OpenAI key", s.openaiInput)
 		case 2:
-			addInput("Claude key", s.claudeInput, sfAPIKey)
+			addSecretInput("Claude key", s.claudeInput)
 		case 3:
-			addInput("Gemini key", s.geminiInput, sfAPIKey)
+			addSecretInput("Gemini key", s.geminiInput)
 		case 4:
 			addInput("Ollama URL", s.ollamaURLInput, sfOllamaURL)
 			addInput("Model", s.ollamaModelInput, sfOllamaModel)
@@ -849,7 +912,7 @@ func (s Settings) inputWidth(field settingsField, maxWidth int) int {
 		return min(maxWidth, 12)
 	case sfBrowser, sfSavePath:
 		return min(maxWidth, 36)
-	case sfOllamaURL, sfOllamaModel, sfAPIKey:
+	case sfOllamaURL, sfOllamaModel:
 		return min(maxWidth, 44)
 	default:
 		return min(maxWidth, 32)
@@ -889,26 +952,37 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 	)
 }
 
-func (s Settings) renderSectionNavRow(width int, label string, selected, paneFocused bool, chrome managerChrome) string {
-	textW := max(1, width-2)
-	row := padRight(truncate(label, textW), textW)
+func (s Settings) renderSectionNavRow(width int, label, subtitle string, selected, paneFocused bool, chrome managerChrome) string {
+	bg, fg, subFg := chrome.baseBg, chrome.text, chrome.muted
+	bold := false
 	if selected {
-		bg := chrome.surfaceBg
-		fg := chrome.accent
+		bg = chrome.surfaceBg
+		fg = chrome.accent
+		subFg = chrome.accent
+		bold = true
 		if paneFocused {
 			bg = chrome.accent
 			fg = chrome.accentFg
+			subFg = chrome.accentFg
 		}
-		return lipgloss.NewStyle().
-			Background(bg).
-			Foreground(fg).
-			Bold(true).
-			Padding(0, 1).
-			Render(row)
+	}
+
+	innerW := max(1, width-2)
+	var row string
+	if subtitle == "" {
+		row = padRight(truncate(label, innerW), innerW)
+	} else {
+		subW := lipgloss.Width(subtitle)
+		labelW := max(1, innerW-subW-1)
+		left := lipgloss.NewStyle().Background(bg).Foreground(fg).Bold(bold).Width(labelW).Render(truncate(label, labelW))
+		spacer := lipgloss.NewStyle().Background(bg).Width(1).Render("")
+		right := lipgloss.NewStyle().Background(bg).Foreground(subFg).Render(subtitle)
+		row = left + spacer + right
 	}
 	return lipgloss.NewStyle().
-		Background(chrome.baseBg).
-		Foreground(chrome.text).
+		Background(bg).
+		Foreground(fg).
+		Bold(bold).
 		Padding(0, 1).
 		Render(row)
 }
@@ -1025,16 +1099,25 @@ func (s Settings) renderProviderSelector(width int, chrome managerChrome) string
 	if focused {
 		selector = s.renderBadge(providerName, true, chrome)
 	} else {
+		fg := chrome.muted
+		if s.providerIdx > 0 {
+			fg = chrome.text
+		}
 		selector = lipgloss.NewStyle().
 			Background(chrome.surfaceBg).
-			Foreground(chrome.muted).
+			Foreground(fg).
 			Width(7).
 			Align(lipgloss.Center).
 			Render(strings.ToLower(providerName))
 	}
-	hint := s.renderInlineHint(" use enter to change", width-labelColW, chrome)
+	hintW := max(1, width-labelColW-7)
+	hint := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Foreground(chrome.muted).
+		Width(hintW).
+		Render(" " + truncate("use enter to change", max(1, hintW-1)))
 	if focused {
-		hint = chrome.keyLabel.Render(" use enter to change")
+		hint = chrome.keyLabel.Width(hintW).Render(" " + truncate("use enter to change", max(1, hintW-1)))
 	}
 	return label + selector + hint
 }
@@ -1046,7 +1129,7 @@ func (s Settings) fieldHint(field settingsField) string {
 	case sfFeedMaxBody:
 		return "larger feeds need more memory; default is 10 MiB"
 	case sfAPIKey:
-		return "only the active provider key is used"
+		return "only the active provider key is used; press enter or tab when done"
 	case sfOllamaURL:
 		return "local Ollama endpoint"
 	case sfSavePath:

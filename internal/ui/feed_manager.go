@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"hash/fnv"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -1360,6 +1361,64 @@ func renderTextInput(input textinput.Model, width int, focused bool, compactSecr
 		Render(inner)
 }
 
+func renderSecretSummary(value string, width int, chrome managerChrome) string {
+	if width <= 0 {
+		return ""
+	}
+
+	badgeStyle := lipgloss.NewStyle().
+		Background(chrome.surfaceBg).
+		Foreground(chrome.muted).
+		Width(7).
+		Align(lipgloss.Center)
+
+	detailStyle := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Foreground(chrome.muted)
+
+	badgeText := "empty"
+	detailText := "not set"
+	if value != "" {
+		badgeText = "saved"
+		detailText = fmt.Sprintf("%d chars • id %s", len([]rune(value)), secretFingerprint(value))
+	}
+
+	badge := badgeStyle.Render(badgeText)
+	detailW := max(1, width-lipgloss.Width(badge))
+	detail := detailStyle.Width(detailW).Render("  " + truncate(detailText, max(1, detailW-2)))
+	return badge + detail
+}
+
+func renderSecretEditor(input textinput.Model, width int, chrome managerChrome) string {
+	fieldBg := chrome.fieldBg
+	contentW := max(1, width-4)
+
+	input.Width = max(1, contentW-2)
+	input.PromptStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.accent).Bold(true)
+	input.TextStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.text)
+	input.PlaceholderStyle = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.accent)
+	input.Cursor.Style = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.accentFg)
+	input.Cursor.TextStyle = lipgloss.NewStyle().Background(chrome.accent).Foreground(chrome.accentFg)
+
+	rendered := strings.TrimRight(input.View(), " ")
+	rendered = ansi.Truncate(rendered, contentW, "")
+	if gap := contentW - lipgloss.Width(rendered); gap > 0 {
+		rendered += lipgloss.NewStyle().Background(fieldBg).Render(strings.Repeat(" ", gap))
+	}
+
+	inner := lipgloss.NewStyle().
+		Background(fieldBg).
+		Padding(0, 1).
+		Render(rendered)
+
+	return lipgloss.NewStyle().
+		Background(fieldBg).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(chrome.accent).
+		BorderBackground(fieldBg).
+		Render(inner)
+}
+
 func maskedPreview(value string, limit int) string {
 	maskCount := len([]rune(value))
 	if maskCount == 0 {
@@ -1372,6 +1431,15 @@ func maskedPreview(value string, limit int) string {
 		return strings.Repeat("●", maskCount)
 	}
 	return strings.Repeat("●", limit) + "…"
+}
+
+func secretFingerprint(value string) string {
+	if value == "" {
+		return ""
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(value))
+	return fmt.Sprintf("%06x", h.Sum32())[:6]
 }
 
 func renderManagerInput(width int, value, placeholder string, focused bool, chrome managerChrome) string {
