@@ -88,8 +88,8 @@ func TestFeedManagerListModeStartsWithLeftPaneFocus(t *testing.T) {
 	}
 
 	fm.focusAdd()
-	if !fm.listPaneFocused() {
-		t.Fatal("expected add dialog to start focused on the left pane")
+	if fm.listPaneFocused() {
+		t.Fatal("expected add dialog to start focused on the right pane")
 	}
 }
 
@@ -380,11 +380,6 @@ func TestFeedManagerAddDialogCanSwitchToGReaderFields(t *testing.T) {
 	fm.focusAdd()
 
 	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
-	if next.listPaneFocused() {
-		t.Fatal("expected enter to move add dialog focus into the right pane")
-	}
-
-	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
 	if next.addSourceIdx != fmAddSourceGReader {
 		t.Fatalf("expected enter on source toggle to switch to greader, got %d", next.addSourceIdx)
 	}
@@ -413,22 +408,29 @@ func TestFeedManagerSourceToggleShowsToggleHint(t *testing.T) {
 	fm.focusAdd()
 
 	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
-	if !strings.Contains(view, "EDIT FORM") {
-		t.Fatalf("expected add dialog left-pane entry hint, got %q", view)
+	if !strings.Contains(view, "TOGGLE SOURCE") {
+		t.Fatalf("expected add dialog source toggle hint, got %q", view)
 	}
 }
 
-func TestFeedManagerAddDialogStartsLeftPaneFocused(t *testing.T) {
+func TestFeedManagerAddDialogStartsRightPaneFocused(t *testing.T) {
 	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
 	fm.focusAdd()
 
-	if !fm.listPaneFocused() {
-		t.Fatal("expected add dialog to start on the left pane")
+	if fm.listPaneFocused() {
+		t.Fatal("expected add dialog to start on the right pane")
 	}
+}
 
-	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
-	if next.listPaneFocused() {
-		t.Fatal("expected enter to move add dialog focus to the right pane")
+func TestFeedManagerAddDialogAResetsFreshAdd(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.focusAdd()
+
+	if fm.listPaneFocused() {
+		t.Fatal("expected a-driven add dialog to stay on the right pane")
+	}
+	if fm.focusedField != fmFieldAddSource {
+		t.Fatalf("expected add dialog to focus source toggle, got %d", fm.focusedField)
 	}
 }
 
@@ -477,7 +479,6 @@ func TestFeedManagerGReaderInputLeftArrowMovesToLeftPaneAtCursorStart(t *testing
 	fm.focusAdd()
 
 	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
-	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
 	next.focusedField = fmFieldGReaderURL
 	next.focusCurrentEditField()
 	next.greaderURLInput.SetValue("https://rss.example.com/api/greader.php")
@@ -500,10 +501,11 @@ func TestFeedManagerLeftPaneNavigationUpdatesRightPaneDetails(t *testing.T) {
 		{ID: 2, Title: "Beta", URL: "https://example.com/beta.xml"},
 	}, nil)
 	fm.focusAdd()
+	fm.paneFocus = fmPaneList
 
 	firstView := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
-	if !strings.Contains(firstView, "DETAILS") {
-		t.Fatalf("expected left-pane add state to show details workspace, got %q", firstView)
+	if !strings.Contains(firstView, "ADD FEED") {
+		t.Fatalf("expected left-pane add state to show add workspace title, got %q", firstView)
 	}
 	if !strings.Contains(firstView, "HTTPS://EXAMPLE.COM/ALPHA.XML") {
 		t.Fatalf("expected initial details pane to show first feed info, got %q", firstView)
@@ -565,6 +567,7 @@ func TestFeedManagerEnteringRightPaneFromRemoteRowPrefillsGReaderForm(t *testing
 		URL:   "https://example.com/feed",
 	}}, nil)
 	fm.focusAdd()
+	fm.paneFocus = fmPaneList
 
 	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
 

@@ -511,10 +511,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cfg.Source.GReaderURL = msg.Source.GReaderURL
 		m.cfg.Source.GReaderLogin = msg.Source.GReaderLogin
 		m.cfg.Source.GReaderPassword = msg.Source.GReaderPassword
-		config.Save(m.cfg) //nolint:errcheck
+		saveErr := config.Save(m.cfg)
 		m.resetSourceClient()
 		m.feedManager = m.newFeedManager()
 		m.feedManager.mode = fmList
+		if saveErr != nil {
+			m.feedManager.statusMsg = fmt.Sprintf("GREADER CONFIG SAVE FAILED: %v", saveErr)
+			m.setStatus(fmt.Sprintf("greader config save failed: %v", saveErr), true)
+			return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
+		}
 		if msg.StreamID == "" {
 			m.feedManager.statusMsg = fmt.Sprintf("CONNECTED GREADER · %d FEEDS", msg.FeedCount)
 			m.setStatus(fmt.Sprintf("connected greader: %d feeds", msg.FeedCount), false)
@@ -746,10 +751,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case keyMatches(msg, m.keys.Add):
-		m.overlay = overlayFeedManager
-		m.feedManager = m.newFeedManager()
-		m.feedManager.focusAdd()
-		return m, nil
+		return m.openFeedAddDialog(), nil
 
 	case keyMatches(msg, m.keys.ThemePicker):
 		m.overlay = overlayThemePicker
@@ -789,6 +791,9 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDown()
 
 	case keyMatches(msg, m.keys.Enter):
+		if len(m.feeds) == 0 {
+			return m.openFeedAddDialog(), nil
+		}
 		if m.focused == paneFeeds && m.toggleSelectedFolder() {
 			return m, nil
 		}
@@ -2757,9 +2762,16 @@ func (m Model) articleRowPrefix(read bool) string {
 
 func (m Model) emptyFeedsHint() string {
 	if m.iconsEnabled() {
-		return "  ＋ press m to add feeds"
+		return "  ＋ press enter or m to add feeds"
 	}
-	return "  press m to add feeds"
+	return "  press enter or m to add feeds"
+}
+
+func (m Model) openFeedAddDialog() Model {
+	m.overlay = overlayFeedManager
+	m.feedManager = m.newFeedManager()
+	m.feedManager.focusAdd()
+	return m
 }
 
 func padRight(s string, width int) string {
