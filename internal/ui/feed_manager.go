@@ -949,7 +949,7 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		}
 		return fm, nil
 	}
-	if fm.isEditTextInputFocused() && keyMatches(msg, keys.Left) {
+	if fm.isEditTextInputFocused() && msg.Type == tea.KeyLeft {
 		if fm.focusedEditTextInputCursorPosition() == 0 {
 			fm.paneFocus = fmPaneList
 			fm.blurEditInputs()

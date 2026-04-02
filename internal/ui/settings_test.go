@@ -29,6 +29,24 @@ func TestSettingsTextInputsAcceptMovementRunes(t *testing.T) {
 	}
 }
 
+func TestSettingsTextInputsAcceptHAtCursorStart(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setFocusedPane(settingsPaneDetail)
+	s.focusedField = sfBrowser
+	s.browserInput.SetValue("")
+	s.browserInput.CursorStart()
+	s.applyFocus()
+
+	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}}, DefaultKeys)
+
+	if next.focusedPane != settingsPaneDetail {
+		t.Fatalf("expected browser field to keep detail focus when typing h, got %v", next.focusedPane)
+	}
+	if got := next.browserInput.Value(); got != "h" {
+		t.Fatalf("expected browser input to receive typed h, got %q", got)
+	}
+}
+
 func TestSettingsTextInputsAcceptOpenBracket(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setFocusedPane(settingsPaneDetail)
