@@ -14,6 +14,7 @@ import (
 
 func TestSettingsTextInputsAcceptMovementRunes(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setFocusedPane(settingsPaneDetail)
 	s.focusedField = sfBrowser
 	s.browserInput.SetValue("")
 	s.applyFocus()
@@ -30,6 +31,7 @@ func TestSettingsTextInputsAcceptMovementRunes(t *testing.T) {
 
 func TestSettingsTextInputsAcceptOpenBracket(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setFocusedPane(settingsPaneDetail)
 	s.focusedField = sfBrowser
 	s.browserInput.SetValue("")
 	s.applyFocus()
@@ -53,6 +55,17 @@ func TestSettingsBadgeWidthStaysStableAcrossFocus(t *testing.T) {
 
 	if lipgloss.Width(focused) != lipgloss.Width(unfocused) {
 		t.Fatalf("expected focused and unfocused badges to have equal width, got %d and %d", lipgloss.Width(focused), lipgloss.Width(unfocused))
+	}
+}
+
+func TestSettingsStartsFocusedOnSidebar(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+
+	if s.focusedPane != settingsPaneSidebar {
+		t.Fatalf("expected settings to start focused on sidebar, got %v", s.focusedPane)
+	}
+	if s.activeSection != ssDisplay {
+		t.Fatalf("expected settings to start on DISPLAY section, got %v", s.activeSection)
 	}
 }
 
@@ -172,6 +185,36 @@ func TestSettingsAPIKeyLeftArrowMovesToSidebarAtCursorStart(t *testing.T) {
 	}
 }
 
+func TestSettingsProviderLeftArrowCyclesBackwardAndKeepsDetailFocus(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfProvider)
+	s.providerIdx = providerIndex("openai")
+
+	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyLeft}, DefaultKeys)
+
+	if next.focusedPane != settingsPaneDetail {
+		t.Fatalf("expected provider picker to keep detail focus, got %v", next.focusedPane)
+	}
+	if got := aiProviderIDs[next.providerIdx]; got != "" {
+		t.Fatalf("expected left arrow to move provider backward to none, got %q", got)
+	}
+}
+
+func TestSettingsProviderRightArrowCyclesForward(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfProvider)
+
+	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyRight}, DefaultKeys)
+
+	if got := aiProviderIDs[next.providerIdx]; got != "openai" {
+		t.Fatalf("expected right arrow to move provider forward to openai, got %q", got)
+	}
+}
+
 func TestSettingsAPIKeyHintFlagsProviderMismatch(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AI.Provider = "claude"
@@ -257,6 +300,7 @@ func TestSettingsAboutActions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 			s.setActiveSection(ssAbout)
+			s.setFocusedPane(settingsPaneDetail)
 			s.setFocusedField(tt.field)
 
 			next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
@@ -495,6 +539,13 @@ func TestSettingsProviderSelectorStaysSingleLineInNarrowPane(t *testing.T) {
 	row := s.renderProviderSelector(42, newManagerChrome(62, CatppuccinMocha))
 	if got := lipgloss.Height(row); got != 1 {
 		t.Fatalf("expected provider selector to stay on one line, got height %d", got)
+	}
+	stripped := ansi.Strip(row)
+	if !strings.Contains(stripped, "◀") || !strings.Contains(stripped, "▶") {
+		t.Fatalf("expected provider selector to render side arrows, got %q", stripped)
+	}
+	if got := lipgloss.Width(row); got >= 42 {
+		t.Fatalf("expected provider selector to fit content instead of filling width 42, got width %d", got)
 	}
 }
 
