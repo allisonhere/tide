@@ -520,6 +520,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(fmt.Sprintf("greader config save failed: %v", saveErr), true)
 			return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
 		}
+		if msg.SettingsOnly {
+			m.feedManager.statusMsg = "SAVED GREADER SETTINGS"
+			m.setStatus("saved greader settings", false)
+			return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
+		}
 		if msg.StreamID == "" {
 			m.feedManager.statusMsg = fmt.Sprintf("CONNECTED GREADER · %d FEEDS", msg.FeedCount)
 			m.setStatus(fmt.Sprintf("connected greader: %d feeds", msg.FeedCount), false)
@@ -2118,6 +2123,10 @@ func (m Model) newFeedManager() FeedManager {
 			fm.selectFolder(folderID)
 		}
 	}
+	fm.mode = fmList
+	fm.paneFocus = fmPaneList
+	fm.remoteSettingsEdit = false
+	fm.blurEditInputs()
 	return fm
 }
 

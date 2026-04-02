@@ -865,6 +865,40 @@ func TestFeedManagerOverlayShowsAddActionAndAOpensAddDialog(t *testing.T) {
 	}
 }
 
+func TestFeedManagerOpensInListModeWithLeftPaneFocus(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	feedID, err := database.AddFeed("https://example.com/feed.xml", "Example Feed", "")
+	if err != nil {
+		t.Fatalf("save feed: %v", err)
+	}
+	feed := db.Feed{ID: feedID, Title: "Example Feed", URL: "https://example.com/feed.xml"}
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 96, Height: 24})
+	m = m2.(Model)
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
+	m = m2.(Model)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	m = m2.(Model)
+
+	if m.overlay != overlayFeedManager {
+		t.Fatalf("expected manager overlay after m, got %v", m.overlay)
+	}
+	if m.feedManager.mode != fmList {
+		t.Fatalf("expected manager to open in list mode, got %v", m.feedManager.mode)
+	}
+	if !m.feedManager.listPaneFocused() {
+		t.Fatal("expected manager to open focused on the left pane")
+	}
+}
+
 func TestRemoteFeedAddedMsgPersistsGReaderConfigAndTargetsStream(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -942,6 +976,34 @@ func TestRemoteFeedAddedMsgWithoutStreamShowsConnectedStatus(t *testing.T) {
 	}
 	if m.statusMsg != "connected greader: 7 feeds" {
 		t.Fatalf("expected connected status, got %q", m.statusMsg)
+	}
+}
+
+func TestRemoteFeedAddedMsgSettingsOnlyShowsSavedStatus(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, _ := m.Update(RemoteFeedAddedMsg{
+		SettingsOnly: true,
+		Source: config.SourceConfig{
+			GReaderURL:      "https://rss.example.com/api/greader.php",
+			GReaderLogin:    "alice",
+			GReaderPassword: "secret",
+		},
+	})
+	m = m2.(Model)
+
+	if m.statusMsg != "saved greader settings" {
+		t.Fatalf("expected saved settings status, got %q", m.statusMsg)
+	}
+	if m.pendingSelectFeedID != 0 {
+		t.Fatalf("expected settings-only save not to target a feed, got %d", m.pendingSelectFeedID)
 	}
 }
 
@@ -1096,6 +1158,59 @@ func TestFeedManagerGReaderSaveCmdAllowsBlankFeedURL(t *testing.T) {
 	}
 	if got.FeedCount != 1 {
 		t.Fatalf("expected feed count from subscription list, got %d", got.FeedCount)
+	}
+}
+
+func TestFeedManagerGReaderSettingsEditSaveCmdDoesNotHitNetwork(t *testing.T) {
+	loginHit := false
+	listHit := false
+	quickAddHit := false
+
+	origTransport := http.DefaultTransport
+	http.DefaultTransport = uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/api/greader.php/accounts/ClientLogin":
+			loginHit = true
+		case "/api/greader.php/reader/api/0/subscription/list":
+			listHit = true
+		case "/api/greader.php/reader/api/0/subscription/quickadd":
+			quickAddHit = true
+		}
+		t.Fatalf("unexpected network request in settings-only save: %s", req.URL.Path)
+		return nil, nil
+	})
+	defer func() { http.DefaultTransport = origTransport }()
+
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{
+		GReaderURL:      "https://rss.example.com/api/greader.php",
+		GReaderLogin:    "alice",
+		GReaderPassword: "secret",
+	})
+	fm.focusRemoteSettingsEdit(db.Feed{
+		ID:    -1,
+		Title: "Remote Feed",
+		URL:   "https://example.com/feed.xml",
+	})
+	fm.greaderURLInput.SetValue("https://rss.example.com/api/greader.php")
+	fm.greaderLoginInput.SetValue("alice")
+	fm.greaderPasswordInput.SetValue("secret")
+
+	msg := fm.saveCmd()()
+	got, ok := msg.(RemoteFeedAddedMsg)
+	if !ok {
+		t.Fatalf("expected RemoteFeedAddedMsg, got %T", msg)
+	}
+	if got.Err != nil {
+		t.Fatalf("expected successful settings save, got error %v", got.Err)
+	}
+	if !got.SettingsOnly {
+		t.Fatal("expected settings-only result")
+	}
+	if got.StreamID != "" {
+		t.Fatalf("expected settings-only save not to return a stream id, got %q", got.StreamID)
+	}
+	if loginHit || listHit || quickAddHit {
+		t.Fatalf("expected settings-only save not to hit network, login=%v list=%v quickAdd=%v", loginHit, listHit, quickAddHit)
 	}
 }
 
