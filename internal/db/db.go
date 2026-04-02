@@ -107,6 +107,19 @@ func (db *DB) migrateSchema() error {
 			return err
 		}
 	}
+	if version < 4 {
+		if _, err := db.Exec(`
+			CREATE TABLE IF NOT EXISTS remote_feed_prefs (
+				remote_feed_id INTEGER PRIMARY KEY,
+				folder_id      INTEGER REFERENCES folders(id) ON DELETE SET NULL
+			)
+		`); err != nil {
+			return err
+		}
+		if _, err := db.Exec(`PRAGMA user_version = 4`); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

@@ -141,7 +141,7 @@ func TestDBFoldersCRUDAndFeedAssignment(t *testing.T) {
 	}
 }
 
-func TestOpenMigratesFolderSchemaToVersion3(t *testing.T) {
+func TestOpenMigratesFolderSchemaToVersion4(t *testing.T) {
 	tmp := t.TempDir()
 	db, err := openSQLite(filepath.Join(tmp, "rss.db"))
 	if err != nil {
@@ -182,8 +182,8 @@ func TestOpenMigratesFolderSchemaToVersion3(t *testing.T) {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 {
-		t.Fatalf("expected schema version 3, got %d", version)
+	if version != 4 {
+		t.Fatalf("expected schema version 4, got %d", version)
 	}
 
 	rows, err := db.Query(`PRAGMA table_info(feeds)`)
@@ -234,6 +234,75 @@ func TestOpenMigratesFolderSchemaToVersion3(t *testing.T) {
 		t.Fatal("expected folders.color column after migration")
 	}
 	rows.Close()
+
+	rows, err = db.Query(`PRAGMA table_info(remote_feed_prefs)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	foundRemoteFeedID := false
+	foundRemoteFolderID := false
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			t.Fatal(err)
+		}
+		if name == "remote_feed_id" {
+			foundRemoteFeedID = true
+		}
+		if name == "folder_id" {
+			foundRemoteFolderID = true
+		}
+	}
+	if !foundRemoteFeedID || !foundRemoteFolderID {
+		t.Fatalf("expected remote_feed_prefs columns after migration, found remote_feed_id=%v folder_id=%v", foundRemoteFeedID, foundRemoteFolderID)
+	}
+	rows.Close()
+}
+
+func TestDBRemoteFeedFolderAssignment(t *testing.T) {
+	tmp := t.TempDir()
+	db, err := openSQLite(filepath.Join(tmp, "rss.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.init(); err != nil {
+		t.Fatal(err)
+	}
+
+	folderID, err := db.AddFolder("Remote", "#7aa2f7")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.SetRemoteFeedFolder(-42, folderID); err != nil {
+		t.Fatal(err)
+	}
+
+	assignments, err := db.ListRemoteFeedFolders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assignments[-42] != folderID {
+		t.Fatalf("expected remote feed -42 to map to folder %d, got %d", folderID, assignments[-42])
+	}
+
+	if err := db.DeleteFolder(folderID); err != nil {
+		t.Fatal(err)
+	}
+
+	assignments, err = db.ListRemoteFeedFolders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := assignments[-42]; ok {
+		t.Fatalf("expected deleted folder to clear remote feed assignment, got %+v", assignments)
+	}
 }
 
 func openSQLite(path string) (*DB, error) {
