@@ -607,7 +607,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		}
 	}
 
-	if s.isTextInput() && keyMatches(key, keys.Left) {
+	if s.isTextInput() && key.Type == tea.KeyLeft {
 		if s.focusedTextInputCursorPosition() == 0 {
 			s.setFocusedPane(settingsPaneSidebar)
 			return s, nil, false

@@ -747,6 +747,7 @@ func TestFeedManagerEditTextInputsAcceptMovementRunes(t *testing.T) {
 		name          string
 		focusedField  int
 		showNewFolder bool
+		addSourceIdx  int
 		key           rune
 		value         func(FeedManager) string
 	}{
@@ -767,6 +768,14 @@ func TestFeedManagerEditTextInputsAcceptMovementRunes(t *testing.T) {
 			},
 		},
 		{
+			name:         "title h at cursor start",
+			focusedField: 0,
+			key:          'h',
+			value: func(fm FeedManager) string {
+				return fm.titleInput.Value()
+			},
+		},
+		{
 			name:          "new folder",
 			focusedField:  3,
 			showNewFolder: true,
@@ -775,18 +784,29 @@ func TestFeedManagerEditTextInputsAcceptMovementRunes(t *testing.T) {
 				return fm.newFolderInput.Value()
 			},
 		},
+		{
+			name:         "greader api url h at cursor start",
+			focusedField: fmFieldGReaderURL,
+			addSourceIdx: fmAddSourceGReader,
+			key:          'h',
+			value: func(fm FeedManager) string {
+				return fm.greaderURLInput.Value()
+			},
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			fm := FeedManager{
-				mode:           fmEdit,
-				paneFocus:      fmPaneDetail,
-				titleInput:     textinput.New(),
-				urlInput:       textinput.New(),
-				newFolderInput: textinput.New(),
-				focusedField:   tc.focusedField,
-				showNewFolder:  tc.showNewFolder,
+				mode:            fmEdit,
+				paneFocus:       fmPaneDetail,
+				titleInput:      textinput.New(),
+				urlInput:        textinput.New(),
+				newFolderInput:  textinput.New(),
+				greaderURLInput: textinput.New(),
+				focusedField:    tc.focusedField,
+				showNewFolder:   tc.showNewFolder,
+				addSourceIdx:    tc.addSourceIdx,
 			}
 			fm.focusCurrentEditField()
 
@@ -794,6 +814,9 @@ func TestFeedManagerEditTextInputsAcceptMovementRunes(t *testing.T) {
 
 			if next.focusedField != tc.focusedField {
 				t.Fatalf("expected focus to stay on field %d, got %d", tc.focusedField, next.focusedField)
+			}
+			if next.listPaneFocused() {
+				t.Fatal("expected typed movement rune to stay in the detail pane")
 			}
 			if got := tc.value(next); got != string(tc.key) {
 				t.Fatalf("expected typed rune %q to stay in the field, got %q", string(tc.key), got)
