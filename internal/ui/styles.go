@@ -36,6 +36,7 @@ type Styles struct {
 	StatusError   lipgloss.Style
 	StatusSpinner lipgloss.Style
 	StatusHint    lipgloss.Style
+	StatusNotice  lipgloss.Style
 
 	// Overlay chrome
 	Overlay      lipgloss.Style
@@ -195,6 +196,11 @@ func BuildStyles(t Theme) Styles {
 		StatusHint: lipgloss.NewStyle().
 			Background(t.StatusBar).
 			Foreground(readableText(t.StatusFg, t.StatusBar, 3.0)),
+		StatusNotice: lipgloss.NewStyle().
+			Background(t.BorderFocus).
+			Foreground(readableText(t.Fg, t.BorderFocus, 4.5)).
+			Bold(true).
+			Padding(0, 1),
 
 		Overlay: lipgloss.NewStyle().
 			Background(modalBg).

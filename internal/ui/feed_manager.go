@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
 	"net/url"
@@ -14,8 +15,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"tide/internal/config"
 	"tide/internal/db"
 	"tide/internal/feed"
+	"tide/internal/greader"
 	"tide/internal/opml"
 )
 
@@ -27,6 +30,13 @@ const (
 	fmFolderEdit
 	fmImport
 	fmConfirmDelete
+)
+
+type fmPaneFocus int
+
+const (
+	fmPaneList fmPaneFocus = iota
+	fmPaneDetail
 )
 
 type fmRowKind int
@@ -42,8 +52,75 @@ type fmRow struct {
 	feedID   int64
 }
 
+const (
+	fmAddSourceLocal = iota
+	fmAddSourceGReader
+)
+
+const (
+	fmFieldAddSource = 5 + iota
+	fmFieldGReaderURL
+	fmFieldGReaderLogin
+	fmFieldGReaderPassword
+)
+
+var fmAddSourceLabels = []string{"Local", "GReader"}
+
+type feedManagerSource interface {
+	Load() ([]db.Feed, []db.Folder, error)
+	Name() string
+	Editable() bool
+	ShowUncategorizedFolder() bool
+}
+
+type dbFeedManagerSource struct {
+	database *db.DB
+}
+
+func (s dbFeedManagerSource) Load() ([]db.Feed, []db.Folder, error) {
+	if s.database == nil {
+		return nil, nil, nil
+	}
+	feeds, err := s.database.ListFeeds()
+	if err != nil {
+		return nil, nil, err
+	}
+	folders, err := s.database.ListFolders()
+	if err != nil {
+		return nil, nil, err
+	}
+	return feeds, folders, nil
+}
+
+func (s dbFeedManagerSource) Name() string { return "Local" }
+
+func (s dbFeedManagerSource) Editable() bool { return true }
+
+func (s dbFeedManagerSource) ShowUncategorizedFolder() bool { return true }
+
+type staticFeedManagerSource struct {
+	name              string
+	feeds             []db.Feed
+	folders           []db.Folder
+	editable          bool
+	showUncategorized bool
+}
+
+func (s staticFeedManagerSource) Load() ([]db.Feed, []db.Folder, error) {
+	feeds := append([]db.Feed(nil), s.feeds...)
+	folders := append([]db.Folder(nil), s.folders...)
+	return feeds, folders, nil
+}
+
+func (s staticFeedManagerSource) Name() string { return s.name }
+
+func (s staticFeedManagerSource) Editable() bool { return s.editable }
+
+func (s staticFeedManagerSource) ShowUncategorizedFolder() bool { return s.showUncategorized }
+
 type FeedManager struct {
 	db               *db.DB
+	source           feedManagerSource
 	feeds            []db.Feed
 	folders          []db.Folder
 	collapsedFolders map[int64]bool
@@ -53,22 +130,55 @@ type FeedManager struct {
 	editTarget       int64 // 0 = new feed
 	folderEditTarget int64
 
-	titleInput     textinput.Model
-	urlInput       textinput.Model
-	importInput    textinput.Model
-	newFolderInput textinput.Model
-	focusedField   int // 0=title, 1=url, 2=folder, 3=new folder, 4=color
-	folderCursor   int
-	showNewFolder  bool
-	colorCursor    int
+	titleInput           textinput.Model
+	urlInput             textinput.Model
+	importInput          textinput.Model
+	newFolderInput       textinput.Model
+	greaderURLInput      textinput.Model
+	greaderLoginInput    textinput.Model
+	greaderPasswordInput textinput.Model
+	focusedField         int // 0=title, 1=url, 2=folder, 3=new folder, 4=color
+	addSourceIdx         int
+	folderCursor         int
+	showNewFolder        bool
+	colorCursor          int
 
-	shouldExit bool
-	statusMsg  string
-	busy       bool
-	busyMsg    string
+	shouldExit   bool
+	browseFeedID int64
+	statusMsg    string
+	busy         bool
+	busyMsg      string
+	paneFocus    fmPaneFocus
+}
+
+func (fm *FeedManager) setData(feeds []db.Feed, folders []db.Folder) {
+	fm.feeds = append([]db.Feed(nil), feeds...)
+	fm.folders = append([]db.Folder(nil), folders...)
+	fm.rebuildRows()
+	fm.cursor = clamp(fm.cursor, 0, max(0, len(fm.rows)-1))
+	fm.folderCursor = clamp(fm.folderCursor, 0, max(0, len(fm.folderOptions())-1))
+	fm.colorCursor = clamp(fm.colorCursor, 0, max(0, len(folderColorOptions)-1))
 }
 
 func NewFeedManager(database *db.DB) FeedManager {
+	return NewFeedManagerWithSource(database, config.SourceConfig{})
+}
+
+func NewFeedManagerWithSource(database *db.DB, sourceCfg config.SourceConfig) FeedManager {
+	return newFeedManager(database, dbFeedManagerSource{database: database}, sourceCfg)
+}
+
+func NewRemoteFeedManager(sourceName string, feeds []db.Feed, folders []db.Folder) FeedManager {
+	return newFeedManager(nil, staticFeedManagerSource{
+		name:              sourceName,
+		feeds:             feeds,
+		folders:           folders,
+		editable:          false,
+		showUncategorized: false,
+	}, config.SourceConfig{})
+}
+
+func newFeedManager(database *db.DB, source feedManagerSource, sourceCfg config.SourceConfig) FeedManager {
 	title := textinput.New()
 	title.Placeholder = "Feed title"
 	title.CharLimit = 200
@@ -85,23 +195,52 @@ func NewFeedManager(database *db.DB) FeedManager {
 	newFolder.Placeholder = "Folder name"
 	newFolder.CharLimit = 120
 
+	greaderURL := textinput.New()
+	greaderURL.Placeholder = "https://rss.example.com/api/greader.php"
+	greaderURL.CharLimit = 500
+	greaderURL.SetValue(sourceCfg.GReaderURL)
+
+	greaderLogin := textinput.New()
+	greaderLogin.Placeholder = "alice"
+	greaderLogin.CharLimit = 200
+	greaderLogin.SetValue(sourceCfg.GReaderLogin)
+
+	greaderPassword := textinput.New()
+	greaderPassword.Placeholder = "API password"
+	greaderPassword.CharLimit = 500
+	greaderPassword.EchoMode = textinput.EchoPassword
+	greaderPassword.EchoCharacter = '●'
+	greaderPassword.SetValue(sourceCfg.GReaderPassword)
+
 	fm := FeedManager{
-		db:               database,
-		collapsedFolders: map[int64]bool{},
-		titleInput:       title,
-		urlInput:         u,
-		importInput:      imp,
-		newFolderInput:   newFolder,
+		db:                   database,
+		source:               source,
+		collapsedFolders:     map[int64]bool{},
+		titleInput:           title,
+		urlInput:             u,
+		importInput:          imp,
+		newFolderInput:       newFolder,
+		greaderURLInput:      greaderURL,
+		greaderLoginInput:    greaderLogin,
+		greaderPasswordInput: greaderPassword,
 	}
 	fm.reload()
 	return fm
 }
 
 func (fm *FeedManager) reload() {
-	feeds, _ := fm.db.ListFeeds()
-	folders, _ := fm.db.ListFolders()
-	fm.feeds = feeds
-	fm.folders = folders
+	switch {
+	case fm.source != nil:
+		if feeds, folders, err := fm.source.Load(); err == nil {
+			fm.feeds = feeds
+			fm.folders = folders
+		}
+	case fm.db != nil:
+		feeds, _ := fm.db.ListFeeds()
+		folders, _ := fm.db.ListFolders()
+		fm.feeds = feeds
+		fm.folders = folders
+	}
 	fm.rebuildRows()
 	fm.cursor = clamp(fm.cursor, 0, max(0, len(fm.rows)-1))
 	fm.folderCursor = clamp(fm.folderCursor, 0, max(0, len(fm.folderOptions())-1))
@@ -109,51 +248,121 @@ func (fm *FeedManager) reload() {
 }
 
 func (fm *FeedManager) rebuildRows() {
-	rows := make([]fmRow, 0, len(fm.folders)+len(fm.feeds))
-	for _, folder := range fm.folders {
-		rows = append(rows, fmRow{kind: fmRowFolder, folderID: folder.ID})
-	}
-	for _, feed := range fm.feeds {
-		rows = append(rows, fmRow{kind: fmRowFeed, feedID: feed.ID})
-	}
-	fm.rows = rows
+	fm.rows = buildFeedManagerRows(fm.feeds, fm.folders, fm.showUncategorizedFolder())
 }
 
 func (fm FeedManager) managerRows() []fmRow {
 	if len(fm.rows) > 0 {
 		return fm.rows
 	}
-	rows := make([]fmRow, 0, len(fm.folders)+len(fm.feeds))
-	for _, folder := range fm.folders {
+	return buildFeedManagerRows(fm.feeds, fm.folders, fm.showUncategorizedFolder())
+}
+
+func buildFeedManagerRows(feeds []db.Feed, folders []db.Folder, showUncategorized bool) []fmRow {
+	_ = showUncategorized
+	rows := make([]fmRow, 0, len(feeds)+len(folders)+1)
+	for _, folder := range folders {
 		rows = append(rows, fmRow{kind: fmRowFolder, folderID: folder.ID})
 	}
-	for _, feed := range fm.feeds {
+	for _, feed := range feeds {
 		rows = append(rows, fmRow{kind: fmRowFeed, feedID: feed.ID})
 	}
 	return rows
 }
 
+func (fm FeedManager) sourceName() string {
+	if fm.source != nil && strings.TrimSpace(fm.source.Name()) != "" {
+		return strings.TrimSpace(fm.source.Name())
+	}
+	return "Local"
+}
+
+func (fm FeedManager) editable() bool {
+	if fm.source != nil {
+		return fm.source.Editable()
+	}
+	return true
+}
+
+func (fm FeedManager) showUncategorizedFolder() bool {
+	if fm.source != nil {
+		return fm.source.ShowUncategorizedFolder()
+	}
+	return true
+}
+
+func (fm FeedManager) listSectionTitle() string {
+	if fm.editable() {
+		return "FOLDERS + FEEDS"
+	}
+	return "SUBSCRIPTIONS"
+}
+
+func (fm FeedManager) emptyStateMessage() string {
+	if fm.editable() {
+		return "NO FEEDS OR FOLDERS CONFIGURED"
+	}
+	return "NO SUBSCRIPTIONS CONFIGURED"
+}
+
+func (fm FeedManager) listModeTitle() string {
+	if fm.editable() {
+		return "DETAILS"
+	}
+	return "SUBSCRIPTION"
+}
+
+func (fm FeedManager) listPaneFocused() bool {
+	return fm.mode == fmList || fm.paneFocus == fmPaneList
+}
+
+func (fm *FeedManager) setBrowseOnlyStatus() {
+	fm.statusMsg = strings.ToUpper(fm.sourceName()) + " IS BROWSE-ONLY"
+}
+
 func (fm *FeedManager) focusAdd() {
 	fm.mode = fmEdit
+	fm.paneFocus = fmPaneList
 	fm.editTarget = 0
 	fm.folderEditTarget = 0
+	fm.addSourceIdx = fmAddSourceLocal
 	fm.titleInput.Reset()
 	fm.urlInput.Reset()
 	fm.newFolderInput.Reset()
-	fm.focusedField = 0
+	fm.focusedField = fmFieldAddSource
 	fm.folderCursor = 0
 	fm.showNewFolder = false
 	fm.colorCursor = 0
 	fm.statusMsg = ""
 	fm.busy = false
 	fm.busyMsg = ""
-	fm.titleInput.Focus()
-	fm.urlInput.Blur()
-	fm.newFolderInput.Blur()
+	fm.blurEditInputs()
+}
+
+func (fm *FeedManager) prefillAddFormFromSelectedRemoteFeed() {
+	if fm.mode != fmEdit || fm.editTarget != 0 {
+		return
+	}
+	feed := fm.selectedFeedRow()
+	if !fm.feedIsRemote(feed) {
+		return
+	}
+
+	fm.addSourceIdx = fmAddSourceGReader
+	fm.titleInput.Reset()
+	fm.titleInput.SetValue(feed.Title)
+	fm.urlInput.Reset()
+	fm.urlInput.SetValue(feed.URL)
+	fm.newFolderInput.Reset()
+	fm.folderCursor = 0
+	fm.showNewFolder = false
+	fm.colorCursor = 0
+	fm.focusedField = fmFieldAddSource
 }
 
 func (fm *FeedManager) focusFolderEdit(folder db.Folder) {
 	fm.mode = fmFolderEdit
+	fm.paneFocus = fmPaneDetail
 	fm.folderEditTarget = folder.ID
 	fm.titleInput.Reset()
 	fm.titleInput.SetValue(folder.Name)
@@ -171,6 +380,7 @@ func (fm *FeedManager) focusFolderEdit(folder db.Folder) {
 
 func (fm *FeedManager) focusAddFolder() {
 	fm.mode = fmFolderEdit
+	fm.paneFocus = fmPaneDetail
 	fm.folderEditTarget = 0
 	fm.titleInput.Reset()
 	fm.focusedField = 0
@@ -235,6 +445,14 @@ func (fm FeedManager) selectedFeedRow() *db.Feed {
 	return nil
 }
 
+func (fm FeedManager) feedIsRemote(feed *db.Feed) bool {
+	return feed != nil && feed.ID < 0
+}
+
+func (fm *FeedManager) setRemoteBrowseOnlyStatus() {
+	fm.statusMsg = "REMOTE FEEDS ARE BROWSE-ONLY"
+}
+
 func (fm FeedManager) selectedFolder() *db.Folder {
 	if row := fm.selectedRow(); row != nil && row.kind == fmRowFolder {
 		for i := range fm.folders {
@@ -287,6 +505,9 @@ func (fm *FeedManager) selectFolder(folderID int64) {
 }
 
 func (fm FeedManager) shouldShowColorPicker() bool {
+	if fm.mode == fmEdit && fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
+		return false
+	}
 	if fm.mode == fmEdit {
 		return fm.showNewFolder || fm.pickedFolder() != nil
 	}
@@ -321,9 +542,7 @@ func (fm *FeedManager) setFolderCursorForID(folderID int64) {
 }
 
 func (fm *FeedManager) focusCurrentEditField() {
-	fm.titleInput.Blur()
-	fm.urlInput.Blur()
-	fm.newFolderInput.Blur()
+	fm.blurEditInputs()
 
 	switch fm.focusedField {
 	case 0:
@@ -342,10 +561,39 @@ func (fm *FeedManager) focusCurrentEditField() {
 			fm.focusedField = 0
 			fm.titleInput.Focus()
 		}
+	case fmFieldGReaderURL:
+		fm.greaderURLInput.Focus()
+	case fmFieldGReaderLogin:
+		fm.greaderLoginInput.Focus()
+	case fmFieldGReaderPassword:
+		fm.greaderPasswordInput.Focus()
 	}
 }
 
+func (fm *FeedManager) blurEditInputs() {
+	fm.titleInput.Blur()
+	fm.urlInput.Blur()
+	fm.newFolderInput.Blur()
+	fm.greaderURLInput.Blur()
+	fm.greaderLoginInput.Blur()
+	fm.greaderPasswordInput.Blur()
+}
+
 func (fm FeedManager) editFieldOrder() []int {
+	if fm.editTarget == 0 {
+		order := []int{fmFieldAddSource}
+		if fm.addSourceIdx == fmAddSourceGReader {
+			return append(order, 0, 1, fmFieldGReaderURL, fmFieldGReaderLogin, fmFieldGReaderPassword)
+		}
+		order = append(order, 0, 1, 2)
+		if fm.showNewFolder {
+			order = append(order, 3)
+		}
+		if fm.shouldShowColorPicker() {
+			order = append(order, 4)
+		}
+		return order
+	}
 	order := []int{0, 1, 2}
 	if fm.showNewFolder {
 		order = append(order, 3)
@@ -354,6 +602,10 @@ func (fm FeedManager) editFieldOrder() []int {
 		order = append(order, 4)
 	}
 	return order
+}
+
+func (fm FeedManager) greaderFeedURL() string {
+	return strings.TrimSpace(fm.urlInput.Value())
 }
 
 func (fm *FeedManager) advanceEditField() {
@@ -375,9 +627,37 @@ func (fm FeedManager) isEditTextInputFocused() bool {
 		return true
 	case 3:
 		return fm.showNewFolder
+	case fmFieldGReaderURL, fmFieldGReaderLogin, fmFieldGReaderPassword:
+		return fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader
 	default:
 		return false
 	}
+}
+
+func (fm FeedManager) focusedEditTextInputCursorPosition() int {
+	switch fm.focusedField {
+	case 0:
+		return fm.titleInput.Position()
+	case 1:
+		return fm.urlInput.Position()
+	case 3:
+		if fm.showNewFolder {
+			return fm.newFolderInput.Position()
+		}
+	case fmFieldGReaderURL:
+		if fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
+			return fm.greaderURLInput.Position()
+		}
+	case fmFieldGReaderLogin:
+		if fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
+			return fm.greaderLoginInput.Position()
+		}
+	case fmFieldGReaderPassword:
+		if fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
+			return fm.greaderPasswordInput.Position()
+		}
+	}
+	return -1
 }
 
 func (fm FeedManager) updateFocusedEditInput(msg tea.Msg) (FeedManager, tea.Cmd) {
@@ -389,6 +669,12 @@ func (fm FeedManager) updateFocusedEditInput(msg tea.Msg) (FeedManager, tea.Cmd)
 		fm.urlInput, cmd = fm.urlInput.Update(msg)
 	case fm.focusedField == 3 && fm.showNewFolder:
 		fm.newFolderInput, cmd = fm.newFolderInput.Update(msg)
+	case fm.focusedField == fmFieldGReaderURL:
+		fm.greaderURLInput, cmd = fm.greaderURLInput.Update(msg)
+	case fm.focusedField == fmFieldGReaderLogin:
+		fm.greaderLoginInput, cmd = fm.greaderLoginInput.Update(msg)
+	case fm.focusedField == fmFieldGReaderPassword:
+		fm.greaderPasswordInput, cmd = fm.greaderPasswordInput.Update(msg)
 	}
 	return fm, cmd
 }
@@ -415,6 +701,7 @@ func (fm *FeedManager) setColorCursorFromCurrentFolder() {
 }
 
 func (fm FeedManager) Update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd, bool) {
+	fm.browseFeedID = 0
 	fm, cmd := fm.update(msg, keys)
 	exit := fm.shouldExit
 	fm.shouldExit = false
@@ -474,12 +761,24 @@ func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		}
 
 	case keyMatches(msg, keys.Add):
+		if !fm.editable() {
+			fm.setBrowseOnlyStatus()
+			return fm, nil
+		}
 		fm.focusAdd()
 
 	case keyMatches(msg, keys.AddFolder):
+		if !fm.editable() {
+			fm.setBrowseOnlyStatus()
+			return fm, nil
+		}
 		fm.focusAddFolder()
 
-	case keyMatches(msg, keys.Edit), keyMatches(msg, keys.Enter):
+	case keyMatches(msg, keys.Edit):
+		if !fm.editable() {
+			fm.setBrowseOnlyStatus()
+			return fm, nil
+		}
 		if row := fm.selectedRow(); row != nil {
 			if row.kind == fmRowFolder {
 				if folder := fm.selectedFolder(); folder != nil {
@@ -488,6 +787,10 @@ func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 				return fm, nil
 			}
 			if f := fm.selectedFeedRow(); f != nil {
+				if fm.feedIsRemote(f) {
+					fm.setRemoteBrowseOnlyStatus()
+					return fm, nil
+				}
 				fm.editTarget = f.ID
 				fm.folderEditTarget = 0
 				fm.statusMsg = ""
@@ -502,15 +805,72 @@ func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 				fm.setFolderCursorForID(f.FolderID)
 				fm.focusCurrentEditField()
 				fm.mode = fmEdit
+				fm.paneFocus = fmPaneDetail
+			}
+		}
+
+	case keyMatches(msg, keys.Enter):
+		if f := fm.selectedFeedRow(); f != nil && fm.feedIsRemote(f) {
+			fm.browseFeedID = f.ID
+			fm.shouldExit = true
+			return fm, nil
+		}
+		if !fm.editable() {
+			if f := fm.selectedFeedRow(); f != nil {
+				fm.browseFeedID = f.ID
+				fm.shouldExit = true
+			}
+			return fm, nil
+		}
+		if row := fm.selectedRow(); row != nil {
+			if row.kind == fmRowFolder {
+				if folder := fm.selectedFolder(); folder != nil {
+					fm.focusFolderEdit(*folder)
+				}
+				return fm, nil
+			}
+			if f := fm.selectedFeedRow(); f != nil {
+				if fm.feedIsRemote(f) {
+					fm.browseFeedID = f.ID
+					fm.shouldExit = true
+					return fm, nil
+				}
+				fm.editTarget = f.ID
+				fm.folderEditTarget = 0
+				fm.statusMsg = ""
+				fm.busy = false
+				fm.busyMsg = ""
+				fm.titleInput.Reset()
+				fm.titleInput.SetValue(f.Title)
+				fm.urlInput.Reset()
+				fm.urlInput.SetValue(f.URL)
+				fm.newFolderInput.Reset()
+				fm.focusedField = 0
+				fm.setFolderCursorForID(f.FolderID)
+				fm.focusCurrentEditField()
+				fm.mode = fmEdit
+				fm.paneFocus = fmPaneDetail
 			}
 		}
 
 	case keyMatches(msg, keys.Delete):
+		if !fm.editable() {
+			fm.setBrowseOnlyStatus()
+			return fm, nil
+		}
+		if f := fm.selectedFeedRow(); f != nil && fm.feedIsRemote(f) {
+			fm.setRemoteBrowseOnlyStatus()
+			return fm, nil
+		}
 		if fm.selectedRow() != nil {
 			fm.mode = fmConfirmDelete
 		}
 
 	case keyMatches(msg, keys.Import):
+		if !fm.editable() {
+			fm.setBrowseOnlyStatus()
+			return fm, nil
+		}
 		fm.statusMsg = ""
 		fm.busy = false
 		fm.busyMsg = ""
@@ -519,6 +879,10 @@ func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		fm.mode = fmImport
 
 	case keyMatches(msg, keys.Export):
+		if !fm.editable() {
+			fm.setBrowseOnlyStatus()
+			return fm, nil
+		}
 		return fm, fm.exportCmd()
 	}
 	return fm, nil
@@ -528,15 +892,43 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 	if fm.busy {
 		return fm, nil
 	}
+	if fm.paneFocus == fmPaneList {
+		switch {
+		case keyMatches(msg, keys.Cancel):
+			fm.mode = fmList
+			fm.paneFocus = fmPaneList
+			fm.blurEditInputs()
+		case keyMatches(msg, keys.Up):
+			if fm.cursor > 0 {
+				fm.cursor--
+			}
+		case keyMatches(msg, keys.Down):
+			if fm.cursor < len(fm.managerRows())-1 {
+				fm.cursor++
+			}
+		case keyMatches(msg, keys.Right), keyMatches(msg, keys.Tab), keyMatches(msg, keys.Confirm):
+			fm.prefillAddFormFromSelectedRemoteFeed()
+			fm.paneFocus = fmPaneDetail
+			fm.focusCurrentEditField()
+		}
+		return fm, nil
+	}
+	if fm.isEditTextInputFocused() && keyMatches(msg, keys.Left) {
+		if fm.focusedEditTextInputCursorPosition() == 0 {
+			fm.paneFocus = fmPaneList
+			fm.blurEditInputs()
+			return fm, nil
+		}
+		return fm.updateFocusedEditInput(msg)
+	}
 	if fm.isEditTextInputFocused() && msg.Type == tea.KeyRunes {
 		return fm.updateFocusedEditInput(msg)
 	}
 	switch {
 	case keyMatches(msg, keys.Cancel):
 		fm.mode = fmList
-		fm.titleInput.Blur()
-		fm.urlInput.Blur()
-		fm.newFolderInput.Blur()
+		fm.paneFocus = fmPaneList
+		fm.blurEditInputs()
 
 	case keyMatches(msg, keys.Tab), keyMatches(msg, keys.Down):
 		fm.advanceEditField()
@@ -551,6 +943,12 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 			}
 		}
 		fm.focusedField = order[0]
+		fm.focusCurrentEditField()
+
+	case fm.focusedField == fmFieldAddSource && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Right) || keyMatches(msg, keys.Enter) || msg.String() == " "):
+		fm.addSourceIdx = (fm.addSourceIdx + 1) % len(fmAddSourceLabels)
+		fm.folderCursor = 0
+		fm.showNewFolder = false
 		fm.focusCurrentEditField()
 
 	case fm.focusedField == 2 && keyMatches(msg, keys.Left):
@@ -581,7 +979,18 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		}
 
 	case keyMatches(msg, keys.Confirm):
-		if fm.editTarget != 0 {
+		if fm.focusedField == fmFieldAddSource {
+			fm.addSourceIdx = (fm.addSourceIdx + 1) % len(fmAddSourceLabels)
+			fm.focusCurrentEditField()
+			return fm, nil
+		}
+		if fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
+			if fm.greaderFeedURL() == "" {
+				fm.busyMsg = "LOADING GREADER FEEDS..."
+			} else {
+				fm.busyMsg = "ADDING GREADER FEED..."
+			}
+		} else if fm.editTarget != 0 {
 			fm.busyMsg = "SAVING FEED..."
 		} else {
 			fm.busyMsg = "ADDING FEED..."
@@ -697,17 +1106,86 @@ func (fm FeedManager) updateConfirmDelete(msg tea.KeyMsg, _ KeyMap) (FeedManager
 
 // ── Commands ──────────────────────────────────────────────────────────────────
 
+func validateHTTPURL(raw string, fieldName string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fmt.Errorf("%s is required", fieldName)
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("invalid %s: %s", fieldName, raw)
+	}
+	return nil
+}
+
 func (fm *FeedManager) saveCmd() tea.Cmd {
 	rawURL := strings.TrimSpace(fm.urlInput.Value())
 	title := strings.TrimSpace(fm.titleInput.Value())
 	newFolderName := strings.TrimSpace(fm.newFolderInput.Value())
+	greaderURL := strings.TrimSpace(fm.greaderURLInput.Value())
+	greaderLogin := strings.TrimSpace(fm.greaderLoginInput.Value())
+	greaderPassword := strings.TrimSpace(fm.greaderPasswordInput.Value())
 	editTarget := fm.editTarget
+	addSourceIdx := fm.addSourceIdx
 	folderID := fm.currentFolderID()
 	createFolder := fm.showNewFolder
 	selectedColor := string(fm.currentColorOption().Color)
 	database := fm.db
 
 	return func() tea.Msg {
+		if editTarget == 0 && addSourceIdx == fmAddSourceGReader {
+			if err := validateHTTPURL(greaderURL, "API URL"); err != nil {
+				return RemoteFeedAddedMsg{Err: err}
+			}
+			if strings.TrimSpace(greaderLogin) == "" {
+				return RemoteFeedAddedMsg{Err: fmt.Errorf("login is required")}
+			}
+			if strings.TrimSpace(greaderPassword) == "" {
+				return RemoteFeedAddedMsg{Err: fmt.Errorf("password is required")}
+			}
+			client := greader.New(greaderURL, greaderLogin, greaderPassword)
+			if rawURL == "" {
+				subscriptions, err := client.ListSubscriptions(context.Background())
+				if err != nil {
+					return RemoteFeedAddedMsg{Err: err}
+				}
+				return RemoteFeedAddedMsg{
+					Source: config.SourceConfig{
+						GReaderURL:      greaderURL,
+						GReaderLogin:    greaderLogin,
+						GReaderPassword: greaderPassword,
+					},
+					FeedCount: len(subscriptions),
+				}
+			}
+			if err := validateHTTPURL(rawURL, "feed URL"); err != nil {
+				return RemoteFeedAddedMsg{Err: err}
+			}
+			result, err := client.QuickAdd(context.Background(), rawURL)
+			if err != nil {
+				return RemoteFeedAddedMsg{Err: err}
+			}
+			remoteTitle := strings.TrimSpace(result.StreamName)
+			if remoteTitle == "" {
+				remoteTitle = title
+			}
+			if remoteTitle == "" {
+				remoteTitle = strings.TrimSpace(result.Query)
+			}
+			if remoteTitle == "" {
+				remoteTitle = rawURL
+			}
+			return RemoteFeedAddedMsg{
+				Source: config.SourceConfig{
+					GReaderURL:      greaderURL,
+					GReaderLogin:    greaderLogin,
+					GReaderPassword: greaderPassword,
+				},
+				StreamID: result.StreamID,
+				Title:    remoteTitle,
+			}
+		}
+
 		u, err := url.Parse(rawURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 			return FeedSavedMsg{Err: fmt.Errorf("invalid URL: %s", rawURL)}
@@ -957,8 +1435,8 @@ func (fm FeedManager) viewSplit(width, height int, chrome managerChrome, styles 
 func (fm FeedManager) viewListPane(width, height int, chrome managerChrome, styles Styles, icons bool) string {
 	rows := fm.managerRows()
 	if len(rows) == 0 {
-		body := renderManagerPanel(width, "NO FEEDS OR FOLDERS CONFIGURED", chrome)
-		section := clampView(renderManagerSection("FOLDERS + FEEDS", body, chrome), width, height, chrome.baseBg)
+		body := renderManagerPanel(width, fm.emptyStateMessage(), chrome)
+		section := clampView(renderManagerPaneSection(fm.listSectionTitle(), body, fm.listPaneFocused(), chrome), width, height, chrome.baseBg)
 		return lipgloss.NewStyle().Width(width).Height(height).Background(chrome.baseBg).Render(section)
 	}
 	listRows := make([]string, 0, len(rows))
@@ -988,7 +1466,7 @@ func (fm FeedManager) viewListPane(width, height int, chrome managerChrome, styl
 			listRows = append(listRows, renderManagerFeedRow(width, title, color, chrome, icons))
 		}
 	}
-	section := clampView(renderManagerSection("FOLDERS + FEEDS", lipgloss.JoinVertical(lipgloss.Left, listRows...), chrome), width, height, chrome.baseBg)
+	section := clampView(renderManagerPaneSection(fm.listSectionTitle(), lipgloss.JoinVertical(lipgloss.Left, listRows...), fm.listPaneFocused(), chrome), width, height, chrome.baseBg)
 	return lipgloss.NewStyle().Width(width).Height(height).Background(chrome.baseBg).Render(section)
 }
 
@@ -1010,6 +1488,38 @@ func (fm FeedManager) viewListDetails(width int, chrome managerChrome) string {
 		case fmRowFeed:
 			if feed := fm.feedByID(row.feedID); feed != nil {
 				sourceLine := renderManagerSourceLine(width, strings.ToUpper(truncate(feed.URL, max(8, width-4))), chrome)
+				if fm.feedIsRemote(feed) {
+					apiURL := strings.TrimSpace(fm.greaderURLInput.Value())
+					if apiURL == "" {
+						apiURL = "not set"
+					}
+					login := strings.TrimSpace(fm.greaderLoginInput.Value())
+					if login == "" {
+						login = "not set"
+					}
+					password := maskedPreview(strings.TrimSpace(fm.greaderPasswordInput.Value()), 12)
+					if password == "" {
+						password = "not set"
+					}
+					lines := []string{
+						sourceLine,
+						"SOURCE: GOOGLE READER",
+						"API URL: " + strings.ToUpper(apiURL),
+						"LOGIN: " + strings.ToUpper(login),
+						"PASSWORD: " + password,
+					}
+					if category := strings.TrimSpace(feed.Description); category != "" {
+						lines = append(lines, "CATEGORY: "+strings.ToUpper(category))
+					}
+					return renderManagerPanel(width, strings.Join(lines, "\n"), chrome)
+				}
+				if !fm.editable() {
+					lines := []string{sourceLine, "SOURCE: " + strings.ToUpper(fm.sourceName())}
+					if category := strings.TrimSpace(feed.Description); category != "" {
+						lines = append(lines, "CATEGORY: "+strings.ToUpper(category))
+					}
+					return renderManagerPanel(width, strings.Join(lines, "\n"), chrome)
+				}
 				if folder := fm.folderByID(feed.FolderID); folder != nil {
 					return renderManagerPanel(width, sourceLine+"\nFOLDER: "+strings.ToUpper(folder.Name), chrome)
 				}
@@ -1021,15 +1531,17 @@ func (fm FeedManager) viewListDetails(width int, chrome managerChrome) string {
 }
 
 func (fm FeedManager) viewWorkspacePane(width, height int, chrome managerChrome, styles Styles) string {
-	title := "DETAILS"
+	title := fm.listModeTitle()
 	body := fm.viewListDetails(width, chrome)
 	switch fm.mode {
 	case fmEdit:
-		title = "ADD FEED"
-		if fm.editTarget != 0 {
-			title = "EDIT FEED"
+		if !fm.listPaneFocused() {
+			title = "ADD FEED"
+			if fm.editTarget != 0 {
+				title = "EDIT FEED"
+			}
+			body = fm.viewEdit(width, height, chrome, styles)
 		}
-		body = fm.viewEdit(width, height, chrome, styles)
 	case fmFolderEdit:
 		title = "ADD FOLDER"
 		if fm.folderEditTarget != 0 {
@@ -1043,11 +1555,21 @@ func (fm FeedManager) viewWorkspacePane(width, height int, chrome managerChrome,
 		title = fm.confirmDeleteTitle()
 		body = fm.viewConfirmDelete(width, height, chrome)
 	}
-	section := clampView(renderManagerSection(title, body, chrome), width, height, chrome.baseBg)
+	section := clampView(renderManagerPaneSection(title, body, !fm.listPaneFocused(), chrome), width, height, chrome.baseBg)
 	return lipgloss.NewStyle().Width(width).Height(height).Background(chrome.baseBg).Render(section)
 }
 
 func (fm FeedManager) viewListActions(width int, chrome managerChrome) string {
+	if !fm.editable() {
+		sourceName := fm.sourceName()
+		if sourceName == "" {
+			sourceName = "remote"
+		}
+		return renderManagerActionGroups(width, chrome,
+			[]string{"enter", "browse", "esc", "back"},
+			[]string{"mode", "browse-only", "source", sourceName},
+		)
+	}
 	return renderManagerActionGroups(width, chrome,
 		[]string{"a", "add feed", "n", "add folder", "e", "edit", "d", "delete"},
 		[]string{"i", "import", "x", "export", "esc", "back"},
@@ -1079,26 +1601,55 @@ func (fm FeedManager) folderByID(id int64) *db.Folder {
 	return nil
 }
 
+func (fm FeedManager) addSourceLabel() string {
+	if fm.addSourceIdx < 0 || fm.addSourceIdx >= len(fmAddSourceLabels) {
+		return fmAddSourceLabels[0]
+	}
+	return fmAddSourceLabels[fm.addSourceIdx]
+}
+
 func (fm FeedManager) viewEdit(width, height int, chrome managerChrome, styles Styles) string {
 	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
-	contentRows := []string{
-		renderManagerSection("Title", renderTextInput(fm.titleInput, width-3, fm.focusedField == 0, false, chrome), chrome),
-		gap,
-		renderManagerSection("URL", renderTextInput(fm.urlInput, width-3, fm.focusedField == 1, false, chrome), chrome),
-		gap,
-		renderManagerSection("Folder", renderManagerPicker(width-3, fm.folderOptions()[fm.folderCursor], fm.focusedField == 2, chrome, styles), chrome),
-	}
-	if fm.showNewFolder {
+	detailFocused := !fm.listPaneFocused()
+	contentRows := []string{}
+	if fm.editTarget == 0 {
 		contentRows = append(contentRows,
+			renderManagerSection("Source", renderManagerPicker(width-3, fm.addSourceLabel(), detailFocused && fm.focusedField == fmFieldAddSource, chrome, styles), chrome),
 			gap,
-			renderManagerSection("New", renderTextInput(fm.newFolderInput, width-3, fm.focusedField == 3, false, chrome), chrome),
 		)
 	}
-	if fm.shouldShowColorPicker() {
+	if fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
 		contentRows = append(contentRows,
+			renderManagerSection("Title", renderTextInput(fm.titleInput, width-3, detailFocused && fm.focusedField == 0, false, chrome), chrome),
 			gap,
-			renderManagerSection("Color", renderManagerColorPicker(width-3, fm.displayedColorOption(), fm.focusedField == 4, chrome, styles), chrome),
+			renderManagerSection("URL (optional)", renderTextInput(fm.urlInput, width-3, detailFocused && fm.focusedField == 1, false, chrome), chrome),
+			gap,
+			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, width-3, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome),
+			gap,
+			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, width-3, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome),
+			gap,
+			renderManagerSection("Password", renderTextInput(fm.greaderPasswordInput, width-3, detailFocused && fm.focusedField == fmFieldGReaderPassword, true, chrome), chrome),
 		)
+	} else {
+		contentRows = append(contentRows,
+			renderManagerSection("Title", renderTextInput(fm.titleInput, width-3, detailFocused && fm.focusedField == 0, false, chrome), chrome),
+			gap,
+			renderManagerSection("URL", renderTextInput(fm.urlInput, width-3, detailFocused && fm.focusedField == 1, false, chrome), chrome),
+			gap,
+			renderManagerSection("Folder", renderManagerPicker(width-3, fm.folderOptions()[fm.folderCursor], detailFocused && fm.focusedField == 2, chrome, styles), chrome),
+		)
+		if fm.showNewFolder {
+			contentRows = append(contentRows,
+				gap,
+				renderManagerSection("New", renderTextInput(fm.newFolderInput, width-3, detailFocused && fm.focusedField == 3, false, chrome), chrome),
+			)
+		}
+		if fm.shouldShowColorPicker() {
+			contentRows = append(contentRows,
+				gap,
+				renderManagerSection("Color", renderManagerColorPicker(width-3, fm.displayedColorOption(), detailFocused && fm.focusedField == 4, chrome, styles), chrome),
+			)
+		}
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, contentRows...)
 	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(content)
@@ -1154,10 +1705,29 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 	}
 	switch fm.mode {
 	case fmEdit:
+		if fm.paneFocus == fmPaneList {
+			return renderManagerActions(width, chrome,
+				"↑/↓", "browse list",
+				"enter", "edit form",
+				"esc", "cancel",
+			)
+		}
+		enterLabel := "save feed"
+		pickLabel := "pick"
+		if fm.editTarget == 0 {
+			enterLabel = "add feed"
+			if fm.addSourceIdx == fmAddSourceGReader && fm.greaderFeedURL() == "" {
+				enterLabel = "load feeds"
+			}
+		}
+		if fm.focusedField == fmFieldAddSource {
+			enterLabel = "toggle source"
+			pickLabel = "toggle"
+		}
 		return renderManagerActions(width, chrome,
 			"tab", "next field",
-			"←/→", "pick",
-			"enter", "save feed",
+			"←/→", pickLabel,
+			"enter", enterLabel,
 			"esc", "cancel",
 		)
 	case fmFolderEdit:
@@ -1183,23 +1753,24 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 }
 
 type managerChrome struct {
-	baseBg        lipgloss.Color
-	surfaceBg     lipgloss.Color
-	fieldBg       lipgloss.Color
-	accent        lipgloss.Color
-	accentFg      lipgloss.Color
-	highlight     lipgloss.Color
-	border        lipgloss.Color
-	text          lipgloss.Color
-	muted         lipgloss.Color
-	header        lipgloss.Style
-	sectionLabel  lipgloss.Style
-	body          lipgloss.Style
-	panel         lipgloss.Style
-	panelSelected lipgloss.Style
-	key           lipgloss.Style
-	keyLabel      lipgloss.Style
-	statusBar     lipgloss.Style
+	baseBg             lipgloss.Color
+	surfaceBg          lipgloss.Color
+	fieldBg            lipgloss.Color
+	accent             lipgloss.Color
+	accentFg           lipgloss.Color
+	highlight          lipgloss.Color
+	border             lipgloss.Color
+	text               lipgloss.Color
+	muted              lipgloss.Color
+	header             lipgloss.Style
+	sectionLabel       lipgloss.Style
+	sectionLabelActive lipgloss.Style
+	body               lipgloss.Style
+	panel              lipgloss.Style
+	panelSelected      lipgloss.Style
+	key                lipgloss.Style
+	keyLabel           lipgloss.Style
+	statusBar          lipgloss.Style
 }
 
 func newManagerChrome(width int, t Theme) managerChrome {
@@ -1250,6 +1821,12 @@ func newManagerChrome(width int, t Theme) managerChrome {
 		sectionLabel: lipgloss.NewStyle().
 			Background(baseBg).
 			Foreground(muted).
+			Padding(0, 1).
+			Bold(true),
+		sectionLabelActive: lipgloss.NewStyle().
+			Background(accent).
+			Foreground(accentFg).
+			Padding(0, 1).
 			Bold(true),
 		body: lipgloss.NewStyle().
 			Background(baseBg).
@@ -1293,6 +1870,16 @@ func renderManagerHeader(title string, width int, chrome managerChrome) string {
 func renderManagerSection(label, body string, chrome managerChrome) string {
 	w := lipgloss.Width(body)
 	styledLabel := chrome.sectionLabel.Width(w).Render(label)
+	return lipgloss.JoinVertical(lipgloss.Left, styledLabel, body)
+}
+
+func renderManagerPaneSection(label, body string, focused bool, chrome managerChrome) string {
+	w := lipgloss.Width(body)
+	style := chrome.sectionLabel
+	if focused {
+		style = chrome.sectionLabelActive
+	}
+	styledLabel := style.Width(w).Render(label)
 	return lipgloss.JoinVertical(lipgloss.Left, styledLabel, body)
 }
 

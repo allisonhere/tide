@@ -14,6 +14,9 @@ func TestDefaultConfigIncludesUpdateDefaults(t *testing.T) {
 	if cfg.Updates.CheckIntervalHours != 24 {
 		t.Fatalf("expected 24 hour update interval, got %d", cfg.Updates.CheckIntervalHours)
 	}
+	if cfg.Source != (SourceConfig{}) {
+		t.Fatalf("expected default source config to be empty, got %#v", cfg.Source)
+	}
 }
 
 func TestLoadPreservesUpdateConfig(t *testing.T) {
@@ -44,6 +47,11 @@ dismissed_version = "v1.2.3"
 available_version = "v1.3.0"
 available_summary = "New version available."
 available_published_unix = 1710001234
+
+[source]
+greader_url = "https://rss.example.com/api/greader.php"
+greader_login = "alice"
+greader_password = "secret"
 `
 	if err := os.WriteFile(cfgPath, []byte(data), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -73,5 +81,14 @@ available_published_unix = 1710001234
 	}
 	if cfg.Updates.AvailablePublished != 1710001234 {
 		t.Fatalf("unexpected available_published_unix: %d", cfg.Updates.AvailablePublished)
+	}
+	if cfg.Source.GReaderURL != "https://rss.example.com/api/greader.php" {
+		t.Fatalf("unexpected greader_url: %q", cfg.Source.GReaderURL)
+	}
+	if cfg.Source.GReaderLogin != "alice" {
+		t.Fatalf("unexpected greader_login: %q", cfg.Source.GReaderLogin)
+	}
+	if cfg.Source.GReaderPassword != "secret" {
+		t.Fatalf("unexpected greader_password: %q", cfg.Source.GReaderPassword)
 	}
 }

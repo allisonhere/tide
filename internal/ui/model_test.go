@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"bytes"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +15,7 @@ import (
 
 	"tide/internal/config"
 	"tide/internal/db"
+	"tide/internal/feed"
 	"tide/internal/update"
 )
 
@@ -142,7 +146,7 @@ func TestStatusBarShowsUpdateCheckActivity(t *testing.T) {
 	}
 
 	bar := m.renderStatusBar()
-	if !containsString(bar, "checking updates") {
+	if !containsString(bar, "checking Tide updates") {
 		t.Fatalf("expected status bar to show update check activity, got %q", bar)
 	}
 }
@@ -161,14 +165,11 @@ func TestStatusBarKeepsUpdateAvailableVisibleWithLongFeedTitle(t *testing.T) {
 	}
 
 	bar := m.renderStatusBar()
-	if !containsString(bar, "v1.1.0") {
-		t.Fatalf("expected status bar to keep update version visible, got %q", bar)
-	}
-	if !containsString(bar, "U update") || !containsString(bar, "i ignore") {
+	if !containsString(bar, "App update available") || !containsString(bar, "U install") || !containsString(bar, "i ignore") {
 		t.Fatalf("expected status bar to keep update actions visible, got %q", bar)
 	}
-	if !strings.HasSuffix(strings.TrimRight(ansi.Strip(bar), " "), "v1.1.0  U update  i ignore") {
-		t.Fatalf("expected update prompt to be right-aligned at the end of the bar, got %q", ansi.Strip(bar))
+	if !strings.HasSuffix(strings.TrimRight(ansi.Strip(bar), " "), "App update available  U install  i ignore") {
+		t.Fatalf("expected full update prompt to be right-aligned at the end of the bar, got %q", ansi.Strip(bar))
 	}
 }
 
@@ -177,16 +178,33 @@ func TestStatusMessageStillIncludesAvailableUpdateHint(t *testing.T) {
 		width:       80,
 		styles:      BuildStyles(CatppuccinMocha),
 		updateState: updateStateAvailable,
-		updateInfo:  update.ReleaseInfo{Version: "v1.1.0"},
+		updateInfo:  update.ReleaseInfo{Version: "v1.1.0", Summary: "Faster update flow."},
 		statusMsg:   "saved settings",
 	}
 
 	bar := m.renderStatusBar()
-	if !containsString(bar, "U update") || !containsString(bar, "i ignore") {
+	if !containsString(bar, "App update available") || !containsString(bar, "U install") || !containsString(bar, "i ignore") {
 		t.Fatalf("expected transient status bar to retain update actions, got %q", bar)
 	}
 	if !containsString(bar, "saved settings") {
 		t.Fatalf("expected transient status message to remain visible, got %q", bar)
+	}
+}
+
+func TestStatusBarShowsUpdateSummaryWhenAvailable(t *testing.T) {
+	m := Model{
+		width:       96,
+		styles:      BuildStyles(CatppuccinMocha),
+		updateState: updateStateAvailable,
+		updateInfo:  update.ReleaseInfo{Version: "v1.1.0", Summary: "Faster update flow."},
+	}
+
+	bar := m.renderStatusBar()
+	if !containsString(bar, "App update available") || !containsString(bar, "U install") || !containsString(bar, "i ignore") {
+		t.Fatalf("expected combined app update prompt in status bar, got %q", bar)
+	}
+	if containsString(ansi.Strip(bar), "Faster update flow.") {
+		t.Fatalf("expected status bar to keep update summary out of the main prompt, got %q", ansi.Strip(bar))
 	}
 }
 
@@ -244,28 +262,99 @@ func TestUpdateConfirmOverlayMentionsSettingsAvailability(t *testing.T) {
 		updateInfo: update.ReleaseInfo{
 			Version:   "v1.1.0",
 			AssetName: "tide-darwin-aarch64",
+			Summary:   "Faster update flow.",
 		},
 	}
 
 	view := m.renderUpdateConfirmOverlay(72, newManagerChrome(72, CatppuccinMocha))
+	if !containsString(view, "INSTALL TIDE UPDATE?") {
+		t.Fatalf("expected Tide-specific update header, got %q", view)
+	}
+	if !containsString(view, "What's new: Faster update flow.") {
+		t.Fatalf("expected update confirm overlay to include release summary, got %q", view)
+	}
 	if !containsString(view, "Settings > Updates") {
 		t.Fatalf("expected update confirm overlay to mention settings availability, got %q", view)
 	}
 }
 
-func TestLowercaseUIgnoredForAppUpdateAndAppliesFeedURLUpdate(t *testing.T) {
+func TestLowercaseURefreshesAllFeeds(t *testing.T) {
 	m := Model{
-		pendingURLUpdate: &pendingURLUpdate{feedID: 7, newURL: "https://example.com/new.xml"},
+		keys:       DefaultKeys,
+		refreshing: map[int64]bool{},
+		feeds: []db.Feed{
+			{ID: 7, URL: "https://example.com/feed.xml"},
+		},
 	}
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
-	got := next.(Model)
-
-	if got.pendingURLUpdate != nil {
-		t.Fatal("expected lowercase u to consume pending feed URL update")
-	}
+	_ = next.(Model)
 	if cmd == nil {
-		t.Fatal("expected lowercase u to return a feed URL update command")
+		t.Fatal("expected lowercase u to return a refresh-all command")
+	}
+}
+
+func TestFeedRefreshAutoAppliesPermanentRedirectURL(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	feedID, err := database.AddFeed("https://example.com/old.xml", "Redirected Feed", "")
+	if err != nil {
+		t.Fatalf("AddFeed returned error: %v", err)
+	}
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+
+	next, cmd := m.Update(FeedRefreshedMsg{
+		FeedID: feedID,
+		Result: &feed.FetchResult{
+			Kind:             feed.KindSuccess,
+			SuggestURLUpdate: true,
+			SuggestedURL:     "https://example.com/new.xml",
+		},
+	})
+	m = next.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected refresh handling to return follow-up commands")
+	}
+	gotFeed, err := database.GetFeed(feedID)
+	if err != nil {
+		t.Fatalf("GetFeed returned error: %v", err)
+	}
+	if gotFeed.URL != "https://example.com/new.xml" {
+		t.Fatalf("expected feed URL to auto-update, got %q", gotFeed.URL)
+	}
+	if !strings.Contains(m.statusMsg, "feed URL updated to https://example.com/new.xml") {
+		t.Fatalf("expected status message about auto-updated URL, got %q", m.statusMsg)
+	}
+}
+
+func TestFetchErrorOverlayOmitsURLUpdateAction(t *testing.T) {
+	m := Model{
+		lastFetchError: &feed.FetchResult{
+			Kind:             feed.KindHttpError,
+			Err:              io.EOF,
+			OriginalURL:      "https://example.com/old.xml",
+			FinalURL:         "https://example.com/new.xml",
+			RedirectChain:    []string{"https://example.com/old.xml", "https://example.com/new.xml"},
+			SuggestURLUpdate: true,
+			SuggestedURL:     "https://example.com/new.xml",
+		},
+	}
+
+	view := m.renderFetchErrorOverlay(72, newManagerChrome(72, CatppuccinMocha))
+	if !containsString(view, "Feed permanently moved to new URL") {
+		t.Fatalf("expected redirect note in fetch error overlay, got %q", view)
+	}
+	if containsString(view, "update URL") {
+		t.Fatalf("expected fetch error overlay to omit URL update action, got %q", view)
 	}
 }
 
@@ -287,8 +376,8 @@ func TestLowercaseIDismissesAvailableUpdate(t *testing.T) {
 	if got.cfg.Updates.DismissedVersion != "v1.1.0" {
 		t.Fatalf("expected dismissed version to be persisted, got %q", got.cfg.Updates.DismissedVersion)
 	}
-	if got.statusMsg == "" {
-		t.Fatal("expected dismiss action to set a status message")
+	if !strings.Contains(got.statusMsg, "Tide update v1.1.0 dismissed") {
+		t.Fatalf("expected Tide-specific dismiss status, got %q", got.statusMsg)
 	}
 }
 
@@ -496,6 +585,414 @@ func TestSettingsViewShowsFeedMaxSizeField(t *testing.T) {
 	}
 }
 
+func TestLoadFeedsCmdCombinesLocalAndGReaderFeeds(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	if _, err := database.AddFeed("https://local.example.com/feed.xml", "Local Feed", ""); err != nil {
+		t.Fatalf("AddFeed returned error: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	m := NewModel(database, cfg, "v1.0.0")
+	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
+			return uiResponseWithBody(http.StatusOK, "Auth=test-token\n"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/subscription/list?output=json":
+			return uiResponseWithJSON(http.StatusOK, `{
+				"subscriptions": [
+					{"id":"feed/http://example.com/feed.xml","title":"Remote Feed","url":"http://example.com/feed.xml","htmlUrl":"http://example.com/"}
+				]
+			}`), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/unread-count?output=json":
+			return uiResponseWithJSON(http.StatusOK, `{"unreadcounts":[{"id":"feed/http://example.com/feed.xml","count":4}]}`), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+	msg := m.loadFeedsCmd()()
+	m2, _ := m.Update(msg)
+	m = m2.(Model)
+
+	if len(m.feeds) != 2 {
+		t.Fatalf("expected local + remote feeds, got %d", len(m.feeds))
+	}
+	var foundLocal, foundRemote bool
+	for _, feed := range m.feeds {
+		switch feed.Title {
+		case "Local Feed":
+			foundLocal = true
+		case "Remote Feed":
+			foundRemote = true
+			if feed.UnreadCount != 4 {
+				t.Fatalf("expected unread count 4, got %d", feed.UnreadCount)
+			}
+		}
+	}
+	if !foundLocal || !foundRemote {
+		t.Fatalf("expected both local and remote feeds, got %#v", m.feeds)
+	}
+	if len(m.greaderStreams) != 1 {
+		t.Fatalf("expected remote stream map to be populated, got %d entries", len(m.greaderStreams))
+	}
+}
+
+func TestLoadArticlesCmdUsesGReaderFeedWhenSelected(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	m := NewModel(database, cfg, "v1.0.0")
+	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
+			return uiResponseWithBody(http.StatusOK, "Auth=test-token\n"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/subscription/list?output=json":
+			return uiResponseWithJSON(http.StatusOK, `{
+				"subscriptions": [
+					{"id":"feed/http://example.com/feed.xml","title":"Remote Feed","url":"http://example.com/feed.xml","htmlUrl":"http://example.com/"}
+				]
+			}`), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/unread-count?output=json":
+			return uiResponseWithJSON(http.StatusOK, `{"unreadcounts":[{"id":"feed/http://example.com/feed.xml","count":1}]}`), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/stream/contents/feed%2Fhttp:%2F%2Fexample.com%2Ffeed.xml?n=100&output=json":
+			return uiResponseWithJSON(http.StatusOK, `{
+				"items": [
+					{
+						"id":"tag:google.com,2005:reader/item/abc123",
+						"title":"Remote Article",
+						"published":1710000000,
+						"alternate":[{"href":"https://example.com/articles/1"}],
+						"summary":{"content":"<p>Hello remote world</p>"},
+						"origin":{"streamId":"feed/http://example.com/feed.xml"}
+					}
+				]
+			}`), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+	msg := m.loadFeedsCmd()()
+	m2, _ := m.Update(msg)
+	m = m2.(Model)
+
+	if len(m.feeds) != 1 {
+		t.Fatalf("expected 1 remote feed, got %d", len(m.feeds))
+	}
+
+	msg = m.loadArticlesCmd(m.feeds[0].ID)()
+	m2, _ = m.Update(msg)
+	m = m2.(Model)
+
+	if len(m.articles) != 1 {
+		t.Fatalf("expected 1 remote article, got %d", len(m.articles))
+	}
+	if m.articles[0].Link != "https://example.com/articles/1" {
+		t.Fatalf("unexpected remote article link %q", m.articles[0].Link)
+	}
+	if !strings.Contains(m.articles[0].Content, "Hello remote world") {
+		t.Fatalf("expected remote content to be normalized into article body, got %q", m.articles[0].Content)
+	}
+}
+
+func TestFeedManagerKeyStillOpensEditableOverlayWithRemoteFeedsLoaded(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	m := NewModel(database, cfg, "v1.0.0")
+	m2, _ := m.Update(FeedsLoadedMsg{
+		Feeds: []db.Feed{{ID: -1, Title: "Remote Feed", URL: "https://example.com/feed"}},
+		RemoteStreams: map[int64]string{
+			-1: "feed/http://example.com/feed",
+		},
+	})
+	m = m2.(Model)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	m = m2.(Model)
+
+	if m.overlay != overlayFeedManager {
+		t.Fatalf("expected feed manager overlay, got %v", m.overlay)
+	}
+	if !m.feedManager.editable() {
+		t.Fatal("expected feed manager to stay editable for the local add/manage flow")
+	}
+	if got := len(m.feedManager.feeds); got != 1 {
+		t.Fatalf("expected remote feed to be present in manager data, got %d feeds", got)
+	}
+	if selected := m.feedManager.selectedFeedRow(); selected == nil || selected.ID != -1 {
+		t.Fatalf("expected remote feed to be selected in manager, got %#v", selected)
+	}
+}
+
+func TestAddKeyOpensAddDialogWithSourceToggle(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	m := NewModel(database, cfg, "v1.0.0")
+	m2, _ := m.Update(FeedsLoadedMsg{})
+	m = m2.(Model)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = m2.(Model)
+
+	if m.overlay != overlayFeedManager {
+		t.Fatalf("expected add key to open feed manager overlay, got %v", m.overlay)
+	}
+	if m.feedManager.mode != fmEdit {
+		t.Fatalf("expected add key to enter add dialog, got mode %v", m.feedManager.mode)
+	}
+	if !m.feedManager.listPaneFocused() {
+		t.Fatal("expected add dialog to start focused on the left pane")
+	}
+	if m.feedManager.focusedField != fmFieldAddSource {
+		t.Fatalf("expected add dialog to focus source toggle, got field %d", m.feedManager.focusedField)
+	}
+}
+
+func TestRemoteFeedAddedMsgPersistsGReaderConfigAndTargetsStream(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, _ := m.Update(RemoteFeedAddedMsg{
+		Source: config.SourceConfig{
+			GReaderURL:      "https://rss.example.com/api/greader.php",
+			GReaderLogin:    "alice",
+			GReaderPassword: "secret",
+		},
+		StreamID: "feed/http://example.com/feed",
+		Title:    "Remote Feed",
+	})
+	m = m2.(Model)
+
+	if m.cfg.Source.GReaderURL != "https://rss.example.com/api/greader.php" {
+		t.Fatalf("expected greader URL to be stored, got %q", m.cfg.Source.GReaderURL)
+	}
+	if m.cfg.Source.GReaderLogin != "alice" {
+		t.Fatalf("expected greader login to be stored, got %q", m.cfg.Source.GReaderLogin)
+	}
+	if m.cfg.Source.GReaderPassword != "secret" {
+		t.Fatalf("expected greader password to be stored, got %q", m.cfg.Source.GReaderPassword)
+	}
+	if m.greaderClient == nil {
+		t.Fatal("expected greader client to be initialized after remote add")
+	}
+	if m.pendingSelectFeedID != remoteStableID("feed", "feed/http://example.com/feed") {
+		t.Fatalf("expected remote add flow to target the added feed, got %d", m.pendingSelectFeedID)
+	}
+}
+
+func TestRemoteFeedAddedMsgWithoutStreamShowsConnectedStatus(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, _ := m.Update(RemoteFeedAddedMsg{
+		Source: config.SourceConfig{
+			GReaderURL:      "https://rss.example.com/api/greader.php",
+			GReaderLogin:    "alice",
+			GReaderPassword: "secret",
+		},
+		FeedCount: 7,
+	})
+	m = m2.(Model)
+
+	if m.pendingSelectFeedID != 0 {
+		t.Fatalf("expected connect-only greader load not to target a specific feed, got %d", m.pendingSelectFeedID)
+	}
+	if m.statusMsg != "connected greader: 7 feeds" {
+		t.Fatalf("expected connected status, got %q", m.statusMsg)
+	}
+}
+
+func TestFeedManagerGReaderSaveCmdQuickAddsRemoteFeed(t *testing.T) {
+	loginHit := false
+	quickAddHit := false
+
+	origTransport := http.DefaultTransport
+	http.DefaultTransport = uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/api/greader.php/accounts/ClientLogin":
+			loginHit = true
+			return uiResponseWithBody(http.StatusOK, "SID=ignored\nAuth=test-token\n"), nil
+		case "/api/greader.php/reader/api/0/subscription/quickadd":
+			quickAddHit = true
+			if got := req.Header.Get("Authorization"); got != "GoogleLogin auth=test-token" {
+				t.Fatalf("expected auth header on quickadd request, got %q", got)
+			}
+			body, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatalf("read quickadd body: %v", err)
+			}
+			if got := string(body); got != "quickadd=https%3A%2F%2Fexample.com%2Ffeed.xml" {
+				t.Fatalf("unexpected quickadd body %q", got)
+			}
+			return uiResponseWithJSON(http.StatusOK, `{"numResults":1,"query":"https://example.com/feed.xml","streamId":"feed/http://example.com/feed.xml","streamName":"Example Feed"}`), nil
+		default:
+			t.Fatalf("unexpected request path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	defer func() { http.DefaultTransport = origTransport }()
+
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.focusAdd()
+	fm.addSourceIdx = fmAddSourceGReader
+	fm.titleInput.SetValue("Custom Title")
+	fm.urlInput.SetValue("https://example.com/feed.xml")
+	fm.greaderURLInput.SetValue("https://rss.example.com/api/greader.php")
+	fm.greaderLoginInput.SetValue("alice")
+	fm.greaderPasswordInput.SetValue("secret")
+
+	msg := fm.saveCmd()()
+	got, ok := msg.(RemoteFeedAddedMsg)
+	if !ok {
+		t.Fatalf("expected RemoteFeedAddedMsg, got %T", msg)
+	}
+	if got.Err != nil {
+		t.Fatalf("expected successful remote add, got error %v", got.Err)
+	}
+	if !loginHit || !quickAddHit {
+		t.Fatalf("expected login and quickadd requests, login=%v quickadd=%v", loginHit, quickAddHit)
+	}
+	if got.StreamID != "feed/http://example.com/feed.xml" {
+		t.Fatalf("expected stream id from quickadd, got %q", got.StreamID)
+	}
+	if got.Title != "Example Feed" {
+		t.Fatalf("expected remote title from quickadd, got %q", got.Title)
+	}
+	if got.Source.GReaderURL != "https://rss.example.com/api/greader.php" || got.Source.GReaderLogin != "alice" || got.Source.GReaderPassword != "secret" {
+		t.Fatalf("unexpected persisted source config: %#v", got.Source)
+	}
+}
+
+func TestFeedManagerGReaderSaveCmdAllowsBlankFeedURL(t *testing.T) {
+	loginHit := false
+	listHit := false
+	quickAddHit := false
+
+	origTransport := http.DefaultTransport
+	http.DefaultTransport = uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/api/greader.php/accounts/ClientLogin":
+			loginHit = true
+			return uiResponseWithBody(http.StatusOK, "SID=ignored\nAuth=test-token\n"), nil
+		case "/api/greader.php/reader/api/0/subscription/list":
+			listHit = true
+			if req.URL.RawQuery != "output=json" {
+				t.Fatalf("unexpected list query %q", req.URL.RawQuery)
+			}
+			if got := req.Header.Get("Authorization"); got != "GoogleLogin auth=test-token" {
+				t.Fatalf("expected auth header on list request, got %q", got)
+			}
+			return uiResponseWithJSON(http.StatusOK, `{"subscriptions":[{"id":"feed/http://example.com/feed.xml","title":"Example Feed"}]}`), nil
+		case "/api/greader.php/reader/api/0/subscription/quickadd":
+			quickAddHit = true
+			t.Fatal("did not expect quickadd when feed URL is blank")
+			return nil, nil
+		default:
+			t.Fatalf("unexpected request path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	defer func() { http.DefaultTransport = origTransport }()
+
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.focusAdd()
+	fm.addSourceIdx = fmAddSourceGReader
+	fm.greaderURLInput.SetValue("https://rss.example.com/api/greader.php")
+	fm.greaderLoginInput.SetValue("alice")
+	fm.greaderPasswordInput.SetValue("secret")
+
+	msg := fm.saveCmd()()
+	got, ok := msg.(RemoteFeedAddedMsg)
+	if !ok {
+		t.Fatalf("expected RemoteFeedAddedMsg, got %T", msg)
+	}
+	if got.Err != nil {
+		t.Fatalf("expected successful greader connect, got error %v", got.Err)
+	}
+	if !loginHit || !listHit || quickAddHit {
+		t.Fatalf("expected login and subscription list only, login=%v list=%v quickadd=%v", loginHit, listHit, quickAddHit)
+	}
+	if got.StreamID != "" {
+		t.Fatalf("expected no target stream for blank feed URL, got %q", got.StreamID)
+	}
+	if got.FeedCount != 1 {
+		t.Fatalf("expected feed count from subscription list, got %d", got.FeedCount)
+	}
+}
+
+type uiRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn uiRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+func uiResponseWithBody(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{"Content-Type": []string{"text/plain"}},
+		Body:       io.NopCloser(bytes.NewBufferString(body)),
+	}
+}
+
+func uiResponseWithJSON(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewBufferString(body)),
+	}
+}
+
 func TestSettingsAboutActionReturnsBrowserCommand(t *testing.T) {
 	m := Model{
 		cfg:      config.DefaultConfig(),
@@ -675,7 +1172,7 @@ func TestArticleReadUpdatedAdvancesToNextArticleInArticlesPane(t *testing.T) {
 	feed := db.Feed{ID: 1, Title: "Feed One", URL: "https://example.com/feed"}
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
 	m = m2.(Model)
-	m.sidebarCursor = 1
+	m.sidebarCursor = 0
 
 	articles := []db.Article{
 		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: "one", PublishedAt: unixTestTime(1710000100), Read: false},
@@ -717,7 +1214,7 @@ func TestArticleReadUpdatedDoesNotAdvanceOutsideArticlesPane(t *testing.T) {
 	feed := db.Feed{ID: 1, Title: "Feed One", URL: "https://example.com/feed"}
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
 	m = m2.(Model)
-	m.sidebarCursor = 1
+	m.sidebarCursor = 0
 
 	articles := []db.Article{
 		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: "one", PublishedAt: unixTestTime(1710000100), Read: false},

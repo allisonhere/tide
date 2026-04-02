@@ -10,6 +10,7 @@ A terminal RSS reader built with [Bubble Tea](https://github.com/charmbracelet/b
 - Live theme switching with full preview
 - Theme-aware dialogs and overlays
 - Feed manager: add, edit, delete, import/export OPML
+- Google Reader-compatible source support, including FreshRSS
 - Article search and filter
 - Mark read/unread, open in browser
 - AI summaries with copy and save-to-Markdown actions
@@ -63,6 +64,32 @@ tide
 ```
 
 Config and database are stored in `~/.config/rss/`.
+
+## Feed Manager And Sources
+
+Open the feed manager with `m`. Tide keeps one shared manager flow for local feeds and Google Reader-compatible sources.
+
+- Press `a` to open the add dialog from anywhere
+- The add dialog starts on the left list/details pane; press `Enter`, `→`, or `Tab` to move into the form
+- From a text field, `←` moves back to the left pane once the cursor is already at the start of the field
+- The `Source` toggle in the add form switches between `Local` and `GReader`
+
+Local source:
+- `Title`, `URL`, folder, and color behave like the normal Tide add/edit flow
+
+GReader source:
+- Uses the same add dialog with `Title`, optional feed `URL`, `API URL`, `Login`, and `Password`
+- If `URL` is blank, Tide saves the source connection and loads your existing remote subscriptions
+- If `URL` is set, Tide also quick-adds that subscription on the remote server
+- Selecting a remote feed in the manager shows the current saved GReader connection info on the right, with the password masked
+
+FreshRSS works through its Google Reader-compatible endpoint. Use the full API URL, for example:
+
+```text
+https://example.com/FreshRSS/p/api/greader.php
+```
+
+Saved Google Reader credentials are stored in `~/.config/rss/config.toml` under `[source]`.
 
 ## Settings
 
@@ -155,6 +182,11 @@ gemini_key = ""
 ollama_url = "http://localhost:11434"
 ollama_model = "llama3.2"
 save_path = "~/"
+
+[source]
+greader_url = ""
+greader_login = ""
+greader_password = ""
 ```
 
 Feed fetch limits:
@@ -202,15 +234,17 @@ Tide can check GitHub releases for a newer version and install the matching bina
 | Key | Action |
 |-----|--------|
 | `f` | Refresh feed |
-| `F` | Refresh all |
+| `F` / `u` | Refresh all |
 | `m` | Feed manager |
 
 ### Feed Manager
 | Key | Action |
 |-----|--------|
-| `a` | Add feed |
-| `e` / `Enter` | Edit feed |
-| `d` | Delete feed |
+| `a` | Add feed or GReader source |
+| `n` | Add folder |
+| `Enter` | Edit selected feed or enter the form from the left pane |
+| `e` | Edit selected local feed |
+| `d` | Delete selected local feed |
 | `i` | Import OPML |
 | `x` | Export OPML |
 

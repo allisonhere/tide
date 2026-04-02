@@ -13,6 +13,7 @@ type Config struct {
 	Feed    FeedConfig    `toml:"feed"`
 	Updates UpdatesConfig `toml:"updates"`
 	AI      AIConfig      `toml:"ai"`
+	Source  SourceConfig  `toml:"source"`
 }
 
 type DisplayConfig struct {
@@ -46,6 +47,12 @@ type AIConfig struct {
 	SavePath    string `toml:"save_path"`
 }
 
+type SourceConfig struct {
+	GReaderURL      string `toml:"greader_url"`
+	GReaderLogin    string `toml:"greader_login"`
+	GReaderPassword string `toml:"greader_password"`
+}
+
 func DefaultConfig() Config {
 	return Config{
 		Theme: "catppuccin-mocha",
@@ -66,6 +73,7 @@ func DefaultConfig() Config {
 			OllamaModel: "llama3.2",
 			SavePath:    "~/",
 		},
+		Source: SourceConfig{},
 	}
 }
 
