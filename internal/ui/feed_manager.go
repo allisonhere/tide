@@ -365,7 +365,7 @@ func (fm *FeedManager) prefillAddFormFromSelectedRemoteFeed() {
 func (fm *FeedManager) focusRemoteSettingsEdit(feed db.Feed) {
 	fm.mode = fmEdit
 	fm.paneFocus = fmPaneDetail
-	fm.editTarget = 0
+	fm.editTarget = feed.ID
 	fm.folderEditTarget = 0
 	fm.remoteSettingsEdit = true
 	fm.addSourceIdx = fmAddSourceGReader
@@ -374,9 +374,7 @@ func (fm *FeedManager) focusRemoteSettingsEdit(feed db.Feed) {
 	fm.urlInput.Reset()
 	fm.urlInput.SetValue(feed.URL)
 	fm.newFolderInput.Reset()
-	fm.folderCursor = 0
-	fm.showNewFolder = false
-	fm.colorCursor = 0
+	fm.setFolderCursorForID(feed.FolderID)
 	fm.focusedField = fmFieldGReaderURL
 	fm.statusMsg = ""
 	fm.busy = false
@@ -529,7 +527,7 @@ func (fm *FeedManager) selectFolder(folderID int64) {
 }
 
 func (fm FeedManager) shouldShowColorPicker() bool {
-	if fm.mode == fmEdit && (fm.remoteSettingsEdit || (fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader)) {
+	if fm.mode == fmEdit && !fm.remoteSettingsEdit && fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
 		return false
 	}
 	if fm.mode == fmEdit {
@@ -604,10 +602,17 @@ func (fm *FeedManager) blurEditInputs() {
 }
 
 func (fm FeedManager) editFieldOrder() []int {
-	if fm.editTarget == 0 {
-		if fm.remoteSettingsEdit {
-			return []int{fmFieldGReaderURL, fmFieldGReaderLogin, fmFieldGReaderPassword}
+	if fm.remoteSettingsEdit {
+		order := []int{2}
+		if fm.showNewFolder {
+			order = append(order, 3)
 		}
+		if fm.shouldShowColorPicker() {
+			order = append(order, 4)
+		}
+		return append(order, fmFieldGReaderURL, fmFieldGReaderLogin, fmFieldGReaderPassword)
+	}
+	if fm.editTarget == 0 {
 		order := []int{fmFieldAddSource}
 		if fm.addSourceIdx == fmAddSourceGReader {
 			return append(order, 0, 1, fmFieldGReaderURL, fmFieldGReaderLogin, fmFieldGReaderPassword)
@@ -655,7 +660,7 @@ func (fm FeedManager) isEditTextInputFocused() bool {
 	case 3:
 		return fm.showNewFolder
 	case fmFieldGReaderURL, fmFieldGReaderLogin, fmFieldGReaderPassword:
-		return fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader
+		return fm.remoteSettingsEdit || (fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader)
 	default:
 		return false
 	}
@@ -672,15 +677,15 @@ func (fm FeedManager) focusedEditTextInputCursorPosition() int {
 			return fm.newFolderInput.Position()
 		}
 	case fmFieldGReaderURL:
-		if fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
+		if fm.remoteSettingsEdit || (fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader) {
 			return fm.greaderURLInput.Position()
 		}
 	case fmFieldGReaderLogin:
-		if fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
+		if fm.remoteSettingsEdit || (fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader) {
 			return fm.greaderLoginInput.Position()
 		}
 	case fmFieldGReaderPassword:
-		if fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
+		if fm.remoteSettingsEdit || (fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader) {
 			return fm.greaderPasswordInput.Position()
 		}
 	}
@@ -1168,19 +1173,37 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 	database := fm.db
 
 	return func() tea.Msg {
-		if editTarget == 0 && addSourceIdx == fmAddSourceGReader {
+		if remoteSettingsEdit {
 			if err := validateHTTPURL(greaderURL, "API URL"); err != nil {
 				return RemoteFeedAddedMsg{Err: err}
 			}
 			if strings.TrimSpace(greaderLogin) == "" {
 				return RemoteFeedAddedMsg{Err: fmt.Errorf("login is required")}
 			}
-		if strings.TrimSpace(greaderPassword) == "" {
-			return RemoteFeedAddedMsg{Err: fmt.Errorf("password is required")}
-		}
-			if remoteSettingsEdit {
-				return RemoteFeedAddedMsg{
-					SettingsOnly: true,
+			if strings.TrimSpace(greaderPassword) == "" {
+				return RemoteFeedAddedMsg{Err: fmt.Errorf("password is required")}
+			}
+			if database != nil {
+				if createFolder && newFolderName != "" {
+					assignedFolderID, addErr := database.AddFolder(newFolderName, selectedColor)
+					if addErr != nil {
+						return RemoteFeedAddedMsg{Err: addErr}
+					}
+					folderID = assignedFolderID
+				} else if createFolder {
+					folderID = 0
+				}
+				if err := database.SetRemoteFeedFolder(editTarget, folderID); err != nil {
+					return RemoteFeedAddedMsg{Err: err}
+				}
+				if folderID != 0 && createFolder {
+					if err := database.SetFolderColor(folderID, selectedColor); err != nil {
+						return RemoteFeedAddedMsg{Err: err}
+					}
+				}
+			}
+			return RemoteFeedAddedMsg{
+				SettingsOnly: true,
 				Source: config.SourceConfig{
 					GReaderURL:      greaderURL,
 					GReaderLogin:    greaderLogin,
@@ -1188,7 +1211,18 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 				},
 			}
 		}
-		client := greader.New(greaderURL, greaderLogin, greaderPassword)
+
+		if editTarget == 0 && addSourceIdx == fmAddSourceGReader {
+			if err := validateHTTPURL(greaderURL, "API URL"); err != nil {
+				return RemoteFeedAddedMsg{Err: err}
+			}
+			if strings.TrimSpace(greaderLogin) == "" {
+				return RemoteFeedAddedMsg{Err: fmt.Errorf("login is required")}
+			}
+			if strings.TrimSpace(greaderPassword) == "" {
+				return RemoteFeedAddedMsg{Err: fmt.Errorf("password is required")}
+			}
+			client := greader.New(greaderURL, greaderLogin, greaderPassword)
 			if rawURL == "" {
 				subscriptions, err := client.ListSubscriptions(context.Background())
 				if err != nil {
@@ -1549,10 +1583,15 @@ func (fm FeedManager) viewListDetails(width int, chrome managerChrome) string {
 					lines := []string{
 						sourceLine,
 						"SOURCE: GOOGLE READER",
-						"API URL: " + strings.ToUpper(apiURL),
-						"LOGIN: " + strings.ToUpper(login),
-						"PASSWORD: " + password,
 					}
+					if folder := fm.folderByID(feed.FolderID); folder != nil {
+						lines = append(lines, "FOLDER: "+strings.ToUpper(folder.Name))
+					}
+					lines = append(lines,
+						"API URL: "+strings.ToUpper(apiURL),
+						"LOGIN: "+strings.ToUpper(login),
+						"PASSWORD: "+password,
+					)
 					if category := strings.TrimSpace(feed.Description); category != "" {
 						lines = append(lines, "CATEGORY: "+strings.ToUpper(category))
 					}
@@ -1671,6 +1710,22 @@ func (fm FeedManager) viewEdit(width, height int, chrome managerChrome, styles S
 			gap,
 			renderManagerSection("Feed URL", renderManagerPanel(width-3, strings.ToUpper(truncate(fm.urlInput.Value(), max(8, width-7))), chrome), chrome),
 			gap,
+			renderManagerSection("Folder", renderManagerPicker(width-3, fm.folderOptions()[fm.folderCursor], detailFocused && fm.focusedField == 2, chrome, styles), chrome),
+			gap,
+		)
+		if fm.showNewFolder {
+			contentRows = append(contentRows,
+				renderManagerSection("New", renderTextInput(fm.newFolderInput, width-3, detailFocused && fm.focusedField == 3, false, chrome), chrome),
+				gap,
+			)
+		}
+		if fm.shouldShowColorPicker() {
+			contentRows = append(contentRows,
+				renderManagerSection("Color", renderManagerColorPicker(width-3, fm.displayedColorOption(), detailFocused && fm.focusedField == 4, chrome, styles), chrome),
+				gap,
+			)
+		}
+		contentRows = append(contentRows,
 			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, width-3, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome),
 			gap,
 			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, width-3, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome),

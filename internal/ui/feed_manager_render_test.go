@@ -384,7 +384,7 @@ func TestFeedManagerAddDialogCanSwitchToGReaderFields(t *testing.T) {
 		t.Fatalf("expected enter on source toggle to switch to greader, got %d", next.addSourceIdx)
 	}
 
-	view := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(next.View(96, 32, BuildStyles(CatppuccinMocha), true))
 	for _, want := range []string{"ADD FEED", "Source", "Title", "URL (optional)", "API URL", "Login", "Password", "alice", "https://rss.example.com/api/greader.php"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected greader add dialog to contain %q, got %q", want, view)
@@ -535,12 +535,15 @@ func TestFeedManagerRemoteFeedDetailsShowGReaderConfig(t *testing.T) {
 		Title:       "Remote Feed",
 		URL:         "https://example.com/feed",
 		Description: "Tech",
-	}}, nil)
+		FolderID:    1,
+	}}, []db.Folder{{ID: 1, Name: "Remote", Color: "#7aa2f7"}})
+	fm.selectFeed(-1)
 
 	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
 
 	for _, want := range []string{
 		"SOURCE: GOOGLE READER",
+		"FOLDER: REMOTE",
 		"API URL: HTTPS://RSS.EXAMPLE.COM/API/GREADER.PHP",
 		"LOGIN: ALICE",
 		"PASSWORD: ●●●●●●",
@@ -629,10 +632,12 @@ func TestEditableFeedManagerEditRemoteFeedOpensGReaderSettings(t *testing.T) {
 		GReaderPassword: "secret",
 	})
 	fm.setData([]db.Feed{{
-		ID:    -1,
-		Title: "Remote Feed",
-		URL:   "https://example.com/feed",
-	}}, nil)
+		ID:       -1,
+		Title:    "Remote Feed",
+		URL:      "https://example.com/feed",
+		FolderID: 1,
+	}}, []db.Folder{{ID: 1, Name: "Remote", Color: "#7aa2f7"}})
+	fm.selectFeed(-1)
 
 	next, _ := fm.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}, DefaultKeys)
 	if next.mode != fmEdit {
@@ -659,8 +664,11 @@ func TestEditableFeedManagerEditRemoteFeedOpensGReaderSettings(t *testing.T) {
 	if got := next.greaderURLInput.Value(); got != "https://rss.example.com/api/greader.php" {
 		t.Fatalf("expected remote edit to prefill API URL, got %q", got)
 	}
+	if got := next.currentFolderID(); got != 1 {
+		t.Fatalf("expected remote edit to preselect the feed folder, got %d", got)
+	}
 	view := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha), true))
-	for _, want := range []string{"GREADER SETTINGS", "FEED", "FEED URL", "API URL", "LOGIN"} {
+	for _, want := range []string{"GREADER SETTINGS", "FEED", "FEED URL", "FOLDER", "COLOR", "API URL"} {
 		if !strings.Contains(strings.ToUpper(view), want) {
 			t.Fatalf("expected remote edit view to contain %q, got %q", want, view)
 		}

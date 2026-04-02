@@ -694,6 +694,61 @@ func TestLoadFeedsCmdCombinesLocalAndGReaderFeeds(t *testing.T) {
 	}
 }
 
+func TestLoadFeedsCmdAppliesLocalFolderPrefsToGReaderFeeds(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	folderID, err := database.AddFolder("Remote", "#7aa2f7")
+	if err != nil {
+		t.Fatalf("AddFolder returned error: %v", err)
+	}
+	if err := database.SetRemoteFeedFolder(remoteStableID("feed", "feed/http://example.com/feed.xml"), folderID); err != nil {
+		t.Fatalf("SetRemoteFeedFolder returned error: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	m := NewModel(database, cfg, "v1.0.0")
+	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
+			return uiResponseWithBody(http.StatusOK, "Auth=test-token\n"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/subscription/list?output=json":
+			return uiResponseWithJSON(http.StatusOK, `{
+				"subscriptions": [
+					{"id":"feed/http://example.com/feed.xml","title":"Remote Feed","url":"http://example.com/feed.xml","htmlUrl":"http://example.com/"}
+				]
+			}`), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/unread-count?output=json":
+			return uiResponseWithJSON(http.StatusOK, `{"unreadcounts":[{"id":"feed/http://example.com/feed.xml","count":4}]}`), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	msg := m.loadFeedsCmd()()
+	m2, _ := m.Update(msg)
+	m = m2.(Model)
+
+	for _, feed := range m.feeds {
+		if feed.Title == "Remote Feed" {
+			if feed.FolderID != folderID {
+				t.Fatalf("expected remote feed folder %d, got %d", folderID, feed.FolderID)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected remote feed to be present, got %#v", m.feeds)
+}
+
 func TestLoadArticlesCmdUsesGReaderFeedWhenSelected(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	database, err := db.Open()
@@ -1609,6 +1664,67 @@ func TestFeedManagerGReaderSettingsEditSaveCmdDoesNotHitNetwork(t *testing.T) {
 	}
 }
 
+func TestFeedManagerGReaderSettingsEditSaveCmdStoresLocalFolderPreference(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	fm := NewFeedManagerWithSource(database, config.SourceConfig{
+		GReaderURL:      "https://rss.example.com/api/greader.php",
+		GReaderLogin:    "alice",
+		GReaderPassword: "secret",
+	})
+	fm.focusRemoteSettingsEdit(db.Feed{
+		ID:    remoteStableID("feed", "feed/http://example.com/feed.xml"),
+		Title: "Remote Feed",
+		URL:   "https://example.com/feed.xml",
+	})
+	fm.folderCursor = len(fm.folderOptions()) - 1
+	fm.syncFolderPicker()
+	fm.newFolderInput.SetValue("Remote")
+	if _, idx, ok := folderColorByValue("#7aa2f7"); ok {
+		fm.colorCursor = idx
+	}
+
+	msg := fm.saveCmd()()
+	got, ok := msg.(RemoteFeedAddedMsg)
+	if !ok {
+		t.Fatalf("expected RemoteFeedAddedMsg, got %T", msg)
+	}
+	if got.Err != nil {
+		t.Fatalf("expected successful settings save, got error %v", got.Err)
+	}
+	if !got.SettingsOnly {
+		t.Fatal("expected settings-only result")
+	}
+
+	assignments, err := database.ListRemoteFeedFolders()
+	if err != nil {
+		t.Fatalf("ListRemoteFeedFolders returned error: %v", err)
+	}
+	folderID := assignments[remoteStableID("feed", "feed/http://example.com/feed.xml")]
+	if folderID == 0 {
+		t.Fatalf("expected remote feed folder preference to be stored, got %+v", assignments)
+	}
+
+	folders, err := database.ListFolders()
+	if err != nil {
+		t.Fatalf("ListFolders returned error: %v", err)
+	}
+	if len(folders) != 1 {
+		t.Fatalf("expected 1 folder to be created, got %d", len(folders))
+	}
+	if folders[0].ID != folderID {
+		t.Fatalf("expected remote feed to point at created folder %d, got %d", folders[0].ID, folderID)
+	}
+	if folders[0].Color != "#7aa2f7" {
+		t.Fatalf("expected created folder color to be saved, got %q", folders[0].Color)
+	}
+}
+
 type uiRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn uiRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -1957,6 +2073,45 @@ func TestRenderArticleContentUsesOneCharacterLeftMargin(t *testing.T) {
 		if !strings.HasPrefix(line, " ") {
 			t.Fatalf("expected article content line %d to start with a one-character left margin, got %q", i+1, line)
 		}
+	}
+}
+
+func TestRenderArticleContentKeepsHeaderSingleLineWithinMargins(t *testing.T) {
+	m := Model{
+		width:  70,
+		height: 30,
+		styles: BuildStyles(GruvboxLight),
+	}
+
+	publishedAt := unixTestTime(1710000000)
+	got := m.renderArticleContent(db.Article{
+		Title:       strings.Repeat("Long title ", 12),
+		Link:        "https://example.com/this/is/a/very/long/link/that/should/not/wrap/in/the/header",
+		Content:     "one short line",
+		PublishedAt: publishedAt,
+	})
+
+	var nonEmpty []string
+	for _, line := range strings.Split(ansi.Strip(got), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		nonEmpty = append(nonEmpty, line)
+	}
+
+	if len(nonEmpty) != 3 {
+		t.Fatalf("expected title, meta, and one body line without header wrapping; got %d non-empty lines: %#v", len(nonEmpty), nonEmpty)
+	}
+	if !strings.HasPrefix(nonEmpty[0], " ") {
+		t.Fatalf("expected title line to keep one-character left margin, got %q", nonEmpty[0])
+	}
+	if !strings.Contains(nonEmpty[0], "…") {
+		t.Fatalf("expected long title to truncate instead of wrap, got %q", nonEmpty[0])
+	}
+
+	wantMetaPrefix := " " + publishedAt.Format("Mon, 02 Jan 2006 15:04")
+	if !strings.HasPrefix(nonEmpty[1], wantMetaPrefix) {
+		t.Fatalf("expected second non-empty line to be meta, got %q", nonEmpty[1])
 	}
 }
 

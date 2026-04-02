@@ -1363,10 +1363,12 @@ func (m Model) renderPaneHeaderWithAccent(label string, focused bool, width int,
 }
 
 func (m Model) renderArticleContent(a db.Article) string {
-	contentWidth := max(1, m.articlesPaneWidth()-1)
+	contentWidth := m.contentBodyWidth()
 	bodyWidth := m.contentBodyWidth()
-	title := " " + m.styles.ContentTitle.Width(contentWidth).Render(truncate(a.Title, contentWidth))
-	meta := " " + m.styles.ContentMeta.Width(contentWidth).Render(truncate(a.PublishedAt.Format("Mon, 02 Jan 2006 15:04")+"  "+a.Link, contentWidth))
+	titleWidth := max(1, contentWidth-m.styles.ContentTitle.GetHorizontalFrameSize())
+	metaWidth := max(1, contentWidth-m.styles.ContentMeta.GetHorizontalFrameSize())
+	title := " " + m.styles.ContentTitle.Width(contentWidth).Render(truncate(a.Title, titleWidth))
+	meta := " " + m.styles.ContentMeta.Width(contentWidth).Render(truncate(a.PublishedAt.Format("Mon, 02 Jan 2006 15:04")+"  "+a.Link, metaWidth))
 
 	content := a.Content
 	if content == "" {
