@@ -116,7 +116,25 @@ func TestSettingsRestoresLastFocusedFieldPerSection(t *testing.T) {
 	}
 }
 
-func TestSettingsTextInputLeftArrowDoesNotMoveToSidebar(t *testing.T) {
+func TestSettingsTextInputLeftArrowMovesToSidebarAtCursorStart(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setActiveSection(ssDisplay)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfBrowser)
+	s.browserInput.SetValue("abc")
+	s.browserInput.CursorStart()
+
+	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyLeft}, DefaultKeys)
+
+	if next.focusedPane != settingsPaneSidebar {
+		t.Fatalf("expected text input to move focus to sidebar at cursor start, got %v", next.focusedPane)
+	}
+	if next.activeSection != ssDisplay {
+		t.Fatalf("expected active section to remain DISPLAY, got %v", next.activeSection)
+	}
+}
+
+func TestSettingsTextInputLeftArrowStaysInDetailWhenCursorCanMoveLeft(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setActiveSection(ssDisplay)
 	s.setFocusedPane(settingsPaneDetail)
@@ -128,8 +146,29 @@ func TestSettingsTextInputLeftArrowDoesNotMoveToSidebar(t *testing.T) {
 	if next.focusedPane != settingsPaneDetail {
 		t.Fatalf("expected text input to keep detail focus, got %v", next.focusedPane)
 	}
-	if next.activeSection != ssDisplay {
-		t.Fatalf("expected active section to remain DISPLAY, got %v", next.activeSection)
+	if got := next.browserInput.Position(); got != 2 {
+		t.Fatalf("expected browser cursor to move left to position 2, got %d", got)
+	}
+}
+
+func TestSettingsAPIKeyLeftArrowMovesToSidebarAtCursorStart(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+	cfg.AI.OpenAIKey = "sk-test"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfAPIKey)
+	s.openaiInput.CursorStart()
+
+	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyLeft}, DefaultKeys)
+
+	if next.focusedPane != settingsPaneSidebar {
+		t.Fatalf("expected API key field to move focus to sidebar at cursor start, got %v", next.focusedPane)
+	}
+	if next.activeSection != ssAI {
+		t.Fatalf("expected active section to remain AI, got %v", next.activeSection)
 	}
 }
 
@@ -337,4 +376,112 @@ func TestSettingsRightPaneScrollsToFocusedFieldOnShortView(t *testing.T) {
 	if strings.Contains(view, "Provider") {
 		t.Fatalf("expected provider row to scroll out of the short detail pane, got %q", view)
 	}
+}
+
+func TestSettingsAPIKeySummaryUsesCompactSecretState(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+	cfg.AI.OpenAIKey = "sk-abcdefghijklmnopqrstuvwxyz123456"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedField(sfSavePath)
+
+	view := ansi.Strip(s.View(84, 22, newManagerChrome(84, CatppuccinMocha)))
+
+	if strings.Contains(view, "abcdefghijklmnopqrstuvwxyz") {
+		t.Fatalf("expected API key summary to hide the raw key, got %q", view)
+	}
+	if !strings.Contains(view, "saved") || !strings.Contains(view, "chars") {
+		t.Fatalf("expected compact API key summary, got %q", view)
+	}
+}
+
+func TestSettingsAPIKeyFocusShowsExpandedInlineEditor(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedField(sfAPIKey)
+
+	view := ansi.Strip(s.View(84, 22, newManagerChrome(84, CatppuccinMocha)))
+
+	if !strings.Contains(view, "masked while typing") {
+		t.Fatalf("expected focused API key editor header, got %q", view)
+	}
+	if !strings.Contains(view, "sk-...") {
+		t.Fatalf("expected expanded editor to show placeholder, got %q", view)
+	}
+}
+
+func TestSettingsAPIKeySummaryDoesNotWrapAcrossLines(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+	cfg.AI.OpenAIKey = "sk-abcdefghijklmnopqrstuvwxyz123456"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedField(sfSavePath)
+
+	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha))
+	stripped := ansi.Strip(strings.Join(body.lines, "\n"))
+
+	if strings.Count(stripped, "saved") != 1 {
+		t.Fatalf("expected API key summary to stay on one line, got %q", stripped)
+	}
+}
+
+func TestSettingsProviderSelectorStaysSingleLineInNarrowPane(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+
+	row := s.renderProviderSelector(42, newManagerChrome(62, CatppuccinMocha))
+	if got := lipgloss.Height(row); got != 1 {
+		t.Fatalf("expected provider selector to stay on one line, got height %d", got)
+	}
+}
+
+func TestSettingsFocusedAPIKeyHeaderStaysSingleLine(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedField(sfAPIKey)
+
+	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha))
+	for _, line := range body.lines {
+		if strings.Contains(ansi.Strip(line), "OpenAI key") {
+			if got := lipgloss.Height(line); got != 1 {
+				t.Fatalf("expected API key header to stay on one line, got height %d in %q", got, ansi.Strip(line))
+			}
+			return
+		}
+	}
+	t.Fatal("expected focused API key header to be present")
+}
+
+func TestSettingsSavePathRowStaysSingleLineInNarrowPane(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+	cfg.AI.SavePath = "~/summaries/export"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedField(sfSavePath)
+
+	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha))
+	for _, line := range body.lines {
+		if strings.Contains(ansi.Strip(line), "Save summaries to") {
+			if got := lipgloss.Height(line); got != 1 {
+				t.Fatalf("expected save path row to stay on one line, got height %d in %q", got, ansi.Strip(line))
+			}
+			return
+		}
+	}
+	t.Fatal("expected save path row to be present")
 }
