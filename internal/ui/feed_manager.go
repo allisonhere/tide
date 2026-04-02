@@ -322,7 +322,7 @@ func (fm *FeedManager) setBrowseOnlyStatus() {
 
 func (fm *FeedManager) focusAdd() {
 	fm.mode = fmEdit
-	fm.paneFocus = fmPaneList
+	fm.paneFocus = fmPaneDetail
 	fm.editTarget = 0
 	fm.folderEditTarget = 0
 	fm.addSourceIdx = fmAddSourceLocal
@@ -336,7 +336,7 @@ func (fm *FeedManager) focusAdd() {
 	fm.statusMsg = ""
 	fm.busy = false
 	fm.busyMsg = ""
-	fm.blurEditInputs()
+	fm.focusCurrentEditField()
 }
 
 func (fm *FeedManager) prefillAddFormFromSelectedRemoteFeed() {
@@ -894,6 +894,8 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 	}
 	if fm.paneFocus == fmPaneList {
 		switch {
+		case keyMatches(msg, keys.Add):
+			fm.focusAdd()
 		case keyMatches(msg, keys.Cancel):
 			fm.mode = fmList
 			fm.paneFocus = fmPaneList
@@ -1535,11 +1537,11 @@ func (fm FeedManager) viewWorkspacePane(width, height int, chrome managerChrome,
 	body := fm.viewListDetails(width, chrome)
 	switch fm.mode {
 	case fmEdit:
+		title = "ADD FEED"
+		if fm.editTarget != 0 {
+			title = "EDIT FEED"
+		}
 		if !fm.listPaneFocused() {
-			title = "ADD FEED"
-			if fm.editTarget != 0 {
-				title = "EDIT FEED"
-			}
 			body = fm.viewEdit(width, height, chrome, styles)
 		}
 	case fmFolderEdit:
@@ -1707,6 +1709,7 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 	case fmEdit:
 		if fm.paneFocus == fmPaneList {
 			return renderManagerActions(width, chrome,
+				"a", "new feed",
 				"↑/↓", "browse list",
 				"enter", "edit form",
 				"esc", "cancel",

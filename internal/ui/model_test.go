@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +82,34 @@ func TestFirstLoadEmptyDoesNotOpenOverlay(t *testing.T) {
 
 	if m.overlay != overlayNone {
 		t.Errorf("expected overlay=None for empty first load, got %v", m.overlay)
+	}
+}
+
+func TestEnterOpensAddDialogWhenNoFeedsExist(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 96, Height: 24})
+	m = m2.(Model)
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: nil})
+	m = m2.(Model)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(Model)
+
+	if m.overlay != overlayFeedManager {
+		t.Fatalf("expected enter on empty main screen to open feed manager overlay, got %v", m.overlay)
+	}
+	if m.feedManager.mode != fmEdit {
+		t.Fatalf("expected enter on empty main screen to open add dialog, got mode %v", m.feedManager.mode)
+	}
+	if m.feedManager.listPaneFocused() {
+		t.Fatal("expected enter on empty main screen to focus the add dialog form")
 	}
 }
 
@@ -779,11 +808,60 @@ func TestAddKeyOpensAddDialogWithSourceToggle(t *testing.T) {
 	if m.feedManager.mode != fmEdit {
 		t.Fatalf("expected add key to enter add dialog, got mode %v", m.feedManager.mode)
 	}
-	if !m.feedManager.listPaneFocused() {
-		t.Fatal("expected add dialog to start focused on the left pane")
+	if m.feedManager.listPaneFocused() {
+		t.Fatal("expected add dialog to start focused on the right pane")
 	}
 	if m.feedManager.focusedField != fmFieldAddSource {
 		t.Fatalf("expected add dialog to focus source toggle, got field %d", m.feedManager.focusedField)
+	}
+}
+
+func TestFeedManagerOverlayShowsAddActionAndAOpensAddDialog(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	m := NewModel(database, cfg, "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 96, Height: 24})
+	m = m2.(Model)
+	m2, _ = m.Update(FeedsLoadedMsg{
+		Feeds: []db.Feed{{ID: -1, Title: "Remote Feed", URL: "https://example.com/feed"}},
+		RemoteStreams: map[int64]string{
+			-1: "feed/http://example.com/feed",
+		},
+	})
+	m = m2.(Model)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	m = m2.(Model)
+
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "ADD FEED") {
+		t.Fatalf("expected manager overlay footer to advertise add feed, got %q", view)
+	}
+	if strings.Contains(view, "BROWSE-ONLY") {
+		t.Fatalf("expected editable manager overlay not to render browse-only footer, got %q", view)
+	}
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = m2.(Model)
+
+	if m.overlay != overlayFeedManager {
+		t.Fatalf("expected manager overlay to remain open after a, got %v", m.overlay)
+	}
+	if m.feedManager.mode != fmEdit {
+		t.Fatalf("expected a in manager list view to open add dialog, got mode %v", m.feedManager.mode)
+	}
+	if m.feedManager.listPaneFocused() {
+		t.Fatal("expected add dialog from manager list view to start focused on the right pane")
 	}
 }
 
@@ -823,6 +901,20 @@ func TestRemoteFeedAddedMsgPersistsGReaderConfigAndTargetsStream(t *testing.T) {
 	if m.pendingSelectFeedID != remoteStableID("feed", "feed/http://example.com/feed") {
 		t.Fatalf("expected remote add flow to target the added feed, got %d", m.pendingSelectFeedID)
 	}
+
+	saved, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config from disk: %v", err)
+	}
+	if saved.Source.GReaderURL != "https://rss.example.com/api/greader.php" {
+		t.Fatalf("expected greader URL to persist to disk, got %q", saved.Source.GReaderURL)
+	}
+	if saved.Source.GReaderLogin != "alice" {
+		t.Fatalf("expected greader login to persist to disk, got %q", saved.Source.GReaderLogin)
+	}
+	if saved.Source.GReaderPassword != "secret" {
+		t.Fatalf("expected greader password to persist to disk, got %q", saved.Source.GReaderPassword)
+	}
 }
 
 func TestRemoteFeedAddedMsgWithoutStreamShowsConnectedStatus(t *testing.T) {
@@ -850,6 +942,42 @@ func TestRemoteFeedAddedMsgWithoutStreamShowsConnectedStatus(t *testing.T) {
 	}
 	if m.statusMsg != "connected greader: 7 feeds" {
 		t.Fatalf("expected connected status, got %q", m.statusMsg)
+	}
+}
+
+func TestRemoteFeedAddedMsgSaveFailureSurfacesStatus(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	blocked := t.TempDir() + "/config-blocker"
+	if err := os.WriteFile(blocked, []byte("not a dir"), 0o644); err != nil {
+		t.Fatalf("write blocker file: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", blocked)
+
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, cmd := m.Update(RemoteFeedAddedMsg{
+		Source: config.SourceConfig{
+			GReaderURL:      "https://rss.example.com/api/greader.php",
+			GReaderLogin:    "alice",
+			GReaderPassword: "secret",
+		},
+		FeedCount: 7,
+	})
+	m = m2.(Model)
+
+	if !strings.Contains(m.statusMsg, "greader config save failed") {
+		t.Fatalf("expected save failure status, got %q", m.statusMsg)
+	}
+	if m.greaderClient == nil {
+		t.Fatal("expected greader client to remain initialized in-memory after save failure")
+	}
+	if cmd == nil {
+		t.Fatal("expected save failure path to return follow-up commands")
 	}
 }
 
