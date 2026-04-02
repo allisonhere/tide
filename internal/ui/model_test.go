@@ -603,6 +603,24 @@ func TestSettingsCanReopenAfterSave(t *testing.T) {
 	}
 }
 
+func TestSettingsOverlayOpensWithSidebarFocus(t *testing.T) {
+	m := NewModel(nil, config.DefaultConfig(), "v1.0.0")
+	m.keys = DefaultKeys
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	m = next.(Model)
+
+	if m.overlay != overlaySettings {
+		t.Fatalf("expected settings overlay to open, got %v", m.overlay)
+	}
+	if m.settings.focusedPane != settingsPaneSidebar {
+		t.Fatalf("expected settings overlay to open with sidebar focus, got %v", m.settings.focusedPane)
+	}
+	if m.settings.activeSection != ssDisplay {
+		t.Fatalf("expected settings overlay to open on DISPLAY section, got %v", m.settings.activeSection)
+	}
+}
+
 func TestSettingsViewShowsFeedMaxSizeField(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setActiveSection(ssFeeds)
@@ -1243,6 +1261,7 @@ func TestSettingsAboutActionReturnsBrowserCommand(t *testing.T) {
 		settings: newSettings(config.DefaultConfig(), settingsUpdateState{}),
 	}
 	m.settings.setActiveSection(ssAbout)
+	m.settings.setFocusedPane(settingsPaneDetail)
 	m.settings.setFocusedField(sfAboutRepo)
 
 	next, cmd := m.handleSettings(tea.KeyMsg{Type: tea.KeyEnter})

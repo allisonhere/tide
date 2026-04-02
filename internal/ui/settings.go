@@ -181,7 +181,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		ollamaModelInput:     mkInput(cfg.AI.OllamaModel, "llama3.2", false),
 		savePathInput:        mkInput(cfg.AI.SavePath, "~/", false),
 		activeSection:        ssDisplay,
-		focusedPane:          settingsPaneDetail,
+		focusedPane:          settingsPaneSidebar,
 		sectionField: [settingsSectionCount]settingsField{
 			ssDisplay: sfIcons,
 			ssFeeds:   sfFeedMaxBody,
@@ -537,6 +537,14 @@ func (s Settings) focusedTextInputCursorPosition() int {
 	return -1
 }
 
+func (s Settings) isPickerField() bool {
+	switch s.focusedField {
+	case sfProvider:
+		return true
+	}
+	return false
+}
+
 // ── Update ────────────────────────────────────────────────────────────────────
 
 func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
@@ -607,7 +615,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		return s.updateFocusedTextInput(msg)
 	}
 
-	if !s.isTextInput() && keyMatches(key, keys.Left) {
+	if !s.isTextInput() && !s.isPickerField() && keyMatches(key, keys.Left) {
 		s.setFocusedPane(settingsPaneSidebar)
 		return s, nil, false
 	}
@@ -723,7 +731,12 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 
 	case sfProvider:
 		switch {
-		case key.String() == " " || keyMatches(key, keys.Enter):
+		case keyMatches(key, keys.Left):
+			s.clearSaveError()
+			s.providerIdx = (s.providerIdx + len(aiProviderLabels) - 1) % len(aiProviderLabels)
+			s.ensureSectionFieldVisible(ssAI)
+			s.setFocusedField(sfProvider)
+		case key.String() == " " || keyMatches(key, keys.Enter) || keyMatches(key, keys.Right):
 			s.clearSaveError()
 			s.providerIdx = (s.providerIdx + 1) % len(aiProviderLabels)
 			s.ensureSectionFieldVisible(ssAI)
@@ -1018,6 +1031,15 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 			"esc", "cancel",
 		)
 	}
+	if s.isPickerField() {
+		return renderManagerActions(width, chrome,
+			"←/→", "change",
+			"↑/↓", "field",
+			"tab", "next",
+			"ctrl+s", "save",
+			"esc", "cancel",
+		)
+	}
 	return renderManagerActions(width, chrome,
 		"←", "sections",
 		"↑/↓", "field",
@@ -1169,32 +1191,25 @@ func (s Settings) renderProviderSelector(width int, chrome managerChrome) string
 
 	focused := s.focusedField == sfProvider
 	providerName := aiProviderLabels[s.providerIdx]
+	pickerW := max(1, width-labelColW)
+	return label + renderSettingsPicker(pickerW, providerName, focused, chrome)
+}
 
-	var selector string
+func renderSettingsPicker(width int, value string, focused bool, chrome managerChrome) string {
+	maxTextW := max(1, width-5)
+	bg := chrome.surfaceBg
+	fg := chrome.text
+	accentFg := chrome.muted
 	if focused {
-		selector = s.renderBadge(providerName, true, chrome)
-	} else {
-		fg := chrome.muted
-		if s.providerIdx > 0 {
-			fg = chrome.text
-		}
-		selector = lipgloss.NewStyle().
-			Background(chrome.surfaceBg).
-			Foreground(fg).
-			Width(7).
-			Align(lipgloss.Center).
-			Render(strings.ToLower(providerName))
+		bg = chrome.accent
+		fg = chrome.accentFg
+		accentFg = chrome.accentFg
 	}
-	hintW := max(1, width-labelColW-7)
-	hint := lipgloss.NewStyle().
-		Background(chrome.baseBg).
-		Foreground(chrome.muted).
-		Width(hintW).
-		Render(" " + truncate("use enter to change", max(1, hintW-1)))
-	if focused {
-		hint = chrome.keyLabel.Width(hintW).Render(" " + truncate("use enter to change", max(1, hintW-1)))
-	}
-	return label + selector + hint
+	value = truncate(value, maxTextW)
+	text := lipgloss.NewStyle().Background(bg).Foreground(fg)
+	accent := lipgloss.NewStyle().Background(bg).Foreground(accentFg).Bold(true)
+	line := accent.Render("◀ ") + text.Render(value) + accent.Render(" ▶")
+	return lipgloss.NewStyle().Background(bg).Padding(0, 1).Render(line)
 }
 
 func (s Settings) fieldHint(field settingsField) string {
