@@ -267,8 +267,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.pendingUpdateInstall {
 				m.pendingUpdateInstall = false
 				if !m.updateDismissed {
-					m.overlay = overlayUpdateConfirm
-					return m, nil
+					m.updateState = updateStateDownloading
+					m.syncSettingsUpdateState()
+					return m, m.downloadUpdateCmd(m.updateInfo)
 				}
 			}
 			if !m.updateDismissed && (msg.Manual || update.IsStableVersion(m.currentVersion)) {
@@ -659,16 +660,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.SetContent(m.renderArticleContent(current))
 		m.viewport.GotoTop()
 
-		cmds := []tea.Cmd{}
-		if msg.FeedID == 0 || !m.isRemoteFeed(msg.FeedID) {
-			cmds = append(cmds, m.loadFeedsCmd())
-		}
 		if current.ID != msg.ArticleID || !msg.Read {
-			if cmd := m.maybeFetchArticleContentCmd(current); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
+			return m, m.maybeFetchArticleContentCmd(current)
 		}
-		return m, tea.Batch(cmds...)
+		return m, nil
 
 	case FeedsReadUpdatedMsg:
 		if len(msg.FeedIDs) > 0 {
@@ -1092,6 +1087,12 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case keyMatches(msg, m.keys.Confirm):
 			m.overlay = overlayNone
+			if m.updateInfo.DownloadURL == "" {
+				m.pendingUpdateInstall = true
+				m.updateState = updateStateChecking
+				m.syncSettingsUpdateState()
+				return m, m.checkForUpdatesCmd(true)
+			}
 			m.updateState = updateStateDownloading
 			m.syncSettingsUpdateState()
 			return m, m.downloadUpdateCmd(m.updateInfo)
