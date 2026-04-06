@@ -269,7 +269,7 @@ func TestUpdateConfirmEnterStartsDownloadAndReturnsToApp(t *testing.T) {
 	m := Model{
 		overlay:    overlayUpdateConfirm,
 		keys:       DefaultKeys,
-		updateInfo: update.ReleaseInfo{Version: "v1.1.0"},
+		updateInfo: update.ReleaseInfo{Version: "v1.1.0", DownloadURL: "https://example.com/tide.tar.gz"},
 	}
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -283,6 +283,30 @@ func TestUpdateConfirmEnterStartsDownloadAndReturnsToApp(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected enter from update confirm to start a download command")
+	}
+}
+
+func TestUpdateConfirmEnterWithNoURLChecksFirst(t *testing.T) {
+	m := Model{
+		overlay:    overlayUpdateConfirm,
+		keys:       DefaultKeys,
+		updateInfo: update.ReleaseInfo{Version: "v1.1.0"},
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(Model)
+
+	if got.overlay != overlayNone {
+		t.Fatalf("expected overlay dismissed, got %v", got.overlay)
+	}
+	if got.updateState != updateStateChecking {
+		t.Fatalf("expected state checking when DownloadURL empty, got %v", got.updateState)
+	}
+	if !got.pendingUpdateInstall {
+		t.Fatal("expected pendingUpdateInstall to be set")
+	}
+	if cmd == nil {
+		t.Fatal("expected a check command to be returned")
 	}
 }
 
