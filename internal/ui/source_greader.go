@@ -62,9 +62,9 @@ func (m Model) loadGReaderFeeds(ctx context.Context) ([]db.Feed, map[int64]strin
 	if err != nil {
 		return nil, nil, err
 	}
-	remoteFolders := map[int64]int64{}
+	remotePrefs := map[int64]db.RemoteFeedPref{}
 	if m.db != nil {
-		remoteFolders, err = m.db.ListRemoteFeedFolders()
+		remotePrefs, err = m.db.ListRemoteFeedPrefs()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -81,7 +81,11 @@ func (m Model) loadGReaderFeeds(ctx context.Context) ([]db.Feed, map[int64]strin
 		feedID := remoteStableID("feed", sub.ID)
 		streams[feedID] = sub.ID
 
-		title := strings.TrimSpace(sub.Title)
+		pref := remotePrefs[feedID]
+		title := strings.TrimSpace(pref.Title)
+		if title == "" {
+			title = strings.TrimSpace(sub.Title)
+		}
 		if title == "" {
 			title = sub.ID
 		}
@@ -97,7 +101,7 @@ func (m Model) loadGReaderFeeds(ctx context.Context) ([]db.Feed, map[int64]strin
 			Description: strings.TrimSpace(sub.Category),
 			LastFetched: now,
 			UnreadCount: counts[sub.ID],
-			FolderID:    remoteFolders[feedID],
+			FolderID:    pref.FolderID,
 		})
 	}
 

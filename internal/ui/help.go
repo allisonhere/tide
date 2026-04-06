@@ -90,16 +90,15 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 		"",
 	}
 
+	spacer := styles.HelpKey.Render("") + styles.HelpDesc.Render("")
 	for _, s := range sections {
 		lines = append(lines, styles.HelpSection.Render(s.name))
 		for _, e := range s.entries {
 			line := styles.HelpKey.Render(e.key) + styles.HelpDesc.Render(e.desc)
 			lines = append(lines, line)
 		}
-		lines = append(lines, "")
+		lines = append(lines, spacer)
 	}
-
-	lines = append(lines, styles.OverlayHint.Render("[esc / ? / q] close help"))
 
 	content := strings.Join(lines, "\n")
 	return lipgloss.NewStyle().

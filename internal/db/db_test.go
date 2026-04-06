@@ -141,7 +141,75 @@ func TestDBFoldersCRUDAndFeedAssignment(t *testing.T) {
 	}
 }
 
-func TestOpenMigratesFolderSchemaToVersion4(t *testing.T) {
+func TestListArticlesReturnsUnreadOnly(t *testing.T) {
+	tmp := t.TempDir()
+	db, err := openSQLite(filepath.Join(tmp, "rss.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.init(); err != nil {
+		t.Fatal(err)
+	}
+
+	feedID, err := db.AddFeed("https://example.com/feed.xml", "Example Feed", "desc")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seed := []Article{
+		{
+			FeedID:      feedID,
+			GUID:        "old-unread",
+			Title:       "Old Unread",
+			Link:        "https://example.com/old-unread",
+			Content:     "old",
+			PublishedAt: unixTime(1710000000),
+		},
+		{
+			FeedID:      feedID,
+			GUID:        "new-read",
+			Title:       "New Read",
+			Link:        "https://example.com/new-read",
+			Content:     "read",
+			PublishedAt: unixTime(1710000200),
+		},
+		{
+			FeedID:      feedID,
+			GUID:        "new-unread",
+			Title:       "New Unread",
+			Link:        "https://example.com/new-unread",
+			Content:     "new",
+			PublishedAt: unixTime(1710000100),
+		},
+	}
+	for _, article := range seed {
+		if err := db.UpsertArticle(article); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := db.Exec(`UPDATE articles SET read = 1 WHERE feed_id = ? AND guid = ?`, feedID, "new-read"); err != nil {
+		t.Fatal(err)
+	}
+
+	articles, err := db.ListArticles(feedID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(articles) != 2 {
+		t.Fatalf("expected 2 unread articles, got %d", len(articles))
+	}
+	if articles[0].GUID != "new-unread" {
+		t.Fatalf("expected newest unread article first, got %q", articles[0].GUID)
+	}
+	if articles[1].GUID != "old-unread" {
+		t.Fatalf("expected older unread article second, got %q", articles[1].GUID)
+	}
+}
+
+func TestOpenMigratesFolderSchemaToVersion5(t *testing.T) {
 	tmp := t.TempDir()
 	db, err := openSQLite(filepath.Join(tmp, "rss.db"))
 	if err != nil {
@@ -182,8 +250,8 @@ func TestOpenMigratesFolderSchemaToVersion4(t *testing.T) {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 4 {
-		t.Fatalf("expected schema version 4, got %d", version)
+	if version != 5 {
+		t.Fatalf("expected schema version 5, got %d", version)
 	}
 
 	rows, err := db.Query(`PRAGMA table_info(feeds)`)
@@ -242,6 +310,7 @@ func TestOpenMigratesFolderSchemaToVersion4(t *testing.T) {
 
 	foundRemoteFeedID := false
 	foundRemoteFolderID := false
+	foundRemoteTitle := false
 	for rows.Next() {
 		var cid int
 		var name, typ string
@@ -256,9 +325,12 @@ func TestOpenMigratesFolderSchemaToVersion4(t *testing.T) {
 		if name == "folder_id" {
 			foundRemoteFolderID = true
 		}
+		if name == "title" {
+			foundRemoteTitle = true
+		}
 	}
-	if !foundRemoteFeedID || !foundRemoteFolderID {
-		t.Fatalf("expected remote_feed_prefs columns after migration, found remote_feed_id=%v folder_id=%v", foundRemoteFeedID, foundRemoteFolderID)
+	if !foundRemoteFeedID || !foundRemoteFolderID || !foundRemoteTitle {
+		t.Fatalf("expected remote_feed_prefs columns after migration, found remote_feed_id=%v folder_id=%v title=%v", foundRemoteFeedID, foundRemoteFolderID, foundRemoteTitle)
 	}
 	rows.Close()
 }
@@ -302,6 +374,69 @@ func TestDBRemoteFeedFolderAssignment(t *testing.T) {
 	}
 	if _, ok := assignments[-42]; ok {
 		t.Fatalf("expected deleted folder to clear remote feed assignment, got %+v", assignments)
+	}
+}
+
+func TestDBRemoteFeedTitleOverridePersistsWithoutFolder(t *testing.T) {
+	tmp := t.TempDir()
+	db, err := openSQLite(filepath.Join(tmp, "rss.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.init(); err != nil {
+		t.Fatal(err)
+	}
+
+	folderID, err := db.AddFolder("Remote", "#7aa2f7")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.SetRemoteFeedTitle(-42, "Custom Remote"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetRemoteFeedFolder(-42, folderID); err != nil {
+		t.Fatal(err)
+	}
+
+	prefs, err := db.ListRemoteFeedPrefs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := prefs[-42].Title; got != "Custom Remote" {
+		t.Fatalf("expected remote title override to be stored, got %q", got)
+	}
+	if got := prefs[-42].FolderID; got != folderID {
+		t.Fatalf("expected remote folder %d, got %d", folderID, got)
+	}
+
+	if err := db.SetRemoteFeedFolder(-42, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	prefs, err = db.ListRemoteFeedPrefs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := prefs[-42].Title; got != "Custom Remote" {
+		t.Fatalf("expected title override to survive clearing folder, got %q", got)
+	}
+	if got := prefs[-42].FolderID; got != 0 {
+		t.Fatalf("expected cleared folder id 0, got %d", got)
+	}
+
+	if err := db.SetRemoteFeedTitle(-42, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	prefs, err = db.ListRemoteFeedPrefs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := prefs[-42]; ok {
+		t.Fatalf("expected empty remote pref row to be pruned, got %+v", prefs[-42])
 	}
 }
 

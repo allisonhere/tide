@@ -1244,15 +1244,20 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 			if err != nil {
 				return RemoteFeedAddedMsg{Err: err}
 			}
-			remoteTitle := strings.TrimSpace(result.StreamName)
-			if remoteTitle == "" {
-				remoteTitle = title
+			displayTitle := title
+			if displayTitle == "" {
+				displayTitle = strings.TrimSpace(result.StreamName)
 			}
-			if remoteTitle == "" {
-				remoteTitle = strings.TrimSpace(result.Query)
+			if displayTitle == "" {
+				displayTitle = strings.TrimSpace(result.Query)
 			}
-			if remoteTitle == "" {
-				remoteTitle = rawURL
+			if displayTitle == "" {
+				displayTitle = rawURL
+			}
+			if database != nil && title != "" {
+				if err := database.SetRemoteFeedTitle(remoteStableID("feed", result.StreamID), title); err != nil {
+					return RemoteFeedAddedMsg{Err: err}
+				}
 			}
 			return RemoteFeedAddedMsg{
 				Source: config.SourceConfig{
@@ -1261,7 +1266,7 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 					GReaderPassword: greaderPassword,
 				},
 				StreamID: result.StreamID,
-				Title:    remoteTitle,
+				Title:    displayTitle,
 			}
 		}
 
