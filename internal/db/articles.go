@@ -20,7 +20,7 @@ func (db *DB) ListArticles(feedID int64) ([]Article, error) {
 	rows, err := db.Query(`
 		SELECT id, feed_id, guid, title, link, content, summary, published_at, read
 		FROM articles
-		WHERE feed_id = ?
+		WHERE feed_id = ? AND read = 0
 		ORDER BY published_at DESC
 		LIMIT 100
 	`, feedID)

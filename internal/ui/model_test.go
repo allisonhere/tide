@@ -749,6 +749,58 @@ func TestLoadFeedsCmdAppliesLocalFolderPrefsToGReaderFeeds(t *testing.T) {
 	t.Fatalf("expected remote feed to be present, got %#v", m.feeds)
 }
 
+func TestLoadFeedsCmdAppliesLocalTitleOverrideToGReaderFeeds(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	remoteFeedID := remoteStableID("feed", "feed/http://example.com/feed.xml")
+	if err := database.SetRemoteFeedTitle(remoteFeedID, "Custom Remote"); err != nil {
+		t.Fatalf("SetRemoteFeedTitle returned error: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	m := NewModel(database, cfg, "v1.0.0")
+	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
+			return uiResponseWithBody(http.StatusOK, "Auth=test-token\n"), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/subscription/list?output=json":
+			return uiResponseWithJSON(http.StatusOK, `{
+				"subscriptions": [
+					{"id":"feed/http://example.com/feed.xml","title":"Server Title","url":"http://example.com/feed.xml","htmlUrl":"http://example.com/"}
+				]
+			}`), nil
+		case "https://rss.example.com/api/greader.php/reader/api/0/unread-count?output=json":
+			return uiResponseWithJSON(http.StatusOK, `{"unreadcounts":[{"id":"feed/http://example.com/feed.xml","count":4}]}`), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	msg := m.loadFeedsCmd()()
+	m2, _ := m.Update(msg)
+	m = m2.(Model)
+
+	for _, feed := range m.feeds {
+		if feed.ID == remoteFeedID {
+			if feed.Title != "Custom Remote" {
+				t.Fatalf("expected local title override, got %q", feed.Title)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected remote feed to be present, got %#v", m.feeds)
+}
+
 func TestLoadArticlesCmdUsesGReaderFeedWhenSelected(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	database, err := db.Open()
@@ -1193,6 +1245,85 @@ func TestRemoteReadArticleDoesNotReturnAfterReload(t *testing.T) {
 	}
 }
 
+func TestLocalReadArticleDisappearsAfterReload(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	feedID, err := database.AddFeed("https://example.com/feed.xml", "Local Feed", "desc")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seed := []db.Article{
+		{
+			FeedID:      feedID,
+			GUID:        "readme",
+			Title:       "Read Me",
+			Link:        "https://example.com/read",
+			Content:     "one",
+			PublishedAt: unixTestTime(1710000100),
+		},
+		{
+			FeedID:      feedID,
+			GUID:        "keepme",
+			Title:       "Keep Me",
+			Link:        "https://example.com/keep",
+			Content:     "two",
+			PublishedAt: unixTestTime(1710000000),
+		},
+	}
+	for _, article := range seed {
+		if err := database.UpsertArticle(article); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	m2, _ = m.Update(FeedsLoadedMsg{
+		Feeds: []db.Feed{{
+			ID:          feedID,
+			Title:       "Local Feed",
+			URL:         "https://example.com/feed.xml",
+			UnreadCount: 2,
+		}},
+	})
+	m = m2.(Model)
+
+	m2, _ = m.Update(m.loadArticlesCmd(feedID)())
+	m = m2.(Model)
+	m.focused = paneArticles
+
+	if len(m.articles) != 2 {
+		t.Fatalf("expected 2 unread local articles before mark-read, got %d", len(m.articles))
+	}
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = m2.(Model)
+	m2, _ = m.Update(cmd())
+	m = m2.(Model)
+
+	if !m.articles[0].Read {
+		t.Fatal("expected selected local article to be marked read in memory")
+	}
+
+	m2, _ = m.Update(m.loadArticlesCmd(feedID)())
+	m = m2.(Model)
+
+	if len(m.articles) != 1 {
+		t.Fatalf("expected only unread local article after reload, got %d", len(m.articles))
+	}
+	if m.articles[0].GUID != "keepme" {
+		t.Fatalf("expected only unread local article to remain after reload, got %q", m.articles[0].GUID)
+	}
+}
+
 func TestFeedManagerKeyStillOpensEditableOverlayWithRemoteFeedsLoaded(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	database, err := db.Open()
@@ -1494,6 +1625,13 @@ func TestRemoteFeedAddedMsgSaveFailureSurfacesStatus(t *testing.T) {
 }
 
 func TestFeedManagerGReaderSaveCmdQuickAddsRemoteFeed(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
 	loginHit := false
 	quickAddHit := false
 
@@ -1523,7 +1661,7 @@ func TestFeedManagerGReaderSaveCmdQuickAddsRemoteFeed(t *testing.T) {
 	})
 	defer func() { http.DefaultTransport = origTransport }()
 
-	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm := NewFeedManagerWithSource(database, config.SourceConfig{})
 	fm.focusAdd()
 	fm.addSourceIdx = fmAddSourceGReader
 	fm.titleInput.SetValue("Custom Title")
@@ -1546,11 +1684,18 @@ func TestFeedManagerGReaderSaveCmdQuickAddsRemoteFeed(t *testing.T) {
 	if got.StreamID != "feed/http://example.com/feed.xml" {
 		t.Fatalf("expected stream id from quickadd, got %q", got.StreamID)
 	}
-	if got.Title != "Example Feed" {
-		t.Fatalf("expected remote title from quickadd, got %q", got.Title)
+	if got.Title != "Custom Title" {
+		t.Fatalf("expected local custom title from quickadd, got %q", got.Title)
 	}
 	if got.Source.GReaderURL != "https://rss.example.com/api/greader.php" || got.Source.GReaderLogin != "alice" || got.Source.GReaderPassword != "secret" {
 		t.Fatalf("unexpected persisted source config: %#v", got.Source)
+	}
+	prefs, err := database.ListRemoteFeedPrefs()
+	if err != nil {
+		t.Fatalf("ListRemoteFeedPrefs returned error: %v", err)
+	}
+	if got := prefs[remoteStableID("feed", "feed/http://example.com/feed.xml")].Title; got != "Custom Title" {
+		t.Fatalf("expected local title override to be stored, got %q", got)
 	}
 }
 
@@ -2168,6 +2313,49 @@ func TestFeedsPaneRendersFoldersAndUncategorized(t *testing.T) {
 	}
 	if !containsString(pane, "1 folders · 2 feeds") {
 		t.Fatalf("expected folder/feed footer in pane: %q", pane)
+	}
+}
+
+func TestFeedsLoadedSelectsFirstFeedInsteadOfFolderByDefault(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.Source.GReaderURL = "https://rss.example.com/api/greader.php"
+	cfg.Source.GReaderLogin = "alice"
+	cfg.Source.GReaderPassword = "secret"
+
+	m := NewModel(database, cfg, "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	remoteFeedID := remoteStableID("feed", "feed/http://example.com/feed.xml")
+	m2, _ = m.Update(FeedsLoadedMsg{
+		Feeds: []db.Feed{{
+			ID:    remoteFeedID,
+			Title: "Remote Feed",
+			URL:   "https://example.com/feed.xml",
+		}},
+		Folders: []db.Folder{{ID: 10, Name: "Tech", Position: 0}},
+		RemoteStreams: map[int64]string{
+			remoteFeedID: "feed/http://example.com/feed.xml",
+		},
+	})
+	m = m2.(Model)
+
+	selected := m.selectedFeed()
+	if selected == nil {
+		t.Fatal("expected default selection to land on a feed row, got folder selection")
+	}
+	if selected.ID != remoteFeedID {
+		t.Fatalf("expected remote feed %d to be selected, got %d", remoteFeedID, selected.ID)
+	}
+	if _, ok := m.selectedFolderID(); ok {
+		t.Fatal("expected no folder header to be selected by default")
 	}
 }
 

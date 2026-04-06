@@ -381,6 +381,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+		} else {
+			for i, row := range m.sidebarRows {
+				if row.kind == rowKindFeed {
+					m.sidebarCursor = i
+					break
+				}
+			}
 		}
 		m.sidebarCursor = clamp(m.sidebarCursor, 0, max(0, len(m.sidebarRows)-1))
 		if m.overlay == overlayFeedManager && m.feedManager.mode == fmList {
@@ -1367,7 +1374,7 @@ func (m Model) renderArticleContent(a db.Article) string {
 	bodyWidth := m.contentBodyWidth()
 	titleWidth := max(1, contentWidth-m.styles.ContentTitle.GetHorizontalFrameSize())
 	metaWidth := max(1, contentWidth-m.styles.ContentMeta.GetHorizontalFrameSize())
-	title := " " + m.styles.ContentTitle.Width(contentWidth).Render(truncate(a.Title, titleWidth))
+	title := m.styles.ContentTitle.Width(contentWidth + 2).Render(truncate(a.Title, titleWidth+2))
 	meta := " " + m.styles.ContentMeta.Width(contentWidth).Render(truncate(a.PublishedAt.Format("Mon, 02 Jan 2006 15:04")+"  "+a.Link, metaWidth))
 
 	content := a.Content
@@ -1523,12 +1530,17 @@ func (m Model) renderOverlay(base string) string {
 			border = t.BorderFocus
 		}
 		m.helpVP.Style = lipgloss.NewStyle().Background(surface)
+		footer := m.styles.OverlayHint.
+			MarginTop(1).
+			Width(winW).
+			Padding(0, 1, 0, 4).
+			Render("[esc/?/q] close  [j/k/↑↓] scroll")
 		box = lipgloss.NewStyle().
 			Background(surface).
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(border).
 			Width(winW).Height(winH).
-			Render(m.helpVP.View())
+			Render(m.helpVP.View() + "\n" + footer)
 
 	case overlayFetchError:
 		if m.lastFetchError != nil {
@@ -2961,7 +2973,7 @@ func (m *Model) resetHelpVP() {
 	winW := min(m.width-6, 90)
 	winH := min(m.height-4, 38)
 	vpW := winW - 2 // inside border
-	vpH := winH - 2 // inside border
+	vpH := winH - 3 // inside border, minus footer row
 	m.helpVP = viewport.New(vpW, vpH)
 	m.helpVP.SetContent(renderHelp(vpW, m.styles, m.keys))
 }
