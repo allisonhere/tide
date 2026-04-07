@@ -239,15 +239,17 @@ func IsStableVersion(v string) bool {
 }
 
 func IsNewerVersion(latest, current string) bool {
-	if latest == "" {
+	if latest == "" || current == "" {
 		return false
 	}
-	if lv, ok := parseVersion(latest); ok {
-		if cv, ok := parseVersion(current); ok {
-			return compareParsedVersions(lv, cv) > 0
-		}
+	lv, lok := parseVersion(latest)
+	cv, cok := parseVersion(current)
+	if lok && cok {
+		return compareParsedVersions(lv, cv) > 0
 	}
-	return strings.TrimSpace(latest) != strings.TrimSpace(current)
+	// If either version is not a valid semver, we cannot reliably compare,
+	// so don't claim an update is available.
+	return false
 }
 
 type parsedVersion struct {

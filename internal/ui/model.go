@@ -473,11 +473,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				continue
 			}
 		}
-		if msg.Title != "" {
-			m.db.UpdateFeedMeta(msg.FeedID, msg.Title, "", "", time.Now()) //nolint:errcheck
-		} else {
-			m.db.TouchFeedFetched(msg.FeedID, time.Now()) //nolint:errcheck
-		}
+		m.db.TouchFeedFetched(msg.FeedID, time.Now()) //nolint:errcheck
 		if r := msg.Result; r != nil && r.SuggestURLUpdate {
 			if err := m.db.UpdateFeedURL(msg.FeedID, r.SuggestedURL); err != nil {
 				m.setStatus(fmt.Sprintf("URL update failed: %v", err), true)
