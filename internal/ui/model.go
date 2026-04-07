@@ -1224,7 +1224,7 @@ func (m Model) renderFeedsPane() string {
 	w := m.feedsPaneWidth()
 	innerW := w - 1 // account for right border
 	focused := m.focused == paneFeeds
-	title := m.renderPaneHeader("Feeds", focused, innerW)
+	title := m.renderPaneHeader(paneFeeds, "Feeds", focused, innerW)
 	rows := []string{title}
 
 	for i, row := range m.sidebarRows {
@@ -1306,7 +1306,7 @@ func (m Model) renderArticlesPane() string {
 		title = fmt.Sprintf("Articles [/%s]", m.searchQuery)
 	}
 
-	contentRows := append([]string{m.renderPaneHeaderWithAccent(title, focused, w, headerActive)}, rows...)
+	contentRows := append([]string{m.renderPaneHeaderWithAccent(paneArticles, title, focused, w, headerActive)}, rows...)
 	for len(contentRows) < h {
 		contentRows = append(contentRows, articleRead.Width(w-2).Render(""))
 	}
@@ -1343,7 +1343,7 @@ func (m Model) renderContentPane() string {
 	inner := m.styles.ContentPane.
 		Width(w).
 		Height(innerH).
-		Render(m.renderPaneHeader("Content", focused, w) + "\n" + body)
+		Render(m.renderPaneHeader(paneContent, "Content", focused, w) + "\n" + body)
 
 	return lipgloss.NewStyle().
 		Background(bg).
@@ -1351,11 +1351,11 @@ func (m Model) renderContentPane() string {
 		Render(inner)
 }
 
-func (m Model) renderPaneHeader(label string, focused bool, width int) string {
-	return m.renderPaneHeaderWithAccent(label, focused, width, m.styles.PaneHeaderActive)
+func (m Model) renderPaneHeader(p pane, label string, focused bool, width int) string {
+	return m.renderPaneHeaderWithAccent(p, label, focused, width, m.styles.PaneHeaderActive)
 }
 
-func (m Model) renderPaneHeaderWithAccent(label string, focused bool, width int, activeStyle lipgloss.Style) string {
+func (m Model) renderPaneHeaderWithAccent(p pane, label string, focused bool, width int, activeStyle lipgloss.Style) string {
 	style := m.styles.PaneHeaderInactive
 	prefix := "    "
 	title := m.headerLabel(label)
@@ -1363,7 +1363,35 @@ func (m Model) renderPaneHeaderWithAccent(label string, focused bool, width int,
 		style = activeStyle
 		prefix = "> "
 	}
-	return style.Width(width).Render(renderFeedRow(prefix, title, "", width))
+	hint := m.renderPaneHint(p)
+	return style.Width(width).Render(renderPaneHeaderRow(prefix, title, hint, width))
+}
+
+func (m Model) renderPaneHint(p pane) string {
+	var hint string
+	switch p {
+	case paneFeeds:
+		hint = m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " move  " +
+			m.keyHint(m.keys.Enter) + " toggle  " + m.keyHint(m.keys.Refresh) + " refresh"
+	case paneArticles:
+		hint = m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " move  " +
+			m.keyHint(m.keys.MarkRead) + " read  " + m.keyHint(m.keys.Search) + " search"
+	case paneContent:
+		hint = m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " scroll  " +
+			m.keyHint(m.keys.OpenBrowser) + " open  " + m.keyHint(m.keys.Back) + " back"
+	}
+	if hint == "" {
+		return ""
+	}
+	return hint
+}
+
+func (m Model) keyHint(binding key.Binding) string {
+	k := strings.TrimSpace(binding.Help().Key)
+	if k == "" {
+		return "?"
+	}
+	return k
 }
 
 func (m Model) renderArticleContent(a db.Article) string {
@@ -2778,6 +2806,25 @@ func renderFeedRow(prefix, title, badge string, width int) string {
 		row += " " + badge
 	}
 	return padRight(row, width)
+}
+
+func renderPaneHeaderRow(prefix, title, hint string, width int) string {
+	base := prefix + title
+	baseW := lipgloss.Width(base)
+	if width <= 0 {
+		return ""
+	}
+	if hint == "" || baseW >= width {
+		return padRight(truncate(base, width), width)
+	}
+
+	hintMax := max(0, width-baseW-1)
+	if hintMax == 0 {
+		return padRight(truncate(base, width), width)
+	}
+	hint = truncate(hint, hintMax)
+	spaceW := max(1, width-baseW-lipgloss.Width(hint))
+	return base + strings.Repeat(" ", spaceW) + hint
 }
 
 func folderDisplayLabel(name string, collapsed, icons bool) string {
