@@ -14,8 +14,8 @@
 - deploy.sh release tool, install.sh curl installer, GitHub Actions release CI
 
 ## Known issues / next up
-- Background bleed in feed manager MAY still appear — monitor with pic.png screenshots
-  - Root causes documented in memory/feedback_lipgloss_bg.md
+- Feed manager stability pass landed: shared detail-pane geometry, explicit background coverage, and regression tests for narrow widths and cancel/focus transitions
+- Keep monitoring screenshots for theme-specific Lip Gloss edge cases, but there is no current known reproducible background-bleed case in the feed manager
 
 ## Key bg-bleed patterns (summary)
 1. bubbles pads input.View() with plain spaces → TrimRight + re-pad with fieldBg

@@ -20,6 +20,30 @@ func (db *DB) ListArticles(feedID int64) ([]Article, error) {
 	rows, err := db.Query(`
 		SELECT id, feed_id, guid, title, link, content, summary, published_at, read
 		FROM articles
+		WHERE feed_id = ?
+		ORDER BY published_at DESC
+		LIMIT 100
+	`, feedID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var articles []Article
+	for rows.Next() {
+		a, err := scanArticle(rows)
+		if err != nil {
+			return nil, err
+		}
+		articles = append(articles, a)
+	}
+	return articles, rows.Err()
+}
+
+func (db *DB) ListUnreadArticles(feedID int64) ([]Article, error) {
+	rows, err := db.Query(`
+		SELECT id, feed_id, guid, title, link, content, summary, published_at, read
+		FROM articles
 		WHERE feed_id = ? AND read = 0
 		ORDER BY published_at DESC
 		LIMIT 100

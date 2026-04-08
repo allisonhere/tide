@@ -473,7 +473,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				continue
 			}
 		}
-		m.db.TouchFeedFetched(msg.FeedID, time.Now()) //nolint:errcheck
+		now := time.Now()
+		currentFeed, err := m.db.GetFeed(msg.FeedID)
+		if err == nil {
+			title := strings.TrimSpace(msg.Title)
+			if title == "" {
+				title = currentFeed.Title
+			}
+			description := strings.TrimSpace(msg.Description)
+			if description == "" {
+				description = currentFeed.Description
+			}
+			faviconURL := strings.TrimSpace(msg.FaviconURL)
+			if faviconURL == "" {
+				faviconURL = currentFeed.FaviconURL
+			}
+			_ = m.db.UpdateFeedMeta(msg.FeedID, title, description, faviconURL, now)
+		} else {
+			_ = m.db.TouchFeedFetched(msg.FeedID, now)
+		}
 		if r := msg.Result; r != nil && r.SuggestURLUpdate {
 			if err := m.db.UpdateFeedURL(msg.FeedID, r.SuggestedURL); err != nil {
 				m.setStatus(fmt.Sprintf("URL update failed: %v", err), true)
@@ -482,7 +500,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if selected := m.selectedFeed(); selected != nil && msg.FeedID == selected.ID {
-			cmds = append(cmds, m.loadArticlesCmd(msg.FeedID))
+			cmds = append(cmds, m.loadUnreadArticlesCmd(msg.FeedID))
 		}
 		cmds = append(cmds, m.loadFeedsCmd())
 		cmds = append(cmds, m.clearStatusCmd())
@@ -860,11 +878,9 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, m.keys.MarkRead):
 		if len(m.filteredArticles) > 0 {
 			a := m.filteredArticles[m.articleCursor]
-			advance := m.focused == paneArticles
-			if !advance && a.Read {
-				return m, nil
-			}
-			return m, m.setArticleReadCmd(a, true, advance)
+			read := !a.Read
+			advance := !a.Read
+			return m, m.setArticleReadCmd(a, read, advance)
 		}
 		return m, nil
 
@@ -1328,7 +1344,7 @@ func (m Model) renderArticlesPane() string {
 
 func (m Model) renderContentPane() string {
 	w := m.articlesPaneWidth()
-	innerH := m.contentViewportHeight()
+	paneH := m.contentPaneOuterHeight()
 	bodyH := m.contentBodyHeight()
 	bg := m.styles.Theme.Bg
 
@@ -1342,12 +1358,12 @@ func (m Model) renderContentPane() string {
 
 	inner := m.styles.ContentPane.
 		Width(w).
-		Height(innerH).
+		Height(paneH).
 		Render(m.renderPaneHeader(paneContent, "Content", focused, w) + "\n" + body)
 
 	return lipgloss.NewStyle().
 		Background(bg).
-		Width(w).Height(innerH).
+		Width(w).Height(paneH).
 		Render(inner)
 }
 
@@ -1557,7 +1573,7 @@ func (m Model) renderOverlay(base string) string {
 		m.helpVP.Style = lipgloss.NewStyle().Background(surface)
 		footer := m.styles.OverlayHint.
 			MarginTop(1).
-			Width(winW).
+			Width(max(1, winW-1)).
 			Padding(0, 1, 0, 4).
 			Render("[esc/?/q] close  [j/k/↑↓] scroll")
 		box = lipgloss.NewStyle().
@@ -1833,6 +1849,19 @@ func (m *Model) loadArticlesCmd(feedID int64) tea.Cmd {
 	}
 }
 
+func (m *Model) loadUnreadArticlesCmd(feedID int64) tea.Cmd {
+	if m.isRemoteFeed(feedID) {
+		return m.loadArticlesCmd(feedID)
+	}
+	return func() tea.Msg {
+		articles, err := m.db.ListUnreadArticles(feedID)
+		if err != nil {
+			return ArticlesLoadedMsg{FeedID: feedID, Err: err}
+		}
+		return ArticlesLoadedMsg{FeedID: feedID, Articles: articles}
+	}
+}
+
 func (m *Model) maybeCheckForUpdatesCmd(manual bool) tea.Cmd {
 	if manual {
 		return m.checkForUpdatesCmd(true)
@@ -1900,11 +1929,13 @@ func (m *Model) refreshFeedCmd(feedID int64, feedURL string, manual bool) tea.Cm
 			})
 		}
 		return FeedRefreshedMsg{
-			FeedID:   feedID,
-			Articles: articles,
-			Title:    parsed.Title,
-			Result:   result,
-			Manual:   manual,
+			FeedID:      feedID,
+			Title:       parsed.Title,
+			Description: parsed.Description,
+			FaviconURL:  parsed.FaviconURL,
+			Articles:    articles,
+			Result:      result,
+			Manual:      manual,
 		}
 	}
 }
@@ -3016,7 +3047,7 @@ func indentBlock(view string, pad int) string {
 func (m *Model) resetHelpVP() {
 	winW := min(m.width-6, 90)
 	winH := min(m.height-4, 38)
-	vpW := winW - 2 // inside border
+	vpW := max(1, winW-1)
 	vpH := winH - 3 // inside border, minus footer row
 	m.helpVP = viewport.New(vpW, vpH)
 	m.helpVP.SetContent(renderHelp(vpW, m.styles, m.keys))
@@ -3040,10 +3071,10 @@ func (m Model) contentPaneOuterHeight() int {
 	return max(3, m.mainHeight()-m.articlesPaneOuterHeight())
 }
 func (m Model) contentViewportHeight() int {
-	return max(1, m.contentPaneOuterHeight()-2)
+	return max(1, m.contentPaneOuterHeight())
 }
 func (m Model) contentBodyHeight() int {
-	return max(1, m.contentViewportHeight()-1)
+	return max(1, m.contentPaneOuterHeight()-1)
 }
 func (m Model) contentBodyWidth() int {
 	return max(1, m.articlesPaneWidth()-2)

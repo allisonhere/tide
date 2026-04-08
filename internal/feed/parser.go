@@ -14,6 +14,7 @@ import (
 type ParsedFeed struct {
 	Title       string
 	Description string
+	FaviconURL  string
 	Items       []ParsedItem
 }
 
@@ -52,6 +53,7 @@ func Parse(r io.Reader) (*ParsedFeed, error) {
 	pf := &ParsedFeed{
 		Title:       f.Title,
 		Description: f.Description,
+		FaviconURL:  feedFaviconURL(f),
 	}
 	for _, item := range f.Items {
 		pf.Items = append(pf.Items, parseItem(item))
@@ -118,7 +120,7 @@ func parseItem(item *gofeed.Item) ParsedItem {
 		guid = item.Link
 	}
 	if guid == "" {
-		guid = fmt.Sprintf("%s-%d", item.Title, time.Now().UnixNano())
+		guid = fallbackItemGUID(item)
 	}
 
 	content := item.Content
@@ -140,6 +142,30 @@ func parseItem(item *gofeed.Item) ParsedItem {
 		Content:     content,
 		PublishedAt: pub,
 	}
+}
+
+func feedFaviconURL(f *gofeed.Feed) string {
+	if f == nil || f.Image == nil {
+		return ""
+	}
+	return strings.TrimSpace(f.Image.URL)
+}
+
+func fallbackItemGUID(item *gofeed.Item) string {
+	title := strings.TrimSpace(item.Title)
+	content := strings.TrimSpace(item.Content)
+	if content == "" {
+		content = strings.TrimSpace(item.Description)
+	}
+
+	publishedUnix := int64(0)
+	if item.PublishedParsed != nil {
+		publishedUnix = item.PublishedParsed.Unix()
+	} else if item.UpdatedParsed != nil {
+		publishedUnix = item.UpdatedParsed.Unix()
+	}
+
+	return fmt.Sprintf("fallback:%s:%d:%s", title, publishedUnix, content)
 }
 
 func min(a, b int) int {
