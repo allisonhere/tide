@@ -49,9 +49,10 @@ type Styles struct {
 	InputLabel     lipgloss.Style
 
 	// Help screen
-	HelpSection lipgloss.Style
-	HelpKey     lipgloss.Style
-	HelpDesc    lipgloss.Style
+	HelpSection     lipgloss.Style
+	HelpSectionBody lipgloss.Style
+	HelpKey         lipgloss.Style
+	HelpDesc        lipgloss.Style
 
 	// Spinner
 	Spinner lipgloss.Style
@@ -70,6 +71,14 @@ func BuildStyles(t Theme) Styles {
 	modalFg := readableText(t.Fg, modalBg, 4.5)
 	modalMuted := mutedText(modalFg, modalBg)
 	accentFg := readableText(t.Fg, modalAccent, 4.5)
+	helpSectionBg := func() lipgloss.Color {
+		if isDark(modalBg) {
+			return adjustLightness(modalBg, 0.03)
+		}
+		return adjustLightness(modalBg, -0.03)
+	}()
+	helpSectionText := readableText(t.Fg, helpSectionBg, 4.5)
+	helpSectionMuted := mutedText(helpSectionText, helpSectionBg)
 
 	paneBase := lipgloss.NewStyle().
 		Background(t.Bg).
@@ -234,14 +243,21 @@ func BuildStyles(t Theme) Styles {
 			Foreground(modalMuted),
 
 		HelpSection: lipgloss.NewStyle().
+			Background(helpSectionBg).
 			Foreground(t.BorderFocus).
 			Bold(true).
-			MarginTop(1),
+			Padding(0, 1),
+		HelpSectionBody: lipgloss.NewStyle().
+			Background(helpSectionBg).
+			Foreground(helpSectionText).
+			Padding(0, 1),
 		HelpKey: lipgloss.NewStyle().
+			Background(helpSectionBg).
 			Foreground(t.Unread).
 			Width(20),
 		HelpDesc: lipgloss.NewStyle().
-			Foreground(t.Fg),
+			Background(helpSectionBg).
+			Foreground(helpSectionMuted),
 
 		Spinner: lipgloss.NewStyle().
 			Foreground(t.Unread),

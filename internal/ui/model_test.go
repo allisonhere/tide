@@ -331,7 +331,7 @@ func TestUpdateConfirmOverlayMentionsSettingsAvailability(t *testing.T) {
 	}
 }
 
-func TestLowercaseURefreshesAllFeeds(t *testing.T) {
+func TestRefreshAllBindingReturnsCommand(t *testing.T) {
 	m := Model{
 		keys:       DefaultKeys,
 		refreshing: map[int64]bool{},
@@ -340,10 +340,10 @@ func TestLowercaseURefreshesAllFeeds(t *testing.T) {
 		},
 	}
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'F'}})
 	_ = next.(Model)
 	if cmd == nil {
-		t.Fatal("expected lowercase u to return a refresh-all command")
+		t.Fatal("expected refresh-all binding to return a command")
 	}
 }
 
@@ -386,6 +386,130 @@ func TestFeedRefreshAutoAppliesPermanentRedirectURL(t *testing.T) {
 	}
 	if !strings.Contains(m.statusMsg, "feed URL updated to https://example.com/new.xml") {
 		t.Fatalf("expected status message about auto-updated URL, got %q", m.statusMsg)
+	}
+}
+
+func TestFeedRefreshPersistsFeedMetadata(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	feedID, err := database.AddFeed("https://example.com/feed.xml", "Old Title", "Old Description")
+	if err != nil {
+		t.Fatalf("AddFeed returned error: %v", err)
+	}
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+
+	next, cmd := m.Update(FeedRefreshedMsg{
+		FeedID:      feedID,
+		Title:       "New Title",
+		Description: "New Description",
+		FaviconURL:  "https://example.com/favicon.png",
+		Result: &feed.FetchResult{
+			Kind: feed.KindSuccess,
+		},
+	})
+	_ = next.(Model)
+
+	if cmd == nil {
+		t.Fatal("expected refresh handling to return follow-up commands")
+	}
+
+	gotFeed, err := database.GetFeed(feedID)
+	if err != nil {
+		t.Fatalf("GetFeed returned error: %v", err)
+	}
+	if gotFeed.Title != "New Title" {
+		t.Fatalf("expected title to update, got %q", gotFeed.Title)
+	}
+	if gotFeed.Description != "New Description" {
+		t.Fatalf("expected description to update, got %q", gotFeed.Description)
+	}
+	if gotFeed.FaviconURL != "https://example.com/favicon.png" {
+		t.Fatalf("expected favicon URL to update, got %q", gotFeed.FaviconURL)
+	}
+}
+
+func TestLocalReadArticlesDisappearAfterRefreshReload(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	feedID, err := database.AddFeed("https://example.com/feed.xml", "Local Feed", "desc")
+	if err != nil {
+		t.Fatalf("AddFeed returned error: %v", err)
+	}
+
+	for _, article := range []db.Article{
+		{FeedID: feedID, GUID: "readme", Title: "Read Me", Link: "https://example.com/read", Content: "one", PublishedAt: unixTestTime(1710000100)},
+		{FeedID: feedID, GUID: "keepme", Title: "Keep Me", Link: "https://example.com/keep", Content: "two", PublishedAt: unixTestTime(1710000000)},
+	} {
+		if err := database.UpsertArticle(article); err != nil {
+			t.Fatalf("UpsertArticle returned error: %v", err)
+		}
+	}
+	if err := database.MarkRead(1, true); err != nil {
+		t.Fatalf("MarkRead returned error: %v", err)
+	}
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{{ID: feedID, Title: "Local Feed", URL: "https://example.com/feed.xml"}}})
+	m = m2.(Model)
+	m.sidebarCursor = 0
+	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: feedID, Articles: []db.Article{
+		{ID: 1, FeedID: feedID, GUID: "readme", Title: "Read Me", Link: "https://example.com/read", Content: "one", PublishedAt: unixTestTime(1710000100), Read: true},
+		{ID: 2, FeedID: feedID, GUID: "keepme", Title: "Keep Me", Link: "https://example.com/keep", Content: "two", PublishedAt: unixTestTime(1710000000), Read: false},
+	}})
+	m = m2.(Model)
+
+	next, cmd := m.Update(FeedRefreshedMsg{
+		FeedID: feedID,
+		Result: &feed.FetchResult{Kind: feed.KindSuccess},
+	})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("expected refresh handling to return follow-up commands")
+	}
+
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("expected batch command, got %T", msg)
+	}
+
+	var reloadMsg ArticlesLoadedMsg
+	foundReload := false
+	for _, sub := range batch {
+		if sub == nil {
+			continue
+		}
+		if got, ok := sub().(ArticlesLoadedMsg); ok {
+			reloadMsg = got
+			foundReload = true
+			break
+		}
+	}
+	if !foundReload {
+		t.Fatal("expected refresh batch to include article reload")
+	}
+	if len(reloadMsg.Articles) != 1 {
+		t.Fatalf("expected unread-only reload after refresh, got %d articles", len(reloadMsg.Articles))
+	}
+	if reloadMsg.Articles[0].GUID != "keepme" {
+		t.Fatalf("expected only unread article after refresh reload, got %q", reloadMsg.Articles[0].GUID)
 	}
 }
 
@@ -555,6 +679,60 @@ func TestBuildStylesUsesThemeOverlayColors(t *testing.T) {
 	}
 	if got := styles.OverlayTitle.GetBackground(); got != CatppuccinMocha.BorderFocus {
 		t.Fatalf("expected overlay title accent %q, got %q", CatppuccinMocha.BorderFocus, got)
+	}
+}
+
+func TestBuildStylesUsesDistinctHelpSectionSurface(t *testing.T) {
+	styles := BuildStyles(CatppuccinMocha)
+	overlayBg := terminalColorAsColor(styles.Overlay.GetBackground())
+	sectionBg := terminalColorAsColor(styles.HelpSection.GetBackground())
+
+	if overlayBg == "" || sectionBg == "" {
+		t.Fatalf("expected explicit help section and overlay backgrounds, got overlay=%q section=%q", overlayBg, sectionBg)
+	}
+	if sectionBg == overlayBg {
+		t.Fatalf("expected help section background to differ from overlay background, got %q", sectionBg)
+	}
+	if contrastRatio(sectionBg, overlayBg) > 1.35 {
+		t.Fatalf("expected help section background to stay close to overlay background, got contrast %.2f", contrastRatio(sectionBg, overlayBg))
+	}
+}
+
+func TestHelpStylesShareSectionSurfaceBackground(t *testing.T) {
+	styles := BuildStyles(CatppuccinMocha)
+	sectionBg := string(terminalColorAsColor(styles.HelpSection.GetBackground()))
+
+	if sectionBg == "" {
+		t.Fatal("expected help section background to be set")
+	}
+	for _, got := range []string{
+		string(terminalColorAsColor(styles.HelpSectionBody.GetBackground())),
+		string(terminalColorAsColor(styles.HelpKey.GetBackground())),
+		string(terminalColorAsColor(styles.HelpDesc.GetBackground())),
+	} {
+		if got != sectionBg {
+			t.Fatalf("expected help styles to share section surface %q, got %q", sectionBg, got)
+		}
+	}
+}
+
+func TestResetHelpViewportUsesFullOverlayWidth(t *testing.T) {
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m.width = 120
+	m.height = 30
+	m.styles = BuildStyles(CatppuccinMocha)
+
+	m.resetHelpVP()
+
+	wantW := max(1, min(m.width-6, 90)-1)
+	if m.helpVP.Width != wantW {
+		t.Fatalf("expected help viewport width %d, got %d", wantW, m.helpVP.Width)
 	}
 }
 
@@ -1325,7 +1503,7 @@ func TestLocalReadArticleDisappearsAfterReload(t *testing.T) {
 	m.focused = paneArticles
 
 	if len(m.articles) != 2 {
-		t.Fatalf("expected 2 unread local articles before mark-read, got %d", len(m.articles))
+		t.Fatalf("expected 2 local articles before mark-read, got %d", len(m.articles))
 	}
 
 	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
@@ -1340,11 +1518,17 @@ func TestLocalReadArticleDisappearsAfterReload(t *testing.T) {
 	m2, _ = m.Update(m.loadArticlesCmd(feedID)())
 	m = m2.(Model)
 
-	if len(m.articles) != 1 {
-		t.Fatalf("expected only unread local article after reload, got %d", len(m.articles))
+	if len(m.articles) != 2 {
+		t.Fatalf("expected both local articles after reload, got %d", len(m.articles))
 	}
-	if m.articles[0].GUID != "keepme" {
-		t.Fatalf("expected only unread local article to remain after reload, got %q", m.articles[0].GUID)
+	if m.articles[0].GUID != "readme" {
+		t.Fatalf("expected read local article to remain first after reload, got %q", m.articles[0].GUID)
+	}
+	if !m.articles[0].Read {
+		t.Fatal("expected first local article to remain marked read after reload")
+	}
+	if m.articles[1].GUID != "keepme" {
+		t.Fatalf("expected unread local article to remain second after reload, got %q", m.articles[1].GUID)
 	}
 }
 
@@ -1720,6 +1904,74 @@ func TestFeedManagerGReaderSaveCmdQuickAddsRemoteFeed(t *testing.T) {
 	}
 	if got := prefs[remoteStableID("feed", "feed/http://example.com/feed.xml")].Title; got != "Custom Title" {
 		t.Fatalf("expected local title override to be stored, got %q", got)
+	}
+}
+
+func TestFeedManagerPrefilledRemoteQuickAddDoesNotReuseSelectedFeedTitle(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	loginHit := false
+	quickAddHit := false
+
+	origTransport := http.DefaultTransport
+	http.DefaultTransport = uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/api/greader.php/accounts/ClientLogin":
+			loginHit = true
+			return uiResponseWithBody(http.StatusOK, "SID=ignored\nAuth=test-token\n"), nil
+		case "/api/greader.php/reader/api/0/subscription/quickadd":
+			quickAddHit = true
+			return uiResponseWithJSON(http.StatusOK, `{"numResults":1,"query":"https://example.com/new.xml","streamId":"feed/http://example.com/new.xml","streamName":"Fresh Feed"}`), nil
+		default:
+			t.Fatalf("unexpected request path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	defer func() { http.DefaultTransport = origTransport }()
+
+	fm := NewFeedManagerWithSource(database, config.SourceConfig{})
+	fm.setData([]db.Feed{{
+		ID:    remoteStableID("feed", "feed/http://example.com/old.xml"),
+		Title: "Existing Remote Feed",
+		URL:   "https://example.com/new.xml",
+	}}, nil)
+	fm.selectFeed(remoteStableID("feed", "feed/http://example.com/old.xml"))
+	fm.focusAdd()
+	fm.prefillAddFormFromSelectedRemoteFeed()
+	fm.greaderURLInput.SetValue("https://rss.example.com/api/greader.php")
+	fm.greaderLoginInput.SetValue("alice")
+	fm.greaderPasswordInput.SetValue("secret")
+
+	if got := fm.titleInput.Value(); got != "" {
+		t.Fatalf("expected prefilled quick-add title to stay blank, got %q", got)
+	}
+
+	msg := fm.saveCmd()()
+	got, ok := msg.(RemoteFeedAddedMsg)
+	if !ok {
+		t.Fatalf("expected RemoteFeedAddedMsg, got %T", msg)
+	}
+	if got.Err != nil {
+		t.Fatalf("expected successful remote add, got error %v", got.Err)
+	}
+	if !loginHit || !quickAddHit {
+		t.Fatalf("expected login and quickadd requests, login=%v quickadd=%v", loginHit, quickAddHit)
+	}
+	if got.Title != "Fresh Feed" {
+		t.Fatalf("expected server stream name without stale title override, got %q", got.Title)
+	}
+
+	prefs, err := database.ListRemoteFeedPrefs()
+	if err != nil {
+		t.Fatalf("ListRemoteFeedPrefs returned error: %v", err)
+	}
+	if pref, ok := prefs[remoteStableID("feed", "feed/http://example.com/new.xml")]; ok && pref.Title != "" {
+		t.Fatalf("expected no local title override for new remote feed, got %q", pref.Title)
 	}
 }
 
@@ -2162,6 +2414,89 @@ func TestArticleReadUpdatedDoesNotAdvanceOutsideArticlesPane(t *testing.T) {
 	}
 }
 
+func TestMarkReadKeyTogglesArticleBackToUnread(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feed := db.Feed{ID: 1, Title: "Feed One", URL: "https://example.com/feed"}
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
+	m = m2.(Model)
+	m.sidebarCursor = 0
+	m.focused = paneContent
+	m.articles = []db.Article{
+		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: "one", PublishedAt: unixTestTime(1710000100), Read: true},
+	}
+	m.applyFilter()
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	_ = next.(Model)
+	if cmd == nil {
+		t.Fatal("expected toggle command for read article")
+	}
+
+	msg := cmd()
+	updateMsg, ok := msg.(ArticleReadUpdatedMsg)
+	if !ok {
+		t.Fatalf("expected ArticleReadUpdatedMsg, got %T", msg)
+	}
+	if updateMsg.Read {
+		t.Fatal("expected toggle to mark article unread")
+	}
+	if updateMsg.Advance {
+		t.Fatal("expected content-pane toggle to avoid advancing")
+	}
+}
+
+func TestMarkReadKeyAdvancesToNextArticleFromContentPane(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feed := db.Feed{ID: 1, Title: "Feed One", URL: "https://example.com/feed"}
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
+	m = m2.(Model)
+	m.sidebarCursor = 0
+	m.focused = paneContent
+	m.articles = []db.Article{
+		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: "one", PublishedAt: unixTestTime(1710000100), Read: false},
+		{ID: 2, FeedID: 1, Title: "Article Two", Link: "https://example.com/b", Content: "two", PublishedAt: unixTestTime(1710000000), Read: false},
+	}
+	m.applyFilter()
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("expected mark-read command from content pane")
+	}
+
+	msg := cmd()
+	updateMsg, ok := msg.(ArticleReadUpdatedMsg)
+	if !ok {
+		t.Fatalf("expected ArticleReadUpdatedMsg, got %T", msg)
+	}
+	if !updateMsg.Read {
+		t.Fatal("expected mark-read command to mark article read")
+	}
+	if !updateMsg.Advance {
+		t.Fatal("expected content-pane mark-read to advance to the next article")
+	}
+}
+
 func TestContentPaneClampsViewportOutputToPaneSize(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
@@ -2196,6 +2531,28 @@ func TestContentPaneClampsViewportOutputToPaneSize(t *testing.T) {
 	got := m.renderContentPane()
 	if !strings.Contains(got, wantBody) {
 		t.Fatalf("expected content pane to include clamped viewport body")
+	}
+}
+
+func TestContentPaneUsesFullAllocatedHeight(t *testing.T) {
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	got := m.renderContentPane()
+	lines := strings.Split(got, "\n")
+
+	if gotH := len(lines); gotH != m.contentPaneOuterHeight() {
+		t.Fatalf("expected content pane height %d, got %d", m.contentPaneOuterHeight(), gotH)
+	}
+	if got := m.contentBodyHeight(); got != m.contentPaneOuterHeight()-1 {
+		t.Fatalf("expected content body height to fill pane below header, got %d want %d", got, m.contentPaneOuterHeight()-1)
 	}
 }
 

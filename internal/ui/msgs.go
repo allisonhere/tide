@@ -19,12 +19,14 @@ type ArticlesLoadedMsg struct {
 	Err      error
 }
 type FeedRefreshedMsg struct {
-	FeedID   int64
-	Title    string
-	Articles []db.Article
-	Err      error
-	Result   *feed.FetchResult // full result; always non-nil when coming from refreshFeedCmd
-	Manual   bool              // true when triggered by user keypress (f), not startup auto-refresh
+	FeedID      int64
+	Title       string
+	Description string
+	FaviconURL  string
+	Articles    []db.Article
+	Err         error
+	Result      *feed.FetchResult // full result; always non-nil when coming from refreshFeedCmd
+	Manual      bool              // true when triggered by user keypress (f), not startup auto-refresh
 }
 type FeedSavedMsg struct {
 	Feed db.Feed

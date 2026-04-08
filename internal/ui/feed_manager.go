@@ -352,7 +352,6 @@ func (fm *FeedManager) prefillAddFormFromSelectedRemoteFeed() {
 
 	fm.addSourceIdx = fmAddSourceGReader
 	fm.titleInput.Reset()
-	fm.titleInput.SetValue(feed.Title)
 	fm.urlInput.Reset()
 	fm.urlInput.SetValue(feed.URL)
 	fm.newFolderInput.Reset()
@@ -411,6 +410,24 @@ func (fm *FeedManager) focusAddFolder() {
 	fm.busyMsg = ""
 	fm.titleInput.Focus()
 	fm.colorCursor = 0
+}
+
+func (fm *FeedManager) focusImport() {
+	fm.statusMsg = ""
+	fm.busy = false
+	fm.busyMsg = ""
+	fm.importInput.Reset()
+	fm.importInput.Focus()
+	fm.mode = fmImport
+	fm.paneFocus = fmPaneDetail
+}
+
+func (fm *FeedManager) returnToListPane() {
+	fm.mode = fmList
+	fm.paneFocus = fmPaneList
+	fm.remoteSettingsEdit = false
+	fm.blurEditInputs()
+	fm.importInput.Blur()
 }
 
 func (fm FeedManager) folderOptions() []string {
@@ -905,12 +922,7 @@ func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 			fm.setBrowseOnlyStatus()
 			return fm, nil
 		}
-		fm.statusMsg = ""
-		fm.busy = false
-		fm.busyMsg = ""
-		fm.importInput.Reset()
-		fm.importInput.Focus()
-		fm.mode = fmImport
+		fm.focusImport()
 
 	case keyMatches(msg, keys.Export):
 		if !fm.editable() {
@@ -931,9 +943,7 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		case keyMatches(msg, keys.Add):
 			fm.focusAdd()
 		case keyMatches(msg, keys.Cancel):
-			fm.mode = fmList
-			fm.paneFocus = fmPaneList
-			fm.blurEditInputs()
+			fm.returnToListPane()
 		case keyMatches(msg, keys.Up):
 			if fm.cursor > 0 {
 				fm.cursor--
@@ -962,10 +972,7 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 	}
 	switch {
 	case keyMatches(msg, keys.Cancel):
-		fm.mode = fmList
-		fm.paneFocus = fmPaneList
-		fm.remoteSettingsEdit = false
-		fm.blurEditInputs()
+		fm.returnToListPane()
 
 	case keyMatches(msg, keys.Tab), keyMatches(msg, keys.Down):
 		fm.advanceEditField()
@@ -1053,8 +1060,7 @@ func (fm FeedManager) updateFolderEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager
 	}
 	switch {
 	case keyMatches(msg, keys.Cancel):
-		fm.mode = fmList
-		fm.titleInput.Blur()
+		fm.returnToListPane()
 
 	case keyMatches(msg, keys.Tab), keyMatches(msg, keys.Down):
 		if fm.focusedField == 0 {
@@ -1100,8 +1106,7 @@ func (fm FeedManager) updateImport(msg tea.KeyMsg, keys KeyMap) (FeedManager, te
 	}
 	switch {
 	case keyMatches(msg, keys.Cancel):
-		fm.mode = fmList
-		fm.importInput.Blur()
+		fm.returnToListPane()
 
 	case keyMatches(msg, keys.Confirm):
 		path := strings.TrimSpace(fm.importInput.Value())
@@ -1700,95 +1705,76 @@ func (fm FeedManager) addSourceLabel() string {
 }
 
 func (fm FeedManager) viewEdit(width, height int, chrome managerChrome, styles Styles) string {
-	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
+	fieldW := max(1, width-2)
 	detailFocused := !fm.listPaneFocused()
 	contentRows := []string{}
 	if fm.editTarget == 0 && !fm.remoteSettingsEdit {
 		contentRows = append(contentRows,
-			renderManagerSection("Source", renderManagerPicker(width-3, fm.addSourceLabel(), detailFocused && fm.focusedField == fmFieldAddSource, chrome, styles), chrome),
-			gap,
+			renderManagerSection("Source", renderManagerPicker(fieldW, fm.addSourceLabel(), detailFocused && fm.focusedField == fmFieldAddSource, chrome, styles), chrome),
 		)
 	}
 	if fm.remoteSettingsEdit {
 		contentRows = append(contentRows,
-			renderManagerSection("Feed", renderManagerPanel(width-3, strings.ToUpper(truncate(fm.titleInput.Value(), max(8, width-7))), chrome), chrome),
-			gap,
-			renderManagerSection("Feed URL", renderManagerPanel(width-3, strings.ToUpper(truncate(fm.urlInput.Value(), max(8, width-7))), chrome), chrome),
-			gap,
-			renderManagerSection("Folder", renderManagerPicker(width-3, fm.folderOptions()[fm.folderCursor], detailFocused && fm.focusedField == 2, chrome, styles), chrome),
-			gap,
+			renderManagerSection("Feed", renderManagerPanel(fieldW, strings.ToUpper(truncate(fm.titleInput.Value(), max(8, fieldW-4))), chrome), chrome),
+			renderManagerSection("Feed URL", renderManagerPanel(fieldW, strings.ToUpper(truncate(fm.urlInput.Value(), max(8, fieldW-4))), chrome), chrome),
+			renderManagerSection("Folder", renderManagerPicker(fieldW, fm.folderOptions()[fm.folderCursor], detailFocused && fm.focusedField == 2, chrome, styles), chrome),
 		)
 		if fm.showNewFolder {
 			contentRows = append(contentRows,
-				renderManagerSection("New", renderTextInput(fm.newFolderInput, width-3, detailFocused && fm.focusedField == 3, false, chrome), chrome),
-				gap,
+				renderManagerSection("New", renderTextInput(fm.newFolderInput, fieldW, detailFocused && fm.focusedField == 3, false, chrome), chrome),
 			)
 		}
 		if fm.shouldShowColorPicker() {
 			contentRows = append(contentRows,
-				renderManagerSection("Color", renderManagerColorPicker(width-3, fm.displayedColorOption(), detailFocused && fm.focusedField == 4, chrome, styles), chrome),
-				gap,
+				renderManagerSection("Color", renderManagerColorPicker(fieldW, fm.displayedColorOption(), detailFocused && fm.focusedField == 4, chrome, styles), chrome),
 			)
 		}
 		contentRows = append(contentRows,
-			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, width-3, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome),
-			gap,
-			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, width-3, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome),
-			gap,
-			renderManagerSection("Password", renderTextInput(fm.greaderPasswordInput, width-3, detailFocused && fm.focusedField == fmFieldGReaderPassword, true, chrome), chrome),
+			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome),
+			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome),
+			renderManagerSection("Password", renderTextInput(fm.greaderPasswordInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderPassword, true, chrome), chrome),
 		)
 	} else if fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
 		contentRows = append(contentRows,
-			renderManagerSection("Title", renderTextInput(fm.titleInput, width-3, detailFocused && fm.focusedField == 0, false, chrome), chrome),
-			gap,
-			renderManagerSection("URL (optional)", renderTextInput(fm.urlInput, width-3, detailFocused && fm.focusedField == 1, false, chrome), chrome),
-			gap,
-			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, width-3, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome),
-			gap,
-			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, width-3, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome),
-			gap,
-			renderManagerSection("Password", renderTextInput(fm.greaderPasswordInput, width-3, detailFocused && fm.focusedField == fmFieldGReaderPassword, true, chrome), chrome),
+			renderManagerSection("Title", renderTextInput(fm.titleInput, fieldW, detailFocused && fm.focusedField == 0, false, chrome), chrome),
+			renderManagerSection("URL (optional)", renderTextInput(fm.urlInput, fieldW, detailFocused && fm.focusedField == 1, false, chrome), chrome),
+			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome),
+			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome),
+			renderManagerSection("Password", renderTextInput(fm.greaderPasswordInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderPassword, true, chrome), chrome),
 		)
 	} else {
 		contentRows = append(contentRows,
-			renderManagerSection("Title", renderTextInput(fm.titleInput, width-3, detailFocused && fm.focusedField == 0, false, chrome), chrome),
-			gap,
-			renderManagerSection("URL", renderTextInput(fm.urlInput, width-3, detailFocused && fm.focusedField == 1, false, chrome), chrome),
-			gap,
-			renderManagerSection("Folder", renderManagerPicker(width-3, fm.folderOptions()[fm.folderCursor], detailFocused && fm.focusedField == 2, chrome, styles), chrome),
+			renderManagerSection("Title", renderTextInput(fm.titleInput, fieldW, detailFocused && fm.focusedField == 0, false, chrome), chrome),
+			renderManagerSection("URL", renderTextInput(fm.urlInput, fieldW, detailFocused && fm.focusedField == 1, false, chrome), chrome),
+			renderManagerSection("Folder", renderManagerPicker(fieldW, fm.folderOptions()[fm.folderCursor], detailFocused && fm.focusedField == 2, chrome, styles), chrome),
 		)
 		if fm.showNewFolder {
 			contentRows = append(contentRows,
-				gap,
-				renderManagerSection("New", renderTextInput(fm.newFolderInput, width-3, detailFocused && fm.focusedField == 3, false, chrome), chrome),
+				renderManagerSection("New", renderTextInput(fm.newFolderInput, fieldW, detailFocused && fm.focusedField == 3, false, chrome), chrome),
 			)
 		}
 		if fm.shouldShowColorPicker() {
 			contentRows = append(contentRows,
-				gap,
-				renderManagerSection("Color", renderManagerColorPicker(width-3, fm.displayedColorOption(), detailFocused && fm.focusedField == 4, chrome, styles), chrome),
+				renderManagerSection("Color", renderManagerColorPicker(fieldW, fm.displayedColorOption(), detailFocused && fm.focusedField == 4, chrome, styles), chrome),
 			)
 		}
 	}
-	content := lipgloss.JoinVertical(lipgloss.Left, contentRows...)
-	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(content)
+	return renderManagerDetailColumn(width, contentRows, chrome)
 }
 
 func (fm FeedManager) viewFolderEdit(width, height int, chrome managerChrome, styles Styles) string {
-	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		renderManagerSection("Name", renderTextInput(fm.titleInput, width-3, fm.focusedField == 0, false, chrome), chrome),
-		gap,
-		renderManagerSection("Color", renderManagerColorPicker(width-3, fm.currentColorOption(), fm.focusedField == 4, chrome, styles), chrome),
-	)
-	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2).Render(content)
+	fieldW := max(1, width-2)
+	return renderManagerDetailColumn(width, []string{
+		renderManagerSection("Name", renderTextInput(fm.titleInput, fieldW, fm.focusedField == 0, false, chrome), chrome),
+		renderManagerSection("Color", renderManagerColorPicker(fieldW, fm.currentColorOption(), fm.focusedField == 4, chrome, styles), chrome),
+	}, chrome)
 }
 
 func (fm FeedManager) viewImport(width, height int, chrome managerChrome) string {
-	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render(
-		renderManagerSection("PATH", renderManagerInput(width-1, fm.importInput.Value(), "PATH TO OPML FILE...", true, chrome), chrome),
-	)
+	fieldW := max(1, width-2)
+	return renderManagerDetailColumn(width, []string{
+		renderManagerSection("PATH", renderManagerInput(fieldW, fm.importInput.Value(), "PATH TO OPML FILE...", true, chrome), chrome),
+	}, chrome)
 }
 
 func (fm FeedManager) viewConfirmDelete(width, height int, chrome managerChrome) string {
@@ -1807,15 +1793,16 @@ func (fm FeedManager) viewConfirmDelete(width, height int, chrome managerChrome)
 		name = feed.Title
 		warning = "ALL ARTICLES FROM THIS FEED WILL BE REMOVED."
 	}
-	content := lipgloss.JoinVertical(
+	fieldW := max(1, width-2)
+	warningBlock := lipgloss.JoinVertical(
 		lipgloss.Left,
-		renderManagerSection("TARGET", renderManagerPanel(width, strings.ToUpper(truncate(name, width-4)), chrome), chrome),
-		lipgloss.JoinVertical(lipgloss.Left,
-			lipgloss.NewStyle().Background(chrome.baseBg).Foreground(lipgloss.Color("#f7768e")).Bold(true).Width(max(12, width)).Render("WARNING"),
-			chrome.body.Width(max(12, width)).Render(warning),
-		),
+		lipgloss.NewStyle().Background(chrome.baseBg).Foreground(lipgloss.Color("#f7768e")).Bold(true).Width(max(12, fieldW)).Render("WARNING"),
+		chrome.body.Width(max(12, fieldW)).Render(warning),
 	)
-	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render(content)
+	return renderManagerDetailColumn(width, []string{
+		renderManagerSection("TARGET", renderManagerPanel(fieldW, strings.ToUpper(truncate(name, max(1, fieldW-4))), chrome), chrome),
+		warningBlock,
+	}, chrome)
 }
 
 func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
@@ -2003,6 +1990,27 @@ func renderManagerPaneSection(label, body string, focused bool, chrome managerCh
 	}
 	styledLabel := style.Width(w).Render(label)
 	return lipgloss.JoinVertical(lipgloss.Left, styledLabel, body)
+}
+
+func renderManagerDetailColumn(width int, sections []string, chrome managerChrome) string {
+	innerW := max(1, width-2)
+	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(innerW).Render("")
+	rows := make([]string, 0, max(0, len(sections)*2-1))
+	for _, section := range sections {
+		if section == "" {
+			continue
+		}
+		if len(rows) > 0 {
+			rows = append(rows, gap)
+		}
+		rows = append(rows, clampView(section, innerW, lipgloss.Height(section), chrome.baseBg))
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	return lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Width(width).
+		PaddingLeft(2).
+		Render(clampView(content, innerW, lipgloss.Height(content), chrome.baseBg))
 }
 
 func renderManagerPanel(width int, content string, chrome managerChrome) string {

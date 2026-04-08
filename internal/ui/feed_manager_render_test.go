@@ -422,6 +422,15 @@ func TestFeedManagerAddDialogStartsRightPaneFocused(t *testing.T) {
 	}
 }
 
+func TestFeedManagerImportStartsRightPaneFocused(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.focusImport()
+
+	if fm.listPaneFocused() {
+		t.Fatal("expected import mode to start on the right pane")
+	}
+}
+
 func TestFeedManagerAddDialogAResetsFreshAdd(t *testing.T) {
 	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
 	fm.focusAdd()
@@ -451,6 +460,31 @@ func TestFeedManagerTextInputLeftArrowMovesToLeftPaneAtCursorStart(t *testing.T)
 	}
 	if next.mode != fmEdit {
 		t.Fatalf("expected add dialog to remain in edit mode, got %v", next.mode)
+	}
+}
+
+func TestFeedManagerEditCancelReturnsToListPaneAndClearsRemoteSettings(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{
+		GReaderURL:      "https://rss.example.com/api/greader.php",
+		GReaderLogin:    "alice",
+		GReaderPassword: "secret",
+	})
+	fm.focusRemoteSettingsEdit(db.Feed{
+		ID:    -1,
+		Title: "Remote Feed",
+		URL:   "https://example.com/feed",
+	})
+
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+
+	if next.mode != fmList {
+		t.Fatalf("expected cancel to return to list mode, got %v", next.mode)
+	}
+	if !next.listPaneFocused() {
+		t.Fatal("expected cancel to return focus to the left pane")
+	}
+	if next.remoteSettingsEdit {
+		t.Fatal("expected cancel to clear remote settings mode")
 	}
 }
 
@@ -580,8 +614,8 @@ func TestFeedManagerEnteringRightPaneFromRemoteRowPrefillsGReaderForm(t *testing
 	if next.addSourceIdx != fmAddSourceGReader {
 		t.Fatalf("expected remote row to switch add form to greader, got %d", next.addSourceIdx)
 	}
-	if got := next.titleInput.Value(); got != "Remote Feed" {
-		t.Fatalf("expected remote row to prefill title, got %q", got)
+	if got := next.titleInput.Value(); got != "" {
+		t.Fatalf("expected remote row to leave title blank to avoid stale overrides, got %q", got)
 	}
 	if got := next.urlInput.Value(); got != "https://example.com/feed" {
 		t.Fatalf("expected remote row to prefill feed URL, got %q", got)
@@ -719,6 +753,108 @@ func TestFeedManagerFolderEditViewShowsNameAndColor(t *testing.T) {
 	}
 	if !strings.Contains(view, "Name") || !strings.Contains(view, "Color") {
 		t.Fatalf("expected folder edit fields, got %q", view)
+	}
+}
+
+func TestFeedManagerFolderEditCancelReturnsToListPane(t *testing.T) {
+	fm := FeedManager{
+		mode:         fmFolderEdit,
+		paneFocus:    fmPaneDetail,
+		titleInput:   textinput.New(),
+		focusedField: 0,
+	}
+	fm.focusCurrentEditField()
+
+	next, _ := fm.updateFolderEdit(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+
+	if next.mode != fmList {
+		t.Fatalf("expected cancel to return to list mode, got %v", next.mode)
+	}
+	if !next.listPaneFocused() {
+		t.Fatal("expected folder cancel to return focus to the left pane")
+	}
+}
+
+func TestFeedManagerImportCancelReturnsToListPane(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.focusImport()
+
+	next, _ := fm.updateImport(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+
+	if next.mode != fmList {
+		t.Fatalf("expected import cancel to return to list mode, got %v", next.mode)
+	}
+	if !next.listPaneFocused() {
+		t.Fatal("expected import cancel to return focus to the left pane")
+	}
+}
+
+func TestFeedManagerViewsClampToNarrowWidth(t *testing.T) {
+	styles := BuildStyles(CatppuccinMocha)
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{
+		GReaderURL:      "https://rss.example.com/api/greader.php",
+		GReaderLogin:    "alice",
+		GReaderPassword: "secret",
+	})
+	fm.setData([]db.Feed{{
+		ID:          -1,
+		Title:       "Remote Feed",
+		URL:         "https://example.com/feed",
+		Description: "Tech",
+		FolderID:    1,
+	}}, []db.Folder{{ID: 1, Name: "Remote", Color: "#7aa2f7"}})
+
+	cases := []FeedManager{
+		func() FeedManager {
+			next := fm
+			next.mode = fmList
+			return next
+		}(),
+		func() FeedManager {
+			next := fm
+			next.focusAdd()
+			return next
+		}(),
+		func() FeedManager {
+			next := fm
+			next.focusAdd()
+			next.addSourceIdx = fmAddSourceGReader
+			next.focusCurrentEditField()
+			return next
+		}(),
+		func() FeedManager {
+			next := fm
+			next.focusRemoteSettingsEdit(db.Feed{
+				ID:       -1,
+				Title:    "Remote Feed",
+				URL:      "https://example.com/feed",
+				FolderID: 1,
+			})
+			return next
+		}(),
+		func() FeedManager {
+			next := fm
+			next.focusAddFolder()
+			return next
+		}(),
+		func() FeedManager {
+			next := fm
+			next.focusImport()
+			return next
+		}(),
+	}
+
+	for i, tc := range cases {
+		view := tc.View(52, 18, styles, true)
+		lines := strings.Split(view, "\n")
+		if got := len(lines); got > 18 {
+			t.Fatalf("case %d: expected at most 18 lines, got %d", i, got)
+		}
+		for j, line := range lines {
+			if got := lipgloss.Width(line); got > 52 {
+				t.Fatalf("case %d line %d: expected width <= 52, got %d", i, j+1, got)
+			}
+		}
 	}
 }
 

@@ -85,24 +85,34 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 		},
 	}
 
+	contentW := max(1, width-4)
+	bodyInnerW := max(1, contentW-styles.HelpSectionBody.GetHorizontalFrameSize())
+	keyW := min(20, max(8, bodyInnerW/3))
+	descW := max(1, bodyInnerW-keyW)
+	sectionBg := terminalColorAsColor(styles.HelpSectionBody.GetBackground())
+
 	lines := []string{
-		styles.HelpSection.Render("Help — Keyboard Shortcuts"),
+		lipgloss.NewStyle().
+			Width(contentW).
+			Render("Help — Keyboard Shortcuts"),
 		"",
 	}
 
-	spacer := styles.HelpKey.Render("") + styles.HelpDesc.Render("")
 	for _, s := range sections {
-		lines = append(lines, styles.HelpSection.Render(s.name))
+		rows := []string{styles.HelpSection.Width(contentW).Render(s.name)}
 		for _, e := range s.entries {
-			line := styles.HelpKey.Render(e.key) + styles.HelpDesc.Render(e.desc)
-			lines = append(lines, line)
+			line := styles.HelpKey.Width(keyW).Render(" " + e.key)
+			line += styles.HelpDesc.Width(descW).Render(e.desc)
+			line = clampView(line, bodyInnerW, 1, sectionBg)
+			rows = append(rows, styles.HelpSectionBody.Width(contentW).Render(line))
 		}
-		lines = append(lines, spacer)
+		rows = append(rows, styles.HelpSectionBody.Width(contentW).Render(""))
+		lines = append(lines, strings.Join(rows, "\n"), "")
 	}
 
-	content := strings.Join(lines, "\n")
+	content := strings.TrimRight(strings.Join(lines, "\n"), "\n")
 	return lipgloss.NewStyle().
 		Width(width).
-		Padding(1, 3).
+		Padding(1, 2).
 		Render(content)
 }

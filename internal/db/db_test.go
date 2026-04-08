@@ -198,14 +198,20 @@ func TestListArticlesReturnsUnreadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(articles) != 2 {
-		t.Fatalf("expected 2 unread articles, got %d", len(articles))
+	if len(articles) != 3 {
+		t.Fatalf("expected 3 articles, got %d", len(articles))
 	}
-	if articles[0].GUID != "new-unread" {
-		t.Fatalf("expected newest unread article first, got %q", articles[0].GUID)
+	if articles[0].GUID != "new-read" {
+		t.Fatalf("expected newest article first, got %q", articles[0].GUID)
 	}
-	if articles[1].GUID != "old-unread" {
-		t.Fatalf("expected older unread article second, got %q", articles[1].GUID)
+	if !articles[0].Read {
+		t.Fatal("expected newest article to remain marked read")
+	}
+	if articles[1].GUID != "new-unread" {
+		t.Fatalf("expected second-newest article second, got %q", articles[1].GUID)
+	}
+	if articles[2].GUID != "old-unread" {
+		t.Fatalf("expected oldest article last, got %q", articles[2].GUID)
 	}
 }
 
