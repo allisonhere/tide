@@ -922,7 +922,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case msg.String() == "U":
-		if m.showAvailableUpdatePrompt() && strings.TrimSpace(m.updateInstall.ManualCommand) == "" {
+		if m.showAvailableUpdatePrompt() && strings.TrimSpace(m.effectiveManualCommand()) == "" {
 			m.overlay = overlayUpdateConfirm
 			return m, nil
 		}
@@ -1525,7 +1525,7 @@ func (m Model) statusUpdateActionPart() string {
 	if !m.showAvailableUpdatePrompt() {
 		return ""
 	}
-	if strings.TrimSpace(m.updateInstall.ManualCommand) != "" {
+	if strings.TrimSpace(m.effectiveManualCommand()) != "" {
 		return m.styles.StatusNotice.Render("App update available  i ignore")
 	}
 	return m.styles.StatusNotice.Render("App update available  U install  i ignore")
@@ -2328,6 +2328,28 @@ func (m *Model) clearArticles() {
 	m.viewport.GotoTop()
 }
 
+// effectiveManualCommand is the command shown in Settings (real install result, or suggested script when an update is available but the install path is not writable).
+func (m Model) effectiveManualCommand() string {
+	if s := strings.TrimSpace(m.updateInstall.ManualCommand); s != "" {
+		return s
+	}
+	if m.updateDismissed {
+		return ""
+	}
+	v := strings.TrimSpace(m.updateInfo.Version)
+	if v == "" {
+		return ""
+	}
+	if !update.IsNewerVersion(v, m.currentVersion) {
+		return ""
+	}
+	ok, err := update.InstallDestinationWritable()
+	if err != nil || ok {
+		return ""
+	}
+	return update.SuggestedManualInstallScript
+}
+
 func (m Model) settingsUpdateState() settingsUpdateState {
 	lastChecked := time.Time{}
 	if m.cfg.Updates.LastCheckedUnix > 0 {
@@ -2343,7 +2365,7 @@ func (m Model) settingsUpdateState() settingsUpdateState {
 		lastChecked:      lastChecked,
 		err:              m.updateErr,
 		dismissed:        m.updateDismissed,
-		manualCommand:    m.updateInstall.ManualCommand,
+		manualCommand:    m.effectiveManualCommand(),
 		restartable:      m.updateInstall.Restartable,
 		installedVersion: m.updateInstall.Version,
 	}
@@ -2352,8 +2374,6 @@ func (m Model) settingsUpdateState() settingsUpdateState {
 func (m *Model) syncSettingsUpdateState() {
 	m.settings.setUpdateState(m.settingsUpdateState())
 }
-
-const previewManualInstallCommand = "curl -fsSL https://raw.githubusercontent.com/allisonhere/tide/main/install.sh | sh"
 
 func (m *Model) applyManualUpdatePreview() {
 	pub := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
@@ -2372,7 +2392,7 @@ func (m *Model) applyManualUpdatePreview() {
 	m.downloadedUpdate = nil
 	m.updateInstall = update.InstallResult{
 		RequiresManual: true,
-		ManualCommand:  previewManualInstallCommand,
+		ManualCommand:  update.SuggestedManualInstallScript,
 	}
 	m.cfg.Updates.LastCheckedUnix = now.Unix()
 	m.settings = newSettings(m.cfg, m.settingsUpdateState())

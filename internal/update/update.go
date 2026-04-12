@@ -17,6 +17,9 @@ import (
 
 const defaultReleasesURL = "https://api.github.com/repos/allisonhere/tide/releases/latest"
 
+// SuggestedManualInstallScript is shown when an update is available but the running binary's install directory is not writable (before any download/install attempt).
+const SuggestedManualInstallScript = "curl -fsSL https://raw.githubusercontent.com/allisonhere/tide/main/install.sh | sh"
+
 type Updater struct {
 	ReleasesURL string
 	HTTPClient  *http.Client
@@ -410,6 +413,19 @@ func extractTarGz(archivePath, destDir, expectedName string) (string, error) {
 	}
 
 	return "", fmt.Errorf("archive does not contain %s", expectedName)
+}
+
+// InstallDestinationWritable reports whether the directory containing the current executable allows creating files (same gate as in-place install).
+func InstallDestinationWritable() (bool, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return false, err
+	}
+	dir := filepath.Dir(exe)
+	if err := ensureDirWritable(dir); err != nil {
+		return false, nil
+	}
+	return true, nil
 }
 
 func ensureDirWritable(dir string) error {

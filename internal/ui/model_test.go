@@ -307,6 +307,25 @@ func TestUppercaseUDoesNotOpenConfirmWhenManualInstallRequired(t *testing.T) {
 	}
 }
 
+func TestEffectiveManualUsesSuggestedWhenInstallDirNotWritable(t *testing.T) {
+	ok, err := update.InstallDestinationWritable()
+	if err != nil {
+		t.Fatalf("InstallDestinationWritable: %v", err)
+	}
+	if ok {
+		t.Skip("install destination is writable; cannot assert suggested script path")
+	}
+	m := Model{
+		currentVersion:  "v1.0.0",
+		updateInfo:      update.ReleaseInfo{Version: "v2.0.0"},
+		updateDismissed: false,
+		updateInstall:   update.InstallResult{},
+	}
+	if got := m.effectiveManualCommand(); got != update.SuggestedManualInstallScript {
+		t.Fatalf("effectiveManualCommand = %q want %q", got, update.SuggestedManualInstallScript)
+	}
+}
+
 func TestUpdateConfirmEscReturnsToApp(t *testing.T) {
 	m := Model{
 		overlay: overlayUpdateConfirm,

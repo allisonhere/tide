@@ -421,12 +421,15 @@ func (s Settings) aboutPulseCmd() tea.Cmd {
 
 func (s Settings) nextField() settingsField {
 	fields := s.visibleFields()
+	if len(fields) == 0 {
+		return s.focusedField
+	}
 	for i, f := range fields {
 		if f == s.focusedField {
 			if i < len(fields)-1 {
 				return fields[i+1]
 			}
-			return fields[0]
+			return s.focusedField
 		}
 	}
 	return fields[0]
@@ -434,12 +437,15 @@ func (s Settings) nextField() settingsField {
 
 func (s Settings) prevField() settingsField {
 	fields := s.visibleFields()
+	if len(fields) == 0 {
+		return s.focusedField
+	}
 	for i, f := range fields {
 		if f == s.focusedField {
 			if i > 0 {
 				return fields[i-1]
 			}
-			return fields[len(fields)-1]
+			return s.focusedField
 		}
 	}
 	return fields[len(fields)-1]
