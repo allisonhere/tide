@@ -922,7 +922,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case msg.String() == "U":
-		if m.showAvailableUpdatePrompt() {
+		if m.showAvailableUpdatePrompt() && strings.TrimSpace(m.updateInstall.ManualCommand) == "" {
 			m.overlay = overlayUpdateConfirm
 			return m, nil
 		}
@@ -1524,6 +1524,9 @@ func (m Model) statusUpdateInfoPart() string {
 func (m Model) statusUpdateActionPart() string {
 	if !m.showAvailableUpdatePrompt() {
 		return ""
+	}
+	if strings.TrimSpace(m.updateInstall.ManualCommand) != "" {
+		return m.styles.StatusNotice.Render("App update available  i ignore")
 	}
 	return m.styles.StatusNotice.Render("App update available  U install  i ignore")
 }

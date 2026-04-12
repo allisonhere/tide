@@ -1004,7 +1004,12 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		}
 		addValue("Status", s.update.statusLabel(), false)
 		if s.update.summary != "" {
-			addLine(ind.Render(s.renderInlineHint(hintIndent+s.update.summary, width-2, chrome)))
+			sumW := max(1, width-2-labelColW)
+			sumLines := wrapShellCommand(s.update.summary, sumW)
+			hintStyle := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted)
+			for _, sl := range sumLines {
+				addLine(ind.Render(hintStyle.Render(hintIndent + sl)))
+			}
 			addLine(blank)
 		}
 		if s.updateNowActionVisible() {
@@ -1163,12 +1168,27 @@ func (s Settings) renderFieldLabel(label string, focused bool, _ int, chrome man
 }
 
 func (s Settings) renderValueRow(label, value string, focused bool, width int, chrome managerChrome) string {
-	label = s.renderFieldLabel(label, focused, width, chrome)
+	labelCell := s.renderFieldLabel(label, focused, width, chrome)
+	valueW := max(1, width-labelColW)
+	trimmed := strings.TrimSpace(value)
+	lines := wrapShellCommand(trimmed, valueW)
 	valueStyle := chrome.body.Foreground(chrome.text)
-	if !focused {
-		valueStyle = valueStyle.Foreground(chrome.text)
+	if len(lines) == 1 && lines[0] == "" {
+		return labelCell + valueStyle.Width(valueW).Render(trimmed)
 	}
-	return label + valueStyle.Width(max(1, width-labelColW)).Render(value)
+	padCont := lipgloss.NewStyle().Background(chrome.baseBg).Width(labelColW).Render("")
+	var b strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteString("\n")
+			b.WriteString(padCont)
+		}
+		if i == 0 {
+			b.WriteString(labelCell)
+		}
+		b.WriteString(valueStyle.Render(line))
+	}
+	return b.String()
 }
 
 // manualInstallCommandLines renders the "Copy Command" label, COPY badge, and solid black bordered code block (one terminal line each).

@@ -202,6 +202,25 @@ func TestStatusBarShowsUpdateCheckActivity(t *testing.T) {
 	}
 }
 
+func TestStatusBarOmitsUInstallWhenManualInstallRequired(t *testing.T) {
+	m := Model{
+		width:           80,
+		styles:          BuildStyles(CatppuccinMocha),
+		updateState:     updateStateAvailable,
+		updateInfo:      update.ReleaseInfo{Version: "v1.1.0"},
+		updateInstall:   update.InstallResult{ManualCommand: "sudo true"},
+		updateDismissed: false,
+	}
+
+	bar := m.renderStatusBar()
+	if !containsString(bar, "App update available") || !containsString(bar, "i ignore") {
+		t.Fatalf("expected status bar to show update + ignore, got %q", bar)
+	}
+	if containsString(bar, "U install") {
+		t.Fatalf("did not expect U install when manual command is set, got %q", bar)
+	}
+}
+
 func TestStatusBarKeepsUpdateAvailableVisibleWithLongFeedTitle(t *testing.T) {
 	m := Model{
 		width:       48,
@@ -270,6 +289,21 @@ func TestUppercaseUOpensAvailableUpdateConfirm(t *testing.T) {
 
 	if got.overlay != overlayUpdateConfirm {
 		t.Fatalf("expected U to open update confirm, got overlay %v", got.overlay)
+	}
+}
+
+func TestUppercaseUDoesNotOpenConfirmWhenManualInstallRequired(t *testing.T) {
+	m := Model{
+		updateState:   updateStateAvailable,
+		updateInfo:    update.ReleaseInfo{Version: "v1.1.0"},
+		updateInstall: update.InstallResult{ManualCommand: "sudo cp a b"},
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'U'}})
+	got := next.(Model)
+
+	if got.overlay != overlayNone {
+		t.Fatalf("expected U to not open install confirm when manual install is required, got overlay %v", got.overlay)
 	}
 }
 
