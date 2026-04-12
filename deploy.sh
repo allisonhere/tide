@@ -54,6 +54,10 @@ print_error()   { echo -e "  ${RED}✗${NC} $1"; }
 print_warning() { echo -e "  ${YELLOW}⚠${NC} $1"; }
 print_info()    { echo -e "  ${BLUE}ℹ${NC} $1"; }
 
+gh_is_authenticated() {
+  gh auth status -h github.com >/dev/null 2>&1
+}
+
 print_file_size() {
   local file=$1
   if [ -f "$file" ]; then
@@ -200,6 +204,12 @@ create_release() {
     return 1
   fi
 
+  if ! gh_is_authenticated; then
+    print_error "GitHub CLI is not authenticated for GitHub API access"
+    print_info "Run 'gh auth login' or export GH_TOKEN before creating releases"
+    return 1
+  fi
+
   if git rev-parse "$VERSION" &>/dev/null; then
     print_warning "Tag $VERSION already exists"
     read -p "  Delete and recreate? [y/N] " -n 1 -r
@@ -219,7 +229,7 @@ create_release() {
   print_success "Tag $VERSION pushed"
 
   print_substep "Creating GitHub release..."
-  gh release create "$VERSION" \
+  if ! gh release create "$VERSION" \
     --title "Tide $VERSION" \
     --notes "## Tide $VERSION
 
@@ -233,13 +243,19 @@ git clone https://github.com/${REPO}
 cd tide
 go build -o tide .
 \`\`\`" \
-    --repo "$REPO"
+    --repo "$REPO"; then
+    print_error "Release creation failed"
+    return 1
+  fi
   print_success "Release created"
 
   print_substep "Uploading archives..."
   for f in "$DIST_DIR"/*.tar.gz; do
     if [ -f "$f" ]; then
-      gh release upload "$VERSION" "$f" --repo "$REPO"
+      if ! gh release upload "$VERSION" "$f" --repo "$REPO"; then
+        print_error "Failed to upload $(basename "$f")"
+        return 1
+      fi
       print_file_size "$f"
     fi
   done
@@ -300,7 +316,11 @@ show_status() {
   fi
 
   if command -v gh &>/dev/null; then
-    echo -e "  ${BOLD}gh:${NC}       ${GREEN}available${NC}"
+    if gh_is_authenticated; then
+      echo -e "  ${BOLD}gh:${NC}       ${GREEN}authenticated${NC}"
+    else
+      echo -e "  ${BOLD}gh:${NC}       ${YELLOW}installed, not authenticated${NC}"
+    fi
   else
     echo -e "  ${BOLD}gh:${NC}       ${YELLOW}not found (releases won't work)${NC}"
   fi

@@ -376,6 +376,28 @@ func TestFetchFeed_FriendlyMessages(t *testing.T) {
 	}
 }
 
+func TestStripAntiScraperNotice(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"clean content", "Hello world", "Hello world"},
+		{"notice stripped", "Great article. This RSS feed is intended for readers, not scrapers.", "Great article."},
+		{"case insensitive", "Post content. this rss feed is intended for readers, not scrapers", "Post content."},
+		{"mid-sentence preserves separator", "Intro. This RSS feed is intended for readers, not scrapers. Outro.", "Intro.   Outro."},
+		{"html paragraph", "<p>Body</p><p>This RSS feed is intended for readers, not scrapers.</p>", "<p>Body</p><p> </p>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := stripAntiScraperNotice(tc.input)
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestIsBotProtection(t *testing.T) {
 	cases := []struct {
 		body string

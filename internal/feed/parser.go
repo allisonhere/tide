@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 
@@ -106,6 +107,12 @@ func discoverFeedURL(data []byte) string {
 	return found
 }
 
+var antiScraperPattern = regexp.MustCompile(`(?i)This RSS feed is intended for readers,?\s+not scrapers\.?`)
+
+func stripAntiScraperNotice(s string) string {
+	return strings.TrimSpace(antiScraperPattern.ReplaceAllString(s, " "))
+}
+
 func attrMap(attrs []html.Attribute) map[string]string {
 	m := make(map[string]string, len(attrs))
 	for _, a := range attrs {
@@ -127,6 +134,7 @@ func parseItem(item *gofeed.Item) ParsedItem {
 	if content == "" {
 		content = item.Description
 	}
+	content = stripAntiScraperNotice(content)
 
 	pub := time.Now()
 	if item.PublishedParsed != nil {
