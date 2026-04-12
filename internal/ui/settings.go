@@ -1075,7 +1075,7 @@ func (s Settings) dateLabel() string {
 }
 
 func (s Settings) renderSectionLabel(label string, width int, chrome managerChrome) string {
-	bar := lipgloss.NewStyle().Background(chrome.accent).Width(2).Render("  ")
+	bar := lipgloss.NewStyle().Background(chrome.highlight).Width(2).Render("  ")
 	title := chrome.sectionLabel.Copy().Foreground(chrome.text).Width(width - 2).Render(" " + label)
 	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render(bar + title)
 }
@@ -1124,13 +1124,13 @@ func (s Settings) renderSectionNavRow(width int, label, subtitle string, selecte
 	bold := false
 	if selected {
 		bg = chrome.surfaceBg
-		fg = chrome.accent
-		subFg = chrome.accent
+		fg = chrome.highlight
+		subFg = chrome.highlight
 		bold = true
 		if paneFocused {
-			bg = chrome.accent
-			fg = chrome.accentFg
-			subFg = chrome.accentFg
+			bg = chrome.highlight
+			fg = chrome.highlightFg
+			subFg = chrome.highlightFg
 		}
 	}
 
@@ -1171,14 +1171,13 @@ func (s Settings) renderValueRow(label, value string, focused bool, width int, c
 	return label + valueStyle.Width(max(1, width-labelColW)).Render(value)
 }
 
-// manualInstallCommandLines renders the "Copy Command" label, clipboard hint, COPY badge, and solid black bordered code block (one terminal line each).
-// rowContentW is the usable width for this row (matches other settings rows, typically pane width − 2).
+// manualInstallCommandLines renders the "Copy Command" label, COPY badge, and solid black bordered code block (one terminal line each).
+// rowContentW is the usable width for this row; the box is drawn 5 cells narrower than that so it does not span the full detail width.
 func (s Settings) manualInstallCommandLines(rowContentW int, command string, focused bool, chrome managerChrome) []string {
-	clip := lipgloss.NewStyle().Foreground(chrome.muted).Render(" 📋 ")
-	labelRow := s.renderFieldLabel("Copy Command", focused, rowContentW, chrome) + clip + s.renderBadge("COPY", focused, chrome)
+	labelRow := s.renderFieldLabel("Copy Command", focused, rowContentW, chrome) + s.renderBadge("COPY", focused, chrome)
 	borderFg := lipgloss.Color("#2a2a2a")
 	if focused {
-		borderFg = chrome.accent
+		borderFg = chrome.highlight
 	}
 	codeBg := lipgloss.Color("#000000")
 	kwFg := lipgloss.Color("#a6e3a1")
@@ -1186,8 +1185,9 @@ func (s Settings) manualInstallCommandLines(rowContentW int, command string, foc
 	urlFg := lipgloss.Color("#f9e2af")
 	pipeFg := lipgloss.Color("#89dceb")
 	defFg := lipgloss.Color("#e8e8e8")
+	boxW := max(1, rowContentW-5)
 	// Border (2) + horizontal padding (2+2).
-	innerTextW := max(1, rowContentW-6)
+	innerTextW := max(1, boxW-6)
 	wrapped := wrapShellCommand(command, innerTextW)
 	styledLines := make([]string, 0, len(wrapped))
 	for _, line := range wrapped {
@@ -1200,7 +1200,7 @@ func (s Settings) manualInstallCommandLines(rowContentW int, command string, foc
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(borderFg).
 		PaddingTop(1).PaddingBottom(1).PaddingLeft(2).PaddingRight(2).
-		Width(rowContentW).
+		Width(boxW).
 		Align(lipgloss.Left).
 		Render(inner)
 	lines := []string{labelRow}
@@ -1443,9 +1443,9 @@ func renderSettingsPicker(width int, value string, focused bool, chrome managerC
 	fg := chrome.text
 	accentFg := chrome.muted
 	if focused {
-		bg = chrome.accent
-		fg = chrome.accentFg
-		accentFg = chrome.accentFg
+		bg = chrome.highlight
+		fg = chrome.highlightFg
+		accentFg = chrome.highlightFg
 	}
 	value = truncate(value, maxTextW)
 	text := lipgloss.NewStyle().Background(bg).Foreground(fg)
@@ -1567,7 +1567,7 @@ func (s Settings) renderAboutLinkCard(width int, title, hint, url string, focuse
 		} else {
 			bg = adjustLightness(bg, -0.07)
 		}
-		border = chrome.accent
+		border = chrome.highlight
 		titleFg = chrome.text
 		bodyFg = readableText(chrome.text, bg, 3.5)
 		urlFg = titleFg

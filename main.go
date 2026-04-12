@@ -18,11 +18,14 @@ import (
 var version = "dev"
 
 func main() {
-	if len(os.Args) > 1 {
-		switch strings.TrimSpace(os.Args[1]) {
+	previewManualUpdate := false
+	for _, a := range os.Args[1:] {
+		switch strings.TrimSpace(a) {
 		case "--version", "-version", "-v":
 			fmt.Printf("tide %s\n", resolvedVersion())
 			return
+		case "--preview-manual-update":
+			previewManualUpdate = true
 		}
 	}
 
@@ -45,7 +48,8 @@ func main() {
 	}
 	feed.SetMaxFeedBodyBytes(cfg.Feed.MaxBodyMiB << 20)
 
-	model := ui.NewModel(database, cfg, resolvedVersion())
+	// --preview-manual-update: open Settings on Updates with a demo manual-install command (dev UI).
+	model := ui.NewModel(database, cfg, resolvedVersion(), previewManualUpdate)
 	p := tea.NewProgram(model,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
