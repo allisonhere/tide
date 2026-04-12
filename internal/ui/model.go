@@ -1152,6 +1152,12 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.openBrowserCmd(url)
 		}
 		return m, nil
+	case settingsActionCopyManualInstall:
+		cmd := strings.TrimSpace(m.settings.update.manualCommand)
+		if cmd == "" {
+			return m, nil
+		}
+		return m, copyToClipboardCmd(cmd)
 	}
 	if done {
 		if m.settings.shouldSave {

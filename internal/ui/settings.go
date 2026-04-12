@@ -36,6 +36,7 @@ const (
 	sfOllamaURL // visible when provider is ollama
 	sfOllamaModel
 	sfSavePath
+	sfUpdateManualCommand
 )
 
 type settingsSection int
@@ -66,6 +67,7 @@ const (
 	settingsActionRestartAfterUpdate
 	settingsActionOpenRepo
 	settingsActionOpenIssues
+	settingsActionCopyManualInstall
 )
 
 const (
@@ -341,6 +343,9 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		fields := []settingsField{sfUpdateCheckOnStartup, sfUpdateCheckNow}
 		if s.update.latestVersion != "" {
 			fields = append(fields, sfUpdateInstallNow, sfUpdateDismissVersion)
+		}
+		if s.update.manualCommand != "" {
+			fields = append(fields, sfUpdateManualCommand)
 		}
 		if s.update.restartable {
 			fields = append(fields, sfUpdateRestartNow)
@@ -703,6 +708,16 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
+	case sfUpdateManualCommand:
+		switch {
+		case key.String() == " " || keyMatches(key, keys.Enter) || keyMatches(key, keys.CopyText):
+			s.action = settingsActionCopyManualInstall
+		case keyMatches(key, keys.Down):
+			s.setFocusedField(s.nextField())
+		case keyMatches(key, keys.Up):
+			s.setFocusedField(s.prevField())
+		}
+
 	case sfUpdateRestartNow:
 		switch {
 		case key.String() == " " || keyMatches(key, keys.Enter):
@@ -970,7 +985,15 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 			addAction("Ignore", "", sfUpdateDismissVersion)
 		}
 		if s.update.manualCommand != "" {
-			addValue("Install command", s.update.manualCommand, false)
+			focused := s.focusedField == sfUpdateManualCommand
+			markAnchor(sfUpdateManualCommand)
+			for _, line := range s.manualInstallCommandLines(width-2, s.update.manualCommand, focused, chrome) {
+				addLine(ind.Render(line))
+			}
+			if hint := s.fieldHint(sfUpdateManualCommand); hint != "" {
+				addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
+			}
+			addLine(blank)
 		}
 		if s.update.restartable {
 			addAction("Restart now", "launch updated Tide", sfUpdateRestartNow)
@@ -1049,6 +1072,15 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 			"esc", "categories",
 		)
 	}
+	if s.activeSection == ssUpdates && s.focusedField == sfUpdateManualCommand {
+		return renderManagerActions(width, chrome,
+			"enter", "copy",
+			"c", "copy",
+			"tab", "next",
+			"ctrl+s", "save",
+			"esc", "categories",
+		)
+	}
 	return renderManagerActions(width, chrome,
 		"←", "sections",
 		"↑/↓", "field",
@@ -1108,6 +1140,106 @@ func (s Settings) renderValueRow(label, value string, focused bool, width int, c
 		valueStyle = valueStyle.Foreground(chrome.text)
 	}
 	return label + valueStyle.Width(max(1, width-labelColW)).Render(value)
+}
+
+// manualInstallCommandLines renders the "Install command" label, COPY badge, and bordered code block (one terminal line each).
+func (s Settings) manualInstallCommandLines(contentW int, command string, focused bool, chrome managerChrome) []string {
+	labelRow := s.renderFieldLabel("Install command", focused, contentW, chrome) + s.renderBadge("COPY", focused, chrome)
+	borderFg := chrome.border
+	if focused {
+		borderFg = chrome.accent
+	}
+	// Inner text width: content width minus border (2) and horizontal padding (2).
+	textW := max(1, contentW-4)
+	wrapped := wrapShellCommand(command, textW)
+	inner := strings.Join(wrapped, "\n")
+	box := lipgloss.NewStyle().
+		Background(chrome.surfaceBg).
+		Foreground(chrome.text).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(borderFg).
+		Padding(0, 1).
+		Width(contentW).
+		Render(inner)
+	lines := []string{labelRow}
+	lines = append(lines, strings.Split(box, "\n")...)
+	return lines
+}
+
+func wrapShellCommand(s string, maxW int) []string {
+	s = strings.TrimSpace(s)
+	if maxW < 1 {
+		maxW = 1
+	}
+	if s == "" {
+		return []string{""}
+	}
+	words := strings.Fields(s)
+	var out []string
+	var cur strings.Builder
+	flush := func() {
+		if cur.Len() > 0 {
+			out = append(out, cur.String())
+			cur.Reset()
+		}
+	}
+	for _, w := range words {
+		if lipgloss.Width(w) > maxW {
+			flush()
+			out = append(out, hardWrapString(w, maxW)...)
+			continue
+		}
+		try := w
+		if cur.Len() > 0 {
+			try = cur.String() + " " + w
+		}
+		if lipgloss.Width(try) <= maxW {
+			if cur.Len() > 0 {
+				cur.WriteString(" ")
+			}
+			cur.WriteString(w)
+		} else {
+			flush()
+			cur.WriteString(w)
+		}
+	}
+	flush()
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
+}
+
+func hardWrapString(s string, maxW int) []string {
+	if maxW < 1 {
+		maxW = 1
+	}
+	var out []string
+	runes := []rune(s)
+	for len(runes) > 0 {
+		var b strings.Builder
+		for len(runes) > 0 {
+			nextR := runes[0]
+			cand := b.String() + string(nextR)
+			if b.Len() > 0 && lipgloss.Width(cand) > maxW {
+				break
+			}
+			if b.Len() == 0 && lipgloss.Width(string(nextR)) > maxW {
+				b.WriteRune(nextR)
+				runes = runes[1:]
+				break
+			}
+			b.WriteRune(nextR)
+			runes = runes[1:]
+		}
+		if b.Len() > 0 {
+			out = append(out, b.String())
+		}
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
 }
 
 func (s Settings) renderActionRow(label, hint string, focused bool, width int, chrome managerChrome) string {
@@ -1240,6 +1372,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "local Ollama endpoint"
 	case sfSavePath:
 		return "directory for exported markdown summaries"
+	case sfUpdateManualCommand:
+		return "enter or c copies the command"
 	default:
 		return ""
 	}
