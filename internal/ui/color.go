@@ -70,6 +70,34 @@ func readableText(preferred, bg lipgloss.Color, minRatio float64) lipgloss.Color
 	return contrastFg(bg)
 }
 
+// accentReadableOn returns a foreground accent that meets minRatio against bg,
+// nudging HSL lightness (same hue) before falling back to readableText/contrastFg.
+func accentReadableOn(accent, bg lipgloss.Color, minRatio float64) lipgloss.Color {
+	if accent == "" {
+		return ""
+	}
+	if _, _, _, ok := hexToRGB(accent); !ok {
+		return accent
+	}
+	if contrastRatio(accent, bg) >= minRatio {
+		return accent
+	}
+	const step = 0.06
+	const maxSteps = 12
+	cur := accent
+	for range maxSteps {
+		if isDark(bg) {
+			cur = adjustLightness(cur, step)
+		} else {
+			cur = adjustLightness(cur, -step)
+		}
+		if contrastRatio(cur, bg) >= minRatio {
+			return cur
+		}
+	}
+	return readableText(accent, bg, minRatio)
+}
+
 func modalSurface(t Theme) lipgloss.Color {
 	if isDark(t.Bg) {
 		return adjustLightness(t.Bg, 0.06)
