@@ -15,6 +15,15 @@ import (
 	"tide/internal/update"
 )
 
+// shellCommandKeywords are highlighted as commands inside the manual-install code block.
+var shellCommandKeywords = map[string]bool{
+	"sudo": true, "su": true, "doas": true, "install": true, "cp": true, "mv": true,
+	"chmod": true, "chown": true, "rm": true, "cd": true, "export": true,
+	"echo": true, "curl": true, "wget": true, "tar": true, "unzip": true,
+	"dnf": true, "apt": true, "pacman": true, "brew": true, "nix-env": true,
+	"sh": true, "bash": true, "fish": true, "zsh": true,
+}
+
 // ── Field index ───────────────────────────────────────────────────────────────
 
 type settingsField int
@@ -1162,22 +1171,27 @@ func (s Settings) renderValueRow(label, value string, focused bool, width int, c
 	return label + valueStyle.Width(max(1, width-labelColW)).Render(value)
 }
 
-// manualInstallCommandLines renders the "Install command" label, COPY badge, and solid black bordered code block (one terminal line each).
+// manualInstallCommandLines renders the "Copy Command" label, clipboard hint, COPY badge, and solid black bordered code block (one terminal line each).
 // rowContentW is the usable width for this row (matches other settings rows, typically pane width − 2).
 func (s Settings) manualInstallCommandLines(rowContentW int, command string, focused bool, chrome managerChrome) []string {
-	labelRow := s.renderFieldLabel("Install command", focused, rowContentW, chrome) + s.renderBadge("COPY", focused, chrome)
+	clip := lipgloss.NewStyle().Foreground(chrome.muted).Render(" 📋 ")
+	labelRow := s.renderFieldLabel("Copy Command", focused, rowContentW, chrome) + clip + s.renderBadge("COPY", focused, chrome)
 	borderFg := lipgloss.Color("#2a2a2a")
 	if focused {
 		borderFg = chrome.accent
 	}
 	codeBg := lipgloss.Color("#000000")
-	textFg := lipgloss.Color("#e8e8e8")
+	kwFg := lipgloss.Color("#a6e3a1")
+	flagFg := lipgloss.Color("#fab387")
+	urlFg := lipgloss.Color("#f9e2af")
+	pipeFg := lipgloss.Color("#89dceb")
+	defFg := lipgloss.Color("#e8e8e8")
 	// Border (2) + horizontal padding (2+2).
 	innerTextW := max(1, rowContentW-6)
 	wrapped := wrapShellCommand(command, innerTextW)
 	styledLines := make([]string, 0, len(wrapped))
 	for _, line := range wrapped {
-		lineStyled := lipgloss.NewStyle().Background(codeBg).Foreground(textFg).Render(line)
+		lineStyled := styleShellCommandLine(line, codeBg, kwFg, flagFg, urlFg, pipeFg, defFg)
 		styledLines = append(styledLines, padStyledCodeLine(lineStyled, codeBg, innerTextW))
 	}
 	inner := lipgloss.JoinVertical(lipgloss.Left, styledLines...)
@@ -1192,6 +1206,58 @@ func (s Settings) manualInstallCommandLines(rowContentW int, command string, foc
 	lines := []string{labelRow}
 	lines = append(lines, strings.Split(box, "\n")...)
 	return lines
+}
+
+func styleShellCommandLine(line string, bg, kwFg, flagFg, urlFg, pipeFg, defFg lipgloss.Color) string {
+	parts := strings.Fields(line)
+	if len(parts) == 0 {
+		return lipgloss.NewStyle().Background(bg).Foreground(defFg).Render("")
+	}
+	var b strings.Builder
+	for i, tok := range parts {
+		if i > 0 {
+			b.WriteString(lipgloss.NewStyle().Background(bg).Foreground(defFg).Render(" "))
+		}
+		fg := shellTokenForeground(tok, kwFg, flagFg, urlFg, pipeFg, defFg)
+		b.WriteString(lipgloss.NewStyle().Background(bg).Foreground(fg).Render(tok))
+	}
+	return b.String()
+}
+
+func shellTokenForeground(tok string, kwFg, flagFg, urlFg, pipeFg, defFg lipgloss.Color) lipgloss.Color {
+	if tok == "|" {
+		return pipeFg
+	}
+	trim := strings.Trim(tok, `"'`)
+	if strings.Contains(trim, "://") || strings.HasPrefix(strings.ToLower(trim), "http") {
+		return urlFg
+	}
+	if strings.HasPrefix(tok, "-") {
+		return flagFg
+	}
+	low := strings.ToLower(trim)
+	if shellCommandKeywords[low] {
+		return kwFg
+	}
+	if strings.Contains(tok, "/") || strings.HasPrefix(tok, "~/") {
+		return defFg
+	}
+	if isNumericShellToken(trim) {
+		return flagFg
+	}
+	return defFg
+}
+
+func isNumericShellToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func padStyledCodeLine(styled string, bg lipgloss.Color, targetCells int) string {

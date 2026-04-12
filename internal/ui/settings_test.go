@@ -672,8 +672,8 @@ func TestSettingsManualInstallCommandRendersBlock(t *testing.T) {
 	s.setFocusedField(sfUpdateManualCommand)
 
 	view := ansi.Strip(s.View(80, 40, newManagerChrome(80, CatppuccinMocha)))
-	if !strings.Contains(view, "Install command") {
-		t.Fatalf("expected Install command label, got %q", view)
+	if !strings.Contains(view, "Copy Command") {
+		t.Fatalf("expected Copy Command label, got %q", view)
 	}
 	if !strings.Contains(view, "sudo install") {
 		t.Fatalf("expected command text in view, got %q", view)
