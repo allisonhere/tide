@@ -2294,7 +2294,7 @@ func renderManagerFeedRow(width int, title, color string, chrome managerChrome, 
 	iconStyle := lipgloss.NewStyle().Foreground(chrome.text).Background(rowBg)
 	nameStyle := lipgloss.NewStyle().Foreground(chrome.text).Background(rowBg)
 	if color != "" {
-		accent := lipgloss.Color(color)
+		accent := accentReadableOn(lipgloss.Color(color), rowBg, 3)
 		iconStyle = iconStyle.Foreground(accent)
 		nameStyle = nameStyle.Foreground(accent)
 	}
@@ -2337,7 +2337,7 @@ func renderManagerFolderRow(width int, title, color string, collapsed bool, chro
 	iconStyle := lipgloss.NewStyle().Foreground(contentFg).Background(contentBg)
 	nameStyle := lipgloss.NewStyle().Foreground(contentFg).Background(contentBg)
 	if color != "" {
-		accent := lipgloss.Color(color)
+		accent := accentReadableOn(lipgloss.Color(color), contentBg, 3)
 		iconStyle = iconStyle.Foreground(accent)
 		nameStyle = nameStyle.Foreground(accent)
 	}
