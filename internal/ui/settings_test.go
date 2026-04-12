@@ -663,6 +663,7 @@ func TestSettingsManualInstallCommandRendersBlock(t *testing.T) {
 	cfg := config.DefaultConfig()
 	s := newSettings(cfg, settingsUpdateState{
 		currentVersion: "v1.0.0",
+		latestVersion:  "v1.1.0",
 		state:          updateStateNeedsElevation,
 		manualCommand:  "sudo install -m 0755 /tmp/tide /usr/local/bin/tide",
 	})
@@ -679,6 +680,12 @@ func TestSettingsManualInstallCommandRendersBlock(t *testing.T) {
 	}
 	if !strings.Contains(view, "│") {
 		t.Fatalf("expected bordered code block in view, got %q", view)
+	}
+	if !strings.Contains(view, "Ignore") {
+		t.Fatalf("expected Ignore when update is available with manual install, got %q", view)
+	}
+	if strings.Contains(view, "Update now") {
+		t.Fatalf("did not expect Update now when manual install is required, got %q", view)
 	}
 }
 
