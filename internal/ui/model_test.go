@@ -27,7 +27,7 @@ func TestFeedsLoadedPopulatesPane(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 
 	// Simulate WindowSizeMsg so width/height are set
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
@@ -71,7 +71,7 @@ func TestFirstLoadEmptyDoesNotOpenOverlay(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
 	m = m2.(Model)
@@ -93,7 +93,7 @@ func TestEnterDoesNotOpenAddDialogWhenNoFeedsExist(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 96, Height: 24})
 	m = m2.(Model)
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: nil})
@@ -115,7 +115,7 @@ func TestAddKeyOpensAddDialogWhenNoFeedsExist(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 96, Height: 24})
 	m = m2.(Model)
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: nil})
@@ -142,7 +142,7 @@ func TestFeedPaneKeepsCurrentFeedVisibleWhenUnfocused(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
 	m = m2.(Model)
@@ -167,7 +167,7 @@ func TestLongStatusMessageDoesNotChangeViewHeight(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	m = m2.(Model)
 
@@ -384,7 +384,7 @@ func TestFeedRefreshAutoAppliesPermanentRedirectURL(t *testing.T) {
 		t.Fatalf("AddFeed returned error: %v", err)
 	}
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 
 	next, cmd := m.Update(FeedRefreshedMsg{
 		FeedID: feedID,
@@ -426,7 +426,7 @@ func TestFeedRefreshPersistsFeedMetadata(t *testing.T) {
 		t.Fatalf("AddFeed returned error: %v", err)
 	}
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 
 	next, cmd := m.Update(FeedRefreshedMsg{
 		FeedID:      feedID,
@@ -485,7 +485,7 @@ func TestLocalReadArticlesDisappearAfterRefreshReload(t *testing.T) {
 		t.Fatalf("MarkRead returned error: %v", err)
 	}
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{{ID: feedID, Title: "Local Feed", URL: "https://example.com/feed.xml"}}})
@@ -587,7 +587,7 @@ func TestFeedPaneDoesNotStartWithBlankLines(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 	m = m2.(Model)
 
@@ -611,7 +611,7 @@ func TestCursorMoveDoesNotChangeRenderedLineCount(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -650,7 +650,7 @@ func TestFeedSelectionChangeWithArticlesKeepsFrameStable(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -745,7 +745,7 @@ func TestResetHelpViewportUsesFullOverlayWidth(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m.width = 120
 	m.height = 30
 	m.styles = BuildStyles(CatppuccinMocha)
@@ -767,7 +767,7 @@ func TestIconsToggleChangesRenderedPaneMarkers(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.Display.Icons = true
-	m := NewModel(database, cfg, "v1.0.0")
+	m := NewModel(database, cfg, "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -804,7 +804,7 @@ func TestSettingsCanReopenAfterSave(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -828,7 +828,7 @@ func TestSettingsCanReopenAfterSave(t *testing.T) {
 }
 
 func TestSettingsOverlayOpensWithSidebarFocus(t *testing.T) {
-	m := NewModel(nil, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", false)
 	m.keys = DefaultKeys
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
@@ -873,7 +873,7 @@ func TestLoadFeedsCmdCombinesLocalAndGReaderFeeds(t *testing.T) {
 	cfg.Source.GReaderLogin = "alice"
 	cfg.Source.GReaderPassword = "secret"
 
-	m := NewModel(database, cfg, "v1.0.0")
+	m := NewModel(database, cfg, "v1.0.0", false)
 	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
 		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
@@ -939,7 +939,7 @@ func TestLoadFeedsCmdAppliesLocalFolderPrefsToGReaderFeeds(t *testing.T) {
 	cfg.Source.GReaderLogin = "alice"
 	cfg.Source.GReaderPassword = "secret"
 
-	m := NewModel(database, cfg, "v1.0.0")
+	m := NewModel(database, cfg, "v1.0.0", false)
 	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
 		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
@@ -991,7 +991,7 @@ func TestLoadFeedsCmdAppliesLocalTitleOverrideToGReaderFeeds(t *testing.T) {
 	cfg.Source.GReaderLogin = "alice"
 	cfg.Source.GReaderPassword = "secret"
 
-	m := NewModel(database, cfg, "v1.0.0")
+	m := NewModel(database, cfg, "v1.0.0", false)
 	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
 		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
@@ -1038,7 +1038,7 @@ func TestLoadArticlesCmdUsesGReaderFeedWhenSelected(t *testing.T) {
 	cfg.Source.GReaderLogin = "alice"
 	cfg.Source.GReaderPassword = "secret"
 
-	m := NewModel(database, cfg, "v1.0.0")
+	m := NewModel(database, cfg, "v1.0.0", false)
 	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
 		case "https://rss.example.com/api/greader.php/accounts/ClientLogin":
@@ -1098,7 +1098,7 @@ func TestRemoteMarkReadUsesGReaderAndUpdatesUnreadCount(t *testing.T) {
 	cfg.Source.GReaderLogin = "alice"
 	cfg.Source.GReaderPassword = "secret"
 
-	m := NewModel(nil, cfg, "v1.0.0")
+	m := NewModel(nil, cfg, "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -1173,7 +1173,7 @@ func TestRemoteMarkAllReadUsesGReaderAndClearsUnreadState(t *testing.T) {
 	cfg.Source.GReaderLogin = "alice"
 	cfg.Source.GReaderPassword = "secret"
 
-	m := NewModel(nil, cfg, "v1.0.0")
+	m := NewModel(nil, cfg, "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -1245,7 +1245,7 @@ func TestRemoteMarkReadOnOpenUsesGReader(t *testing.T) {
 	cfg.Source.GReaderLogin = "alice"
 	cfg.Source.GReaderPassword = "secret"
 
-	m := NewModel(nil, cfg, "v1.0.0")
+	m := NewModel(nil, cfg, "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -1320,7 +1320,7 @@ func TestRemoteMarkReadFailureLeavesStateUnchanged(t *testing.T) {
 	cfg.Source.GReaderLogin = "alice"
 	cfg.Source.GReaderPassword = "secret"
 
-	m := NewModel(nil, cfg, "v1.0.0")
+	m := NewModel(nil, cfg, "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -1393,7 +1393,7 @@ func TestRemoteReadArticleDoesNotReturnAfterReload(t *testing.T) {
 	cfg.Source.GReaderLogin = "alice"
 	cfg.Source.GReaderPassword = "secret"
 
-	m := NewModel(nil, cfg, "v1.0.0")
+	m := NewModel(nil, cfg, "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -1506,7 +1506,7 @@ func TestLocalReadArticleDisappearsAfterReload(t *testing.T) {
 		}
 	}
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -1567,7 +1567,7 @@ func TestFeedManagerKeyStillOpensEditableOverlayWithRemoteFeedsLoaded(t *testing
 	cfg.Source.GReaderLogin = "alice"
 	cfg.Source.GReaderPassword = "secret"
 
-	m := NewModel(database, cfg, "v1.0.0")
+	m := NewModel(database, cfg, "v1.0.0", false)
 	m2, _ := m.Update(FeedsLoadedMsg{
 		Feeds: []db.Feed{{ID: -1, Title: "Remote Feed", URL: "https://example.com/feed"}},
 		RemoteStreams: map[int64]string{
@@ -1606,7 +1606,7 @@ func TestAddKeyOpensAddDialogWithSourceToggle(t *testing.T) {
 	cfg.Source.GReaderLogin = "alice"
 	cfg.Source.GReaderPassword = "secret"
 
-	m := NewModel(database, cfg, "v1.0.0")
+	m := NewModel(database, cfg, "v1.0.0", false)
 	m2, _ := m.Update(FeedsLoadedMsg{})
 	m = m2.(Model)
 
@@ -1640,7 +1640,7 @@ func TestFeedManagerOverlayShowsAddActionAndAOpensAddDialog(t *testing.T) {
 	cfg.Source.GReaderLogin = "alice"
 	cfg.Source.GReaderPassword = "secret"
 
-	m := NewModel(database, cfg, "v1.0.0")
+	m := NewModel(database, cfg, "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 96, Height: 24})
 	m = m2.(Model)
 	m2, _ = m.Update(FeedsLoadedMsg{
@@ -1690,7 +1690,7 @@ func TestFeedManagerOpensInListModeWithLeftPaneFocus(t *testing.T) {
 	}
 	feed := db.Feed{ID: feedID, Title: "Example Feed", URL: "https://example.com/feed.xml"}
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 96, Height: 24})
 	m = m2.(Model)
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
@@ -1719,7 +1719,7 @@ func TestRemoteFeedAddedMsgPersistsGReaderConfigAndTargetsStream(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(RemoteFeedAddedMsg{
 		Source: config.SourceConfig{
 			GReaderURL:      "https://rss.example.com/api/greader.php",
@@ -1771,7 +1771,7 @@ func TestRemoteFeedAddedMsgWithoutStreamShowsConnectedStatus(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(RemoteFeedAddedMsg{
 		Source: config.SourceConfig{
 			GReaderURL:      "https://rss.example.com/api/greader.php",
@@ -1799,7 +1799,7 @@ func TestRemoteFeedAddedMsgSettingsOnlyShowsSavedStatus(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(RemoteFeedAddedMsg{
 		SettingsOnly: true,
 		Source: config.SourceConfig{
@@ -1832,7 +1832,7 @@ func TestRemoteFeedAddedMsgSaveFailureSurfacesStatus(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, cmd := m.Update(RemoteFeedAddedMsg{
 		Source: config.SourceConfig{
 			GReaderURL:      "https://rss.example.com/api/greader.php",
@@ -2268,7 +2268,7 @@ func TestRightKeyReachesContentPane(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -2292,7 +2292,7 @@ func TestQuitOverlayDoesNotCloseOnQ(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	m = m2.(Model)
 	if m.overlay != overlayQuitConfirm {
@@ -2313,7 +2313,7 @@ func TestSummaryUnavailableFromFeedsPane(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -2372,7 +2372,7 @@ func TestArticleCursorMoveKeepsFrameStable(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -2413,7 +2413,7 @@ func TestArticleReadUpdatedAdvancesToNextArticleInArticlesPane(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -2455,7 +2455,7 @@ func TestArticleReadUpdatedDoesNotAdvanceOutsideArticlesPane(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -2494,7 +2494,7 @@ func TestMarkReadKeyTogglesArticleBackToUnread(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -2535,7 +2535,7 @@ func TestMarkReadKeyAdvancesToNextArticleFromContentPane(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -2576,7 +2576,7 @@ func TestContentPaneClampsViewportOutputToPaneSize(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -2613,7 +2613,7 @@ func TestContentPaneUsesFullAllocatedHeight(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -2745,7 +2745,7 @@ func TestFeedsPaneRendersFoldersAndUncategorized(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -2782,7 +2782,7 @@ func TestFeedsLoadedSelectsFirstFeedInsteadOfFolderByDefault(t *testing.T) {
 	cfg.Source.GReaderLogin = "alice"
 	cfg.Source.GReaderPassword = "secret"
 
-	m := NewModel(database, cfg, "v1.0.0")
+	m := NewModel(database, cfg, "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -2819,7 +2819,7 @@ func TestFolderSelectionClearsArticlesAndToggleCollapses(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 
@@ -2856,7 +2856,7 @@ func TestFolderAccentStylesPropagateToFeedsAndArticles(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m.folders = []db.Folder{{ID: 10, Name: "Tech", Color: "#f7768e"}}
 	m.feeds = []db.Feed{{ID: 1, Title: "Feed One", URL: "https://example.com/1", FolderID: 10, UnreadCount: 3}}
 	m.sidebarRows = []sidebarRow{{kind: rowKindFolder, folderID: 10}, {kind: rowKindFeed, feedID: 1}}
@@ -2926,7 +2926,7 @@ func TestUpdateCheckedMsgMarksAvailableRelease(t *testing.T) {
 	}
 	defer database.Close()
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m.settings = newSettings(m.cfg, m.settingsUpdateState())
 
 	next, _ := m.Update(UpdateCheckedMsg{
@@ -2975,7 +2975,7 @@ func TestNewModelRestoresCachedAvailableUpdate(t *testing.T) {
 	cfg.Updates.AvailableSummary = "Faster update flow."
 	cfg.Updates.AvailablePublished = 1710000000
 
-	m := NewModel(database, cfg, "v1.0.0")
+	m := NewModel(database, cfg, "v1.0.0", false)
 
 	if m.updateState != updateStateAvailable {
 		t.Fatalf("expected cached update to restore available state, got %v", m.updateState)
@@ -3070,6 +3070,25 @@ func TestSettingsViewShowsLatestVersionLabelForRestoredRelease(t *testing.T) {
 
 	if !containsString(view, "Latest version") {
 		t.Fatalf("expected latest version label in settings view: %q", view)
+	}
+}
+
+func TestPreviewManualUpdateOpensSettingsWithManualBlock(t *testing.T) {
+	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", true)
+	if !m.previewManualUpdateUI {
+		t.Fatal("expected preview flag set")
+	}
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = m2.(Model)
+	if m.overlay != overlaySettings {
+		t.Fatalf("expected settings overlay, got %v", m.overlay)
+	}
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "Copy Command") {
+		t.Fatalf("expected Copy Command in view, got %q", view)
+	}
+	if !strings.Contains(view, "curl -fsSL") {
+		t.Fatalf("expected preview install command in view, got %q", view)
 	}
 }
 

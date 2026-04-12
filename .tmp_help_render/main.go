@@ -23,7 +23,7 @@ func main() {
 	}
 	defer database.Close()
 
-	model := ui.NewModel(database, config.DefaultConfig(), "dev")
+	model := ui.NewModel(database, config.DefaultConfig(), "dev", false)
 	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	model = next.(ui.Model)
 	next, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})

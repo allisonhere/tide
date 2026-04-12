@@ -1908,6 +1908,7 @@ type managerChrome struct {
 	accent             lipgloss.Color
 	accentFg           lipgloss.Color
 	highlight          lipgloss.Color
+	highlightFg        lipgloss.Color
 	border             lipgloss.Color
 	text               lipgloss.Color
 	muted              lipgloss.Color
@@ -1942,7 +1943,14 @@ func newManagerChrome(width int, t Theme) managerChrome {
 	accentFg := contrastFg(accent)
 	text := readableText(t.Fg, baseBg, 4.5)
 	muted := mutedText(text, baseBg)
+	// Softer than accent: form focus / selection (accent stays for key badges and primary actions).
 	highlight := accent
+	if isDark(baseBg) {
+		highlight = adjustLightness(accent, -0.16)
+	} else {
+		highlight = adjustLightness(accent, 0.12)
+	}
+	highlightFg := contrastFg(highlight)
 	border := t.OverlayBorder
 	if border == "" {
 		border = t.Border
@@ -1952,13 +1960,14 @@ func newManagerChrome(width int, t Theme) managerChrome {
 	}
 
 	return managerChrome{
-		baseBg:    baseBg,
-		surfaceBg: surfaceBg,
-		fieldBg:   fieldBg,
-		accent:    accent,
-		accentFg:  accentFg,
-		highlight: highlight,
-		border:    border,
+		baseBg:      baseBg,
+		surfaceBg:   surfaceBg,
+		fieldBg:     fieldBg,
+		accent:      accent,
+		accentFg:    accentFg,
+		highlight:   highlight,
+		highlightFg: highlightFg,
+		border:      border,
 		text:      text,
 		muted:     muted,
 		header: lipgloss.NewStyle().
@@ -1973,8 +1982,8 @@ func newManagerChrome(width int, t Theme) managerChrome {
 			Padding(0, 1).
 			Bold(true),
 		sectionLabelActive: lipgloss.NewStyle().
-			Background(accent).
-			Foreground(accentFg).
+			Background(highlight).
+			Foreground(highlightFg).
 			Padding(0, 1).
 			Bold(true),
 		body: lipgloss.NewStyle().
@@ -1990,7 +1999,7 @@ func newManagerChrome(width int, t Theme) managerChrome {
 			Padding(0, 1),
 		panelSelected: lipgloss.NewStyle().
 			Background(highlight).
-			Foreground(baseBg).
+			Foreground(highlightFg).
 			Bold(true).
 			Padding(0, 1),
 		key: lipgloss.NewStyle().
@@ -2113,7 +2122,7 @@ func renderTextInput(input textinput.Model, width int, focused bool, compactSecr
 	// focused uses accent. (A full box border would add multi-line corners and breaks narrow layouts.)
 	barFg := lipgloss.Color(chrome.border)
 	if focused {
-		barFg = chrome.accent
+		barFg = chrome.highlight
 	}
 	return lipgloss.NewStyle().
 		Background(fieldBg).
@@ -2177,7 +2186,7 @@ func renderSecretEditor(input textinput.Model, width int, chrome managerChrome) 
 	return lipgloss.NewStyle().
 		Background(fieldBg).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(chrome.accent).
+		BorderForeground(chrome.highlight).
 		BorderBackground(fieldBg).
 		Render(inner)
 }

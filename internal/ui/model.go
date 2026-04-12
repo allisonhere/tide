@@ -157,6 +157,9 @@ type Model struct {
 	updateDismissed      bool
 	pendingUpdateInstall bool
 
+	// Dev-only: launch with Settings > Updates showing the manual-install preview; avoids persisting demo update state.
+	previewManualUpdateUI bool
+
 	// AI summary overlay
 	summarizer        ai.Summarizer // nil when not configured
 	summaryArticle    db.Article
@@ -164,7 +167,7 @@ type Model struct {
 	summaryErr        string
 }
 
-func NewModel(database *db.DB, cfg config.Config, currentVersion string) Model {
+func NewModel(database *db.DB, cfg config.Config, currentVersion string, previewManualUpdate bool) Model {
 	_, themeIdx := ThemeByName(cfg.Theme)
 
 	si := textinput.New()
@@ -178,10 +181,11 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string) Model {
 	summarizer, _ := ai.New(cfg.AI)
 
 	m := Model{
-		db:               database,
-		cfg:              cfg,
-		currentVersion:   currentVersion,
-		updater:          update.New(),
+		db:                     database,
+		cfg:                    cfg,
+		currentVersion:         currentVersion,
+		previewManualUpdateUI:  previewManualUpdate,
+		updater:                update.New(),
 		focused:          paneFeeds,
 		confirmedTheme:   themeIdx,
 		activeTheme:      themeIdx,
@@ -199,13 +203,18 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string) Model {
 	}
 	m.resetSourceClient()
 	m.restoreCachedUpdateState()
+	if previewManualUpdate {
+		m.applyManualUpdatePreview()
+	}
 	return m
 }
 
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.loadFeedsCmd(), m.spinner.Tick}
-	if cmd := m.maybeCheckForUpdatesCmd(false); cmd != nil {
-		cmds = append(cmds, cmd)
+	if !m.previewManualUpdateUI {
+		if cmd := m.maybeCheckForUpdatesCmd(false); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	return tea.Batch(cmds...)
 }
@@ -1129,12 +1138,20 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	action := m.settings.takeAction()
 	switch action {
 	case settingsActionCheckUpdates:
+		if m.previewManualUpdateUI {
+			m.setStatus("preview: check updates disabled", false)
+			return m, m.clearStatusCmd()
+		}
 		m.pendingUpdateInstall = false
 		m.updateState = updateStateChecking
 		m.updateErr = ""
 		m.syncSettingsUpdateState()
 		return m, m.checkForUpdatesCmd(true)
 	case settingsActionInstallUpdate:
+		if m.previewManualUpdateUI {
+			m.setStatus("preview: install disabled", false)
+			return m, m.clearStatusCmd()
+		}
 		m.pendingUpdateInstall = true
 		m.updateState = updateStateChecking
 		m.updateErr = ""
@@ -2333,7 +2350,40 @@ func (m *Model) syncSettingsUpdateState() {
 	m.settings.setUpdateState(m.settingsUpdateState())
 }
 
+const previewManualInstallCommand = "curl -fsSL https://raw.githubusercontent.com/allisonhere/tide/main/install.sh | sh"
+
+func (m *Model) applyManualUpdatePreview() {
+	pub := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	now := time.Now()
+	m.currentVersion = "v0.0.38"
+	m.updateState = updateStateNeedsElevation
+	m.updateInfo = update.ReleaseInfo{
+		Version:     "v0.0.39",
+		PublishedAt: pub,
+		Summary:     "## Tide v0.0.39",
+	}
+	m.updateInfoFresh = true
+	m.updateErr = ""
+	m.updateDismissed = false
+	m.pendingUpdateInstall = false
+	m.downloadedUpdate = nil
+	m.updateInstall = update.InstallResult{
+		RequiresManual: true,
+		ManualCommand:  previewManualInstallCommand,
+	}
+	m.cfg.Updates.LastCheckedUnix = now.Unix()
+	m.settings = newSettings(m.cfg, m.settingsUpdateState())
+	m.settings.setFocusedPane(settingsPaneDetail)
+	m.settings.setActiveSection(ssUpdates)
+	m.settings.setFocusedField(sfUpdateManualCommand)
+	m.overlay = overlaySettings
+}
+
 func (m *Model) dismissAvailableUpdate() tea.Cmd {
+	if m.previewManualUpdateUI {
+		m.setStatus("preview: dismiss ignored (not saved)", false)
+		return m.clearStatusCmd()
+	}
 	if m.updateInfo.Version == "" {
 		return nil
 	}
