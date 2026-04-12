@@ -12,6 +12,20 @@ import (
 	"tide/internal/config"
 )
 
+func TestSettingsFieldNavigationClampsAtEnds(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setActiveSection(ssDisplay)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfBrowser)
+	if got := s.nextField(); got != sfBrowser {
+		t.Fatalf("nextField at last visible field: got %v want sfBrowser", got)
+	}
+	s.setFocusedField(sfIcons)
+	if got := s.prevField(); got != sfIcons {
+		t.Fatalf("prevField at first visible field: got %v want sfIcons", got)
+	}
+}
+
 func TestSettingsTextInputsAcceptMovementRunes(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setFocusedPane(settingsPaneDetail)

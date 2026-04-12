@@ -188,6 +188,19 @@ func testArchive(t *testing.T, name, content string) []byte {
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
+func TestSuggestedManualInstallScriptNonEmpty(t *testing.T) {
+	if SuggestedManualInstallScript == "" {
+		t.Fatal("SuggestedManualInstallScript is empty")
+	}
+}
+
+func TestInstallDestinationWritableNoError(t *testing.T) {
+	_, err := InstallDestinationWritable()
+	if err != nil {
+		t.Fatalf("InstallDestinationWritable: %v", err)
+	}
+}
+
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
 }
