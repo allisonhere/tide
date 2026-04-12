@@ -3011,6 +3011,30 @@ func TestSettingsViewRendersUpdateActions(t *testing.T) {
 	}
 }
 
+func TestSettingsViewHidesUpdateNowWhenManualInstallRequired(t *testing.T) {
+	cfg := config.DefaultConfig()
+	s := newSettings(cfg, settingsUpdateState{
+		currentVersion: "v1.0.0",
+		state:          updateStateNeedsElevation,
+		latestVersion:  "v1.1.0",
+		manualCommand:  "sudo cp /tmp/tide /usr/local/bin/tide",
+		summary:        "Requires elevation.",
+	})
+	s.setActiveSection(ssUpdates)
+	chrome := newManagerChrome(62, CatppuccinMocha)
+	view := ansi.Strip(s.View(62, 40, chrome))
+
+	if !strings.Contains(view, "Ignore") {
+		t.Fatalf("expected Ignore when newer release needs manual install, got %q", view)
+	}
+	if !strings.Contains(view, "sudo cp") {
+		t.Fatalf("expected manual command in view, got %q", view)
+	}
+	if strings.Contains(view, "Update now") {
+		t.Fatalf("did not expect Update now when manual install is required, got %q", view)
+	}
+}
+
 func TestSettingsViewHidesInstallWhenAlreadyOnLatest(t *testing.T) {
 	cfg := config.DefaultConfig()
 	s := newSettings(cfg, settingsUpdateState{
