@@ -317,6 +317,40 @@ func (fm FeedManager) listPaneFocused() bool {
 	return fm.mode == fmList || fm.paneFocus == fmPaneList
 }
 
+// feedManagerRightPaneWidth returns the workspace column width used by viewSplit.
+// It must stay in sync with View → viewSplit so text inputs can set bubbles Width
+// for horizontal scrolling (renderTextInput previously only set Width on a copy).
+func feedManagerRightPaneWidth(windowWidth int) int {
+	if windowWidth <= 0 {
+		return 18
+	}
+	winW := min(windowWidth-4, 74)
+	contentW := min(winW, 74)
+	leftW := clamp(contentW/4, 18, 20)
+	if contentW-leftW-1 < 24 {
+		leftW = max(18, contentW-25)
+	}
+	return max(18, contentW-leftW-1)
+}
+
+// editInputCharWidth matches renderTextInput's inner width for a detail column width.
+func editInputCharWidth(rightPaneWidth int) int {
+	fieldW := max(1, rightPaneWidth-2)
+	contentW := max(1, fieldW-3)
+	return max(1, contentW-2)
+}
+
+func (fm *FeedManager) syncTextInputWidthsForRightPane(rightPaneWidth int) {
+	w := editInputCharWidth(rightPaneWidth)
+	fm.titleInput.Width = w
+	fm.urlInput.Width = w
+	fm.newFolderInput.Width = w
+	fm.importInput.Width = w
+	fm.greaderURLInput.Width = w
+	fm.greaderLoginInput.Width = w
+	fm.greaderPasswordInput.Width = w
+}
+
 func (fm *FeedManager) setBrowseOnlyStatus() {
 	fm.statusMsg = strings.ToUpper(fm.sourceName()) + " IS BROWSE-ONLY"
 }
@@ -585,6 +619,11 @@ func (fm *FeedManager) focusCurrentEditField() {
 
 	switch fm.focusedField {
 	case 0:
+		if fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
+			fm.focusedField = 1
+			fm.urlInput.Focus()
+			return
+		}
 		fm.titleInput.Focus()
 	case 1:
 		fm.urlInput.Focus()
@@ -620,19 +659,12 @@ func (fm *FeedManager) blurEditInputs() {
 
 func (fm FeedManager) editFieldOrder() []int {
 	if fm.remoteSettingsEdit {
-		order := []int{2}
-		if fm.showNewFolder {
-			order = append(order, 3)
-		}
-		if fm.shouldShowColorPicker() {
-			order = append(order, 4)
-		}
-		return append(order, fmFieldGReaderURL, fmFieldGReaderLogin, fmFieldGReaderPassword)
+		return []int{fmFieldGReaderURL, fmFieldGReaderLogin, fmFieldGReaderPassword}
 	}
 	if fm.editTarget == 0 {
 		order := []int{fmFieldAddSource}
 		if fm.addSourceIdx == fmAddSourceGReader {
-			return append(order, 0, 1, fmFieldGReaderURL, fmFieldGReaderLogin, fmFieldGReaderPassword)
+			return append(order, 1, fmFieldGReaderURL, fmFieldGReaderLogin, fmFieldGReaderPassword)
 		}
 		order = append(order, 0, 1, 2)
 		if fm.showNewFolder {
@@ -1189,22 +1221,8 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 				return RemoteFeedAddedMsg{Err: fmt.Errorf("password is required")}
 			}
 			if database != nil {
-				if createFolder && newFolderName != "" {
-					assignedFolderID, addErr := database.AddFolder(newFolderName, selectedColor)
-					if addErr != nil {
-						return RemoteFeedAddedMsg{Err: addErr}
-					}
-					folderID = assignedFolderID
-				} else if createFolder {
-					folderID = 0
-				}
-				if err := database.SetRemoteFeedFolder(editTarget, folderID); err != nil {
+				if err := database.SetRemoteFeedTitle(editTarget, ""); err != nil {
 					return RemoteFeedAddedMsg{Err: err}
-				}
-				if folderID != 0 && createFolder {
-					if err := database.SetFolderColor(folderID, selectedColor); err != nil {
-						return RemoteFeedAddedMsg{Err: err}
-					}
 				}
 			}
 			return RemoteFeedAddedMsg{
@@ -1536,14 +1554,14 @@ func (fm FeedManager) viewListPane(width, height int, chrome managerChrome, styl
 			if folder == nil {
 				continue
 			}
-			label := strings.ToUpper(truncate(folder.Name, max(8, width-6)))
+			label := strings.ToUpper(truncate(unescapeDisplayText(folder.Name), max(8, width-6)))
 			listRows = append(listRows, renderManagerFolderRow(width, label, folder.Color, fm.collapsedFolders[folder.ID], chrome, styles, i == fm.cursor, icons))
 		case fmRowFeed:
 			feed := fm.feedByID(row.feedID)
 			if feed == nil {
 				continue
 			}
-			title := strings.ToUpper(truncate(feed.Title, max(8, width-6)))
+			title := strings.ToUpper(truncate(unescapeDisplayText(feed.Title), max(8, width-6)))
 			if i == fm.cursor {
 				listRows = append(listRows, renderManagerSelectedRow(width, feedDisplayLabel(title, icons), chrome, styles))
 				continue
@@ -1570,7 +1588,7 @@ func (fm FeedManager) viewListDetails(width int, chrome managerChrome) string {
 				} else if folder.Color != "" {
 					colorName = strings.ToUpper(folder.Color)
 				}
-				body := strings.ToUpper(truncate(folder.Name, max(8, width-4))) + "\n" +
+				body := strings.ToUpper(truncate(unescapeDisplayText(folder.Name), max(8, width-4))) + "\n" +
 					fmt.Sprintf("FEEDS: %d\nUNREAD: %d\nCOLOR: %s", fm.folderFeedCount(folder.ID), fm.folderUnreadCount(folder.ID), colorName)
 				return renderManagerPanel(width, body, chrome)
 			}
@@ -1595,7 +1613,7 @@ func (fm FeedManager) viewListDetails(width int, chrome managerChrome) string {
 						"SOURCE: GOOGLE READER",
 					}
 					if folder := fm.folderByID(feed.FolderID); folder != nil {
-						lines = append(lines, "FOLDER: "+strings.ToUpper(folder.Name))
+						lines = append(lines, "FOLDER: "+strings.ToUpper(unescapeDisplayText(folder.Name)))
 					}
 					lines = append(lines,
 						"API URL: "+strings.ToUpper(apiURL),
@@ -1603,19 +1621,19 @@ func (fm FeedManager) viewListDetails(width int, chrome managerChrome) string {
 						"PASSWORD: "+password,
 					)
 					if category := strings.TrimSpace(feed.Description); category != "" {
-						lines = append(lines, "CATEGORY: "+strings.ToUpper(category))
+						lines = append(lines, "CATEGORY: "+strings.ToUpper(unescapeDisplayText(category)))
 					}
 					return renderManagerPanel(width, strings.Join(lines, "\n"), chrome)
 				}
 				if !fm.editable() {
 					lines := []string{sourceLine, "SOURCE: " + strings.ToUpper(fm.sourceName())}
 					if category := strings.TrimSpace(feed.Description); category != "" {
-						lines = append(lines, "CATEGORY: "+strings.ToUpper(category))
+						lines = append(lines, "CATEGORY: "+strings.ToUpper(unescapeDisplayText(category)))
 					}
 					return renderManagerPanel(width, strings.Join(lines, "\n"), chrome)
 				}
 				if folder := fm.folderByID(feed.FolderID); folder != nil {
-					return renderManagerPanel(width, sourceLine+"\nFOLDER: "+strings.ToUpper(folder.Name), chrome)
+					return renderManagerPanel(width, sourceLine+"\nFOLDER: "+strings.ToUpper(unescapeDisplayText(folder.Name)), chrome)
 				}
 				return renderManagerPanel(width, sourceLine+"\nFOLDER: UNCATEGORIZED", chrome)
 			}
@@ -1714,21 +1732,14 @@ func (fm FeedManager) viewEdit(width, height int, chrome managerChrome, styles S
 		)
 	}
 	if fm.remoteSettingsEdit {
+		feedNameLine := strings.ToUpper(truncate(strings.TrimSpace(fm.titleInput.Value()), max(8, fieldW-4)))
+		if feedNameLine == "" {
+			feedNameLine = "—"
+		}
 		contentRows = append(contentRows,
-			renderManagerSection("Feed", renderManagerPanel(fieldW, strings.ToUpper(truncate(fm.titleInput.Value(), max(8, fieldW-4))), chrome), chrome),
+			renderManagerSection("Name", renderManagerPanel(fieldW, feedNameLine+"\n"+strings.ToUpper(truncate("Pulled from the feed (not editable).", max(8, fieldW-4))), chrome), chrome),
 			renderManagerSection("Feed URL", renderManagerPanel(fieldW, strings.ToUpper(truncate(fm.urlInput.Value(), max(8, fieldW-4))), chrome), chrome),
-			renderManagerSection("Folder", renderManagerPicker(fieldW, fm.folderOptions()[fm.folderCursor], detailFocused && fm.focusedField == 2, chrome, styles), chrome),
 		)
-		if fm.showNewFolder {
-			contentRows = append(contentRows,
-				renderManagerSection("New", renderTextInput(fm.newFolderInput, fieldW, detailFocused && fm.focusedField == 3, false, chrome), chrome),
-			)
-		}
-		if fm.shouldShowColorPicker() {
-			contentRows = append(contentRows,
-				renderManagerSection("Color", renderManagerColorPicker(fieldW, fm.displayedColorOption(), detailFocused && fm.focusedField == 4, chrome, styles), chrome),
-			)
-		}
 		contentRows = append(contentRows,
 			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome),
 			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome),
@@ -1736,7 +1747,7 @@ func (fm FeedManager) viewEdit(width, height int, chrome managerChrome, styles S
 		)
 	} else if fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
 		contentRows = append(contentRows,
-			renderManagerSection("Title", renderTextInput(fm.titleInput, fieldW, detailFocused && fm.focusedField == 0, false, chrome), chrome),
+			renderManagerSection("Name", renderManagerPanel(fieldW, strings.ToUpper(truncate("Pulled from the feed when added.", max(8, fieldW-4))), chrome), chrome),
 			renderManagerSection("URL (optional)", renderTextInput(fm.urlInput, fieldW, detailFocused && fm.focusedField == 1, false, chrome), chrome),
 			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome),
 			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome),
@@ -1786,11 +1797,11 @@ func (fm FeedManager) viewConfirmDelete(width, height int, chrome managerChrome)
 	warning := ""
 	if row.kind == fmRowFolder {
 		if folder := fm.folderByID(row.folderID); folder != nil {
-			name = folder.Name
+			name = unescapeDisplayText(folder.Name)
 			warning = "FEEDS IN THIS FOLDER WILL BE KEPT AND MOVED TO UNCATEGORIZED."
 		}
 	} else if feed := fm.feedByID(row.feedID); feed != nil {
-		name = feed.Title
+		name = unescapeDisplayText(feed.Title)
 		warning = "ALL ARTICLES FROM THIS FEED WILL BE REMOVED."
 	}
 	fieldW := max(1, width-2)

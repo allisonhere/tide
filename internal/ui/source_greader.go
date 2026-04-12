@@ -82,9 +82,9 @@ func (m Model) loadGReaderFeeds(ctx context.Context) ([]db.Feed, map[int64]strin
 		streams[feedID] = sub.ID
 
 		pref := remotePrefs[feedID]
-		title := strings.TrimSpace(pref.Title)
+		title := greader.UnescapeAPIString(pref.Title)
 		if title == "" {
-			title = strings.TrimSpace(sub.Title)
+			title = greader.UnescapeAPIString(sub.Title)
 		}
 		if title == "" {
 			title = sub.ID
@@ -98,7 +98,7 @@ func (m Model) loadGReaderFeeds(ctx context.Context) ([]db.Feed, map[int64]strin
 			ID:          feedID,
 			URL:         url,
 			Title:       title,
-			Description: strings.TrimSpace(sub.Category),
+			Description: greader.UnescapeAPIString(sub.Category),
 			LastFetched: now,
 			UnreadCount: counts[sub.ID],
 			FolderID:    pref.FolderID,
@@ -128,7 +128,7 @@ func (m Model) loadGReaderArticles(ctx context.Context, feedID int64) ([]db.Arti
 
 	articles := make([]db.Article, 0, len(entries))
 	for _, entry := range entries {
-		title := strings.TrimSpace(entry.Title)
+		title := greader.UnescapeAPIString(entry.Title)
 		if title == "" {
 			title = "(untitled)"
 		}

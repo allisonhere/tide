@@ -85,7 +85,7 @@ func TestFirstLoadEmptyDoesNotOpenOverlay(t *testing.T) {
 	}
 }
 
-func TestEnterOpensAddDialogWhenNoFeedsExist(t *testing.T) {
+func TestEnterDoesNotOpenAddDialogWhenNoFeedsExist(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	database, err := db.Open()
 	if err != nil {
@@ -102,14 +102,36 @@ func TestEnterOpensAddDialogWhenNoFeedsExist(t *testing.T) {
 	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = m2.(Model)
 
+	if m.overlay != overlayNone {
+		t.Fatalf("expected enter on empty main screen to leave overlay closed, got %v", m.overlay)
+	}
+}
+
+func TestAddKeyOpensAddDialogWhenNoFeedsExist(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0")
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 96, Height: 24})
+	m = m2.(Model)
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: nil})
+	m = m2.(Model)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = m2.(Model)
+
 	if m.overlay != overlayFeedManager {
-		t.Fatalf("expected enter on empty main screen to open feed manager overlay, got %v", m.overlay)
+		t.Fatalf("expected a on empty main screen to open feed manager overlay, got %v", m.overlay)
 	}
 	if m.feedManager.mode != fmEdit {
-		t.Fatalf("expected enter on empty main screen to open add dialog, got mode %v", m.feedManager.mode)
+		t.Fatalf("expected a on empty main screen to open add dialog, got mode %v", m.feedManager.mode)
 	}
 	if m.feedManager.listPaneFocused() {
-		t.Fatal("expected enter on empty main screen to focus the add dialog form")
+		t.Fatal("expected a on empty main screen to focus the add dialog form")
 	}
 }
 
@@ -1975,6 +1997,67 @@ func TestFeedManagerPrefilledRemoteQuickAddDoesNotReuseSelectedFeedTitle(t *test
 	}
 }
 
+// TestFeedManagerEditRemoteFeedSaveClearsTitleOverride checks that saving
+// GReader remote settings clears any local title override so the name always
+// follows the feed from the API.
+func TestFeedManagerEditRemoteFeedSaveClearsTitleOverride(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	const streamID = "feed/http://example.com/feed.xml"
+	remoteFeedID := remoteStableID("feed", streamID)
+
+	sourceCfg := config.SourceConfig{
+		GReaderURL:      "https://rss.example.com/api/greader.php",
+		GReaderLogin:    "alice",
+		GReaderPassword: "secret",
+	}
+
+	if err := database.SetRemoteFeedTitle(remoteFeedID, "Stale Override"); err != nil {
+		t.Fatalf("SetRemoteFeedTitle: %v", err)
+	}
+
+	fm := NewFeedManagerWithSource(database, sourceCfg)
+	fm.setData([]db.Feed{{
+		ID:    remoteFeedID,
+		Title: "Server Name",
+		URL:   "https://example.com/",
+	}}, nil)
+	fm.selectFeed(remoteFeedID)
+	fm.focusRemoteSettingsEdit(db.Feed{
+		ID:    remoteFeedID,
+		Title: "Server Name",
+		URL:   "https://example.com/",
+	})
+	if !fm.remoteSettingsEdit || fm.editTarget != remoteFeedID {
+		t.Fatalf("expected remoteSettingsEdit for remote feed, got edit=%v target=%d", fm.remoteSettingsEdit, fm.editTarget)
+	}
+
+	msg := fm.saveCmd()()
+	got, ok := msg.(RemoteFeedAddedMsg)
+	if !ok {
+		t.Fatalf("expected RemoteFeedAddedMsg, got %T", msg)
+	}
+	if got.Err != nil {
+		t.Fatalf("save returned error: %v", got.Err)
+	}
+	if !got.SettingsOnly {
+		t.Fatalf("expected SettingsOnly=true, got %#v", got)
+	}
+
+	prefs, err := database.ListRemoteFeedPrefs()
+	if err != nil {
+		t.Fatalf("ListRemoteFeedPrefs: %v", err)
+	}
+	if pref, exists := prefs[remoteFeedID]; exists && pref.Title != "" {
+		t.Fatalf("expected title override cleared on save, got %q", pref.Title)
+	}
+}
+
 func TestFeedManagerGReaderSaveCmdAllowsBlankFeedURL(t *testing.T) {
 	loginHit := false
 	listHit := false
@@ -2085,7 +2168,7 @@ func TestFeedManagerGReaderSettingsEditSaveCmdDoesNotHitNetwork(t *testing.T) {
 	}
 }
 
-func TestFeedManagerGReaderSettingsEditSaveCmdStoresLocalFolderPreference(t *testing.T) {
+func TestFeedManagerGReaderSettingsEditSaveCmdPreservesFolderPreference(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	database, err := db.Open()
 	if err != nil {
@@ -2093,22 +2176,26 @@ func TestFeedManagerGReaderSettingsEditSaveCmdStoresLocalFolderPreference(t *tes
 	}
 	defer database.Close()
 
+	remoteID := remoteStableID("feed", "feed/http://example.com/feed.xml")
+	folderID, err := database.AddFolder("Existing", "#7aa2f7")
+	if err != nil {
+		t.Fatalf("AddFolder: %v", err)
+	}
+	if err := database.SetRemoteFeedFolder(remoteID, folderID); err != nil {
+		t.Fatalf("SetRemoteFeedFolder: %v", err)
+	}
+
 	fm := NewFeedManagerWithSource(database, config.SourceConfig{
 		GReaderURL:      "https://rss.example.com/api/greader.php",
 		GReaderLogin:    "alice",
 		GReaderPassword: "secret",
 	})
 	fm.focusRemoteSettingsEdit(db.Feed{
-		ID:    remoteStableID("feed", "feed/http://example.com/feed.xml"),
-		Title: "Remote Feed",
-		URL:   "https://example.com/feed.xml",
+		ID:       remoteID,
+		Title:    "Remote Feed",
+		URL:      "https://example.com/feed.xml",
+		FolderID: folderID,
 	})
-	fm.folderCursor = len(fm.folderOptions()) - 1
-	fm.syncFolderPicker()
-	fm.newFolderInput.SetValue("Remote")
-	if _, idx, ok := folderColorByValue("#7aa2f7"); ok {
-		fm.colorCursor = idx
-	}
 
 	msg := fm.saveCmd()()
 	got, ok := msg.(RemoteFeedAddedMsg)
@@ -2126,23 +2213,8 @@ func TestFeedManagerGReaderSettingsEditSaveCmdStoresLocalFolderPreference(t *tes
 	if err != nil {
 		t.Fatalf("ListRemoteFeedFolders returned error: %v", err)
 	}
-	folderID := assignments[remoteStableID("feed", "feed/http://example.com/feed.xml")]
-	if folderID == 0 {
-		t.Fatalf("expected remote feed folder preference to be stored, got %+v", assignments)
-	}
-
-	folders, err := database.ListFolders()
-	if err != nil {
-		t.Fatalf("ListFolders returned error: %v", err)
-	}
-	if len(folders) != 1 {
-		t.Fatalf("expected 1 folder to be created, got %d", len(folders))
-	}
-	if folders[0].ID != folderID {
-		t.Fatalf("expected remote feed to point at created folder %d, got %d", folders[0].ID, folderID)
-	}
-	if folders[0].Color != "#7aa2f7" {
-		t.Fatalf("expected created folder color to be saved, got %q", folders[0].Color)
+	if gotID := assignments[remoteID]; gotID != folderID {
+		t.Fatalf("expected folder preference unchanged after save, want folder %d got %+v", folderID, assignments)
 	}
 }
 
