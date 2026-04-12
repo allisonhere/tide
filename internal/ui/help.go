@@ -65,6 +65,12 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 			},
 		},
 		{
+			name: "Display",
+			entries: []entry{
+				{"S → Display", "layout density: comfortable or compact (default compact)"},
+			},
+		},
+		{
 			name: "Summary Overlay",
 			entries: []entry{
 				{keys.Summary.Help().Key, "AI summary from articles or content"},
@@ -95,6 +101,10 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 		lipgloss.NewStyle().
 			Width(contentW).
 			Render("Help — Keyboard Shortcuts"),
+		"",
+		styles.HelpSectionBody.Width(contentW).Render(
+			"The status bar always shows these shortcuts on the left: m feed manager · S settings · / search · ? help.",
+		),
 		"",
 	}
 

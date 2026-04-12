@@ -25,7 +25,7 @@ func TestFeedManagerListViewGeometry(t *testing.T) {
 		mode:   fmList,
 	}
 
-	view := fm.View(96, 24, BuildStyles(CatppuccinMocha), true)
+	view := fm.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true)
 	lines := strings.Split(ansi.Strip(view), "\n")
 
 	if got := len(lines); got > 24 {
@@ -152,7 +152,7 @@ func TestFeedManagerEditViewShowsBusyStatus(t *testing.T) {
 		busyMsg:   "ADDING FEED...",
 	}
 
-	view := ansi.Strip(fm.View(80, 24, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(fm.View(80, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
 
 	if !strings.Contains(view, "ADDING FEED...") {
 		t.Fatalf("expected busy status in edit view, got %q", view)
@@ -200,7 +200,7 @@ func TestFeedManagerEditViewShowsFolderPickerAndNewField(t *testing.T) {
 	fm.newFolderInput = textinput.New()
 	fm.newFolderInput.SetValue("Infra")
 
-	view := ansi.Strip(fm.View(80, 20, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(fm.View(80, 20, BuildStyles(CatppuccinMocha, "comfortable"), true))
 
 	if !strings.Contains(view, "Folder") {
 		t.Fatalf("expected folder picker label, got %q", view)
@@ -280,7 +280,7 @@ func TestFeedManagerListShowsFoldersBeforeFeeds(t *testing.T) {
 		mode:    fmList,
 	}
 
-	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
 	if !strings.Contains(view, "FOLDERS + FEEDS") {
 		t.Fatalf("expected combined manager section, got %q", view)
 	}
@@ -303,7 +303,7 @@ func TestFeedManagerListShowsCollapsedFolderIcon(t *testing.T) {
 		mode:             fmList,
 	}
 
-	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
 	if !strings.Contains(view, "󰉖 TECH") {
 		t.Fatalf("expected collapsed folder icon in manager list, got %q", view)
 	}
@@ -317,7 +317,7 @@ func TestFeedManagerListOmitsIconsWhenDisabled(t *testing.T) {
 		mode:    fmList,
 	}
 
-	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), false))
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), false))
 	if strings.Contains(view, "󰉋 TECH") || strings.Contains(view, "󰉖 TECH") {
 		t.Fatalf("expected no folder glyphs when icons disabled, got %q", view)
 	}
@@ -334,7 +334,7 @@ func TestRemoteFeedManagerViewShowsBrowseOnlyActions(t *testing.T) {
 		Description: "Tech",
 	}}, nil)
 
-	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
 
 	if !strings.Contains(view, "SUBSCRIPTIONS") {
 		t.Fatalf("expected remote manager list title, got %q", view)
@@ -384,7 +384,7 @@ func TestFeedManagerAddDialogCanSwitchToGReaderFields(t *testing.T) {
 		t.Fatalf("expected enter on source toggle to switch to greader, got %d", next.addSourceIdx)
 	}
 
-	view := ansi.Strip(next.View(96, 32, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(next.View(96, 32, BuildStyles(CatppuccinMocha, "comfortable"), true))
 	for _, want := range []string{"ADD FEED", "Source", "Name", "PULLED FROM THE FEED WHEN ADDED.", "URL (optional)", "API URL", "Login", "Password", "alice", "https://rss.example.com/api/greader.php"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected greader add dialog to contain %q, got %q", want, view)
@@ -407,7 +407,7 @@ func TestFeedManagerSourceToggleShowsToggleHint(t *testing.T) {
 	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
 	fm.focusAdd()
 
-	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
 	if !strings.Contains(view, "TOGGLE SOURCE") {
 		t.Fatalf("expected add dialog source toggle hint, got %q", view)
 	}
@@ -546,7 +546,7 @@ func TestFeedManagerLeftPaneNavigationUpdatesRightPaneDetails(t *testing.T) {
 	fm.focusAdd()
 	fm.paneFocus = fmPaneList
 
-	firstView := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	firstView := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
 	if !strings.Contains(firstView, "ADD FEED") {
 		t.Fatalf("expected left-pane add state to show add workspace title, got %q", firstView)
 	}
@@ -558,7 +558,7 @@ func TestFeedManagerLeftPaneNavigationUpdatesRightPaneDetails(t *testing.T) {
 	}
 
 	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyDown}, DefaultKeys)
-	secondView := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	secondView := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
 	if !strings.Contains(secondView, "HTTPS://EXAMPLE.COM/BETA.XML") {
 		t.Fatalf("expected moving down in left pane to update details for second feed, got %q", secondView)
 	}
@@ -582,7 +582,7 @@ func TestFeedManagerRemoteFeedDetailsShowGReaderConfig(t *testing.T) {
 	}}, []db.Folder{{ID: 1, Name: "Remote", Color: "#7aa2f7"}})
 	fm.selectFeed(-1)
 
-	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
 
 	for _, want := range []string{
 		"SOURCE: GOOGLE READER",
@@ -639,7 +639,7 @@ func TestFeedManagerEnteringRightPaneFromRemoteRowPrefillsGReaderForm(t *testing
 		t.Fatalf("expected greader password to stay populated internally, got %q", got)
 	}
 
-	view := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
 	for _, want := range []string{"ADD FEED", "API URL", "LOGIN", "REMOTE FEED", "HTTPS://EXAMPLE.COM/FEED"} {
 		if !strings.Contains(strings.ToUpper(view), want) {
 			t.Fatalf("expected prefilled greader form to contain %q, got %q", want, view)
@@ -707,7 +707,7 @@ func TestEditableFeedManagerEditRemoteFeedOpensGReaderSettings(t *testing.T) {
 	if got := next.greaderURLInput.Value(); got != "https://rss.example.com/api/greader.php" {
 		t.Fatalf("expected remote edit to prefill API URL, got %q", got)
 	}
-	view := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
 	for _, want := range []string{"GREADER SETTINGS", "NAME", "REMOTE FEED", "PULLED FROM THE FEED (NOT EDITABLE).", "FEED URL", "API URL"} {
 		if !strings.Contains(strings.ToUpper(view), want) {
 			t.Fatalf("expected remote edit view to contain %q, got %q", want, view)
@@ -737,7 +737,7 @@ func TestFeedManagerRowsDoNotInsertUncategorizedFolderRow(t *testing.T) {
 		t.Fatalf("unexpected manager row order: %#v", rows)
 	}
 
-	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
 	if !strings.Contains(view, "LOOSE FEED") {
 		t.Fatalf("expected uncategorized feed to remain visible in manager list, got %q", view)
 	}
@@ -753,7 +753,7 @@ func TestFeedManagerFolderEditViewShowsNameAndColor(t *testing.T) {
 	fm.titleInput = textinput.New()
 	fm.titleInput.SetValue("Tech")
 
-	view := ansi.Strip(fm.View(80, 20, BuildStyles(CatppuccinMocha), true))
+	view := ansi.Strip(fm.View(80, 20, BuildStyles(CatppuccinMocha, "comfortable"), true))
 	if !strings.Contains(view, "EDIT FOLDER") {
 		t.Fatalf("expected folder edit header, got %q", view)
 	}
@@ -806,7 +806,7 @@ func TestFeedManagerImportCancelReturnsToListPane(t *testing.T) {
 }
 
 func TestFeedManagerViewsClampToNarrowWidth(t *testing.T) {
-	styles := BuildStyles(CatppuccinMocha)
+	styles := BuildStyles(CatppuccinMocha, "comfortable")
 	fm := NewFeedManagerWithSource(nil, config.SourceConfig{
 		GReaderURL:      "https://rss.example.com/api/greader.php",
 		GReaderLogin:    "alice",

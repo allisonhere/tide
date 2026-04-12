@@ -181,25 +181,25 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string, preview
 	summarizer, _ := ai.New(cfg.AI)
 
 	m := Model{
-		db:                     database,
-		cfg:                    cfg,
-		currentVersion:         currentVersion,
-		previewManualUpdateUI:  previewManualUpdate,
-		updater:                update.New(),
-		focused:          paneFeeds,
-		confirmedTheme:   themeIdx,
-		activeTheme:      themeIdx,
-		styles:           BuildStyles(BuiltinThemes[themeIdx]),
-		feedManager:      NewFeedManager(database),
-		searchInput:      si,
-		spinner:          sp,
-		refreshing:       make(map[int64]bool),
-		collapsedFolders: map[int64]bool{},
-		mdConverter:      md.NewConverter("", true, nil),
-		greaderStreams:   map[int64]string{},
-		firstLoad:        true,
-		keys:             DefaultKeys,
-		summarizer:       summarizer,
+		db:                    database,
+		cfg:                   cfg,
+		currentVersion:        currentVersion,
+		previewManualUpdateUI: previewManualUpdate,
+		updater:               update.New(),
+		focused:               paneFeeds,
+		confirmedTheme:        themeIdx,
+		activeTheme:           themeIdx,
+		styles:                BuildStyles(BuiltinThemes[themeIdx], cfg.Display.Density),
+		feedManager:           NewFeedManager(database),
+		searchInput:           si,
+		spinner:               sp,
+		refreshing:            make(map[int64]bool),
+		collapsedFolders:      map[int64]bool{},
+		mdConverter:           md.NewConverter("", true, nil),
+		greaderStreams:        map[int64]string{},
+		firstLoad:             true,
+		keys:                  DefaultKeys,
+		summarizer:            summarizer,
 	}
 	m.resetSourceClient()
 	m.restoreCachedUpdateState()
@@ -1047,7 +1047,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.themeCursor > 0 {
 				m.themeCursor--
 				m.activeTheme = m.themeCursor
-				m.styles = BuildStyles(BuiltinThemes[m.activeTheme])
+				m.styles = BuildStyles(BuiltinThemes[m.activeTheme], m.cfg.Display.Density)
 				if len(m.filteredArticles) > 0 {
 					m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
 				}
@@ -1056,7 +1056,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.themeCursor < len(BuiltinThemes)-1 {
 				m.themeCursor++
 				m.activeTheme = m.themeCursor
-				m.styles = BuildStyles(BuiltinThemes[m.activeTheme])
+				m.styles = BuildStyles(BuiltinThemes[m.activeTheme], m.cfg.Display.Density)
 				if len(m.filteredArticles) > 0 {
 					m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
 				}
@@ -1071,7 +1071,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case keyMatches(msg, m.keys.Cancel):
 			m.activeTheme = m.confirmedTheme
-			m.styles = BuildStyles(BuiltinThemes[m.activeTheme])
+			m.styles = BuildStyles(BuiltinThemes[m.activeTheme], m.cfg.Display.Density)
 			m.overlay = overlayNone
 			if len(m.filteredArticles) > 0 {
 				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
@@ -1179,6 +1179,7 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if done {
 		if m.settings.shouldSave {
 			m.cfg = m.settings.ApplyTo(m.cfg)
+			m.styles = BuildStyles(BuiltinThemes[m.activeTheme], m.cfg.Display.Density)
 			feed.SetMaxFeedBodyBytes(m.cfg.Feed.MaxBodyMiB << 20)
 			config.Save(m.cfg)
 			m.summarizer, _ = ai.New(m.cfg.AI)
@@ -1293,7 +1294,7 @@ func (m Model) renderFeedsPane() string {
 	}
 	footer = m.styles.ArticleRead.Width(innerW).Render(footer)
 	bodyHeight := max(0, m.mainHeight()-1)
-	for len(rows) < bodyHeight {
+	for viewLineCount(rows) < bodyHeight {
 		rows = append(rows, m.styles.FeedItem.Width(innerW).Render(""))
 	}
 	rows = append(rows, footer)
@@ -1350,7 +1351,7 @@ func (m Model) renderArticlesPane() string {
 	}
 
 	contentRows := append([]string{m.renderPaneHeaderWithAccent(paneArticles, title, focused, w, headerActive)}, rows...)
-	for len(contentRows) < h {
+	for viewLineCount(contentRows) < h {
 		contentRows = append(contentRows, articleRead.Width(w-2).Render(""))
 	}
 
@@ -1437,6 +1438,26 @@ func (m Model) keyHint(binding key.Binding) string {
 	return k
 }
 
+// statusBarKeyHintStrip is always shown on the status bar: main shortcuts ending with ? help.
+func (m Model) statusBarKeyHintStrip() string {
+	k := m.keys
+	seg := func(b key.Binding) string {
+		help := b.Help()
+		keyStr := strings.TrimSpace(help.Key)
+		desc := strings.TrimSpace(help.Desc)
+		if keyStr == "" {
+			keyStr = "?"
+		}
+		return m.styles.StatusHint.Render(keyStr + " " + desc)
+	}
+	return strings.Join([]string{
+		seg(k.FeedManager),
+		seg(k.Settings),
+		seg(k.Search),
+		seg(k.Help),
+	}, "  ·  ")
+}
+
 func (m Model) renderArticleContent(a db.Article) string {
 	contentWidth := m.contentBodyWidth()
 	bodyWidth := m.contentBodyWidth()
@@ -1468,6 +1489,7 @@ func (m Model) renderStatusBar() string {
 		if updateInfoPart != "" && !m.statusMsgCoversUpdateState() {
 			parts = append(parts, updateInfoPart)
 		}
+		parts = append(parts, m.statusBarKeyHintStrip())
 		return style.Width(w).Render(m.statusLine(strings.Join(parts, "  ·  "), updateActionPart))
 	}
 
@@ -1502,7 +1524,7 @@ func (m Model) renderStatusBar() string {
 		)
 	}
 
-	parts = append(parts, m.styles.StatusHint.Render("? help"))
+	parts = append(parts, m.statusBarKeyHintStrip())
 
 	return m.styles.StatusBar.Width(w).Render(m.statusLine(strings.Join(parts, "  ·  "), updateActionPart))
 }
@@ -1573,7 +1595,11 @@ func (m Model) renderOverlay(base string) string {
 		box = renderChromeOverlayBox(inner, quitW, chrome, chrome.accent)
 
 	case overlaySearch:
-		box = m.renderSearchOverlay()
+		winW := min(m.width-4, 52)
+		chrome := newManagerChrome(winW, m.styles.Theme)
+		inner := m.renderSearchOverlay(winW, chrome)
+		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
+		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
 
 	case overlayThemePicker:
 		winW := min(m.width-4, 40)
@@ -1660,31 +1686,25 @@ func renderChromeOverlayBox(inner string, width int, chrome managerChrome, borde
 		Render(inner)
 }
 
-func renderStyledOverlayBox(inner string, width int, styles Styles) string {
-	return styles.Overlay.Width(width).Render(inner)
-}
-
-func (m Model) renderSearchOverlay() string {
-	surface := modalSurface(m.styles.Theme)
-	accent := m.styles.Theme.BorderFocus
-	if accent == "" {
-		accent = m.styles.Theme.OverlayBorder
-	}
-	text := readableText(m.styles.Theme.Fg, surface, 4.5)
-	muted := mutedText(text, surface)
-
+func (m Model) renderSearchOverlay(width int, chrome managerChrome) string {
+	header := renderManagerHeader("SEARCH ARTICLES", width, chrome)
 	input := m.searchInput
-	input.Width = 42
-	input.PromptStyle = lipgloss.NewStyle().Background(surface).Foreground(accent).Bold(true)
-	input.TextStyle = lipgloss.NewStyle().Background(surface).Foreground(text)
-	input.PlaceholderStyle = lipgloss.NewStyle().Background(surface).Foreground(muted)
-	input.Cursor.Style = lipgloss.NewStyle().Background(accent).Foreground(contrastFg(accent))
-	input.Cursor.TextStyle = lipgloss.NewStyle().Background(accent).Foreground(contrastFg(accent))
+	inputW := max(1, width-4)
+	input.Width = inputW
+	input.PromptStyle = lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.accent).Bold(true)
+	input.TextStyle = lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.text)
+	input.PlaceholderStyle = lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted)
+	input.Cursor.Style = lipgloss.NewStyle().Background(chrome.accent).Foreground(contrastFg(chrome.accent))
+	input.Cursor.TextStyle = lipgloss.NewStyle().Background(chrome.accent).Foreground(contrastFg(chrome.accent))
 
-	content := m.styles.OverlayTitle.Render("Search Articles") + "\n\n" +
-		input.View() + "\n" +
-		m.styles.OverlayHint.Render("[enter] apply   [esc] clear")
-	return renderStyledOverlayBox(content, 50, m.styles)
+	body := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Foreground(chrome.text).
+		Width(width).
+		Padding(1, 2).
+		Render(input.View())
+	actions := renderManagerActions(width, chrome, "enter", "apply", "esc", "clear")
+	return lipgloss.JoinVertical(lipgloss.Left, header, body, actions)
 }
 
 func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) string {
@@ -1721,7 +1741,7 @@ func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) str
 			Render(provider)
 		hints = lipgloss.JoinVertical(lipgloss.Left,
 			providerLine,
-			renderManagerActions(width, chrome, "c", "copy", "m", "save .md", "esc", "close"),
+			renderManagerActions(width, chrome, "c", "copy", "M", "save .md", "esc", "close"),
 		)
 	} else {
 		hints = renderManagerActions(width, chrome, "esc", "close")
@@ -3083,6 +3103,18 @@ func padRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-lipgloss.Width(s))
 }
 
+func viewLineCount(parts []string) int {
+	n := 0
+	for _, p := range parts {
+		if p == "" {
+			n++
+			continue
+		}
+		n += strings.Count(p, "\n") + 1
+	}
+	return n
+}
+
 func clampView(view string, width, height int, bg lipgloss.Color) string {
 	if width <= 0 || height <= 0 {
 		return ""
@@ -3150,7 +3182,9 @@ func (m Model) articlesPaneContentHeight() int {
 	return max(2, m.articlesPaneOuterHeight()-1)
 }
 func (m Model) articleRowsVisible() int {
-	return max(0, m.articlesPaneContentHeight()-1)
+	stride := m.styles.ListItemLineStride()
+	bodyLines := max(0, m.articlesPaneContentHeight()-1)
+	return bodyLines / stride
 }
 func (m Model) contentPaneOuterHeight() int {
 	return max(3, m.mainHeight()-m.articlesPaneOuterHeight())

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -21,6 +22,7 @@ type DisplayConfig struct {
 	DateFormat     string `toml:"date_format"` // "relative" | "absolute"
 	MarkReadOnOpen bool   `toml:"mark_read_on_open"`
 	Browser        string `toml:"browser"`
+	Density        string `toml:"density"` // "comfortable" | "compact"
 }
 
 type FeedConfig struct {
@@ -60,6 +62,7 @@ func DefaultConfig() Config {
 			Icons:          false,
 			DateFormat:     "relative",
 			MarkReadOnOpen: true,
+			Density:        "compact",
 		},
 		Feed: FeedConfig{
 			MaxBodyMiB: 10,
@@ -102,7 +105,19 @@ func Load() (Config, error) {
 	if cfg.Updates.CheckIntervalHours <= 0 {
 		cfg.Updates.CheckIntervalHours = DefaultConfig().Updates.CheckIntervalHours
 	}
+	cfg.Display.Density = NormalizeDisplayDensity(cfg.Display.Density)
 	return cfg, nil
+}
+
+// NormalizeDisplayDensity returns "comfortable" or "compact".
+// Empty or unrecognized values default to "compact".
+func NormalizeDisplayDensity(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "comfortable":
+		return "comfortable"
+	default:
+		return "compact"
+	}
 }
 
 func Save(cfg Config) error {

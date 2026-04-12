@@ -191,7 +191,7 @@ func TestLongStatusMessageDoesNotChangeViewHeight(t *testing.T) {
 func TestStatusBarShowsUpdateCheckActivity(t *testing.T) {
 	m := Model{
 		width:       80,
-		styles:      BuildStyles(CatppuccinMocha),
+		styles:      BuildStyles(CatppuccinMocha, "comfortable"),
 		updateState: updateStateChecking,
 		spinner:     spinner.New(),
 	}
@@ -205,7 +205,7 @@ func TestStatusBarShowsUpdateCheckActivity(t *testing.T) {
 func TestStatusBarOmitsUInstallWhenManualInstallRequired(t *testing.T) {
 	m := Model{
 		width:           80,
-		styles:          BuildStyles(CatppuccinMocha),
+		styles:          BuildStyles(CatppuccinMocha, "comfortable"),
 		updateState:     updateStateAvailable,
 		updateInfo:      update.ReleaseInfo{Version: "v1.1.0"},
 		updateInstall:   update.InstallResult{ManualCommand: "sudo true"},
@@ -224,7 +224,7 @@ func TestStatusBarOmitsUInstallWhenManualInstallRequired(t *testing.T) {
 func TestStatusBarKeepsUpdateAvailableVisibleWithLongFeedTitle(t *testing.T) {
 	m := Model{
 		width:       48,
-		styles:      BuildStyles(CatppuccinMocha),
+		styles:      BuildStyles(CatppuccinMocha, "comfortable"),
 		updateState: updateStateAvailable,
 		updateInfo:  update.ReleaseInfo{Version: "v1.1.0"},
 		feeds: []db.Feed{
@@ -246,7 +246,7 @@ func TestStatusBarKeepsUpdateAvailableVisibleWithLongFeedTitle(t *testing.T) {
 func TestStatusMessageStillIncludesAvailableUpdateHint(t *testing.T) {
 	m := Model{
 		width:       80,
-		styles:      BuildStyles(CatppuccinMocha),
+		styles:      BuildStyles(CatppuccinMocha, "comfortable"),
 		updateState: updateStateAvailable,
 		updateInfo:  update.ReleaseInfo{Version: "v1.1.0", Summary: "Faster update flow."},
 		statusMsg:   "saved settings",
@@ -264,7 +264,7 @@ func TestStatusMessageStillIncludesAvailableUpdateHint(t *testing.T) {
 func TestStatusBarShowsUpdateSummaryWhenAvailable(t *testing.T) {
 	m := Model{
 		width:       96,
-		styles:      BuildStyles(CatppuccinMocha),
+		styles:      BuildStyles(CatppuccinMocha, "comfortable"),
 		updateState: updateStateAvailable,
 		updateInfo:  update.ReleaseInfo{Version: "v1.1.0", Summary: "Faster update flow."},
 	}
@@ -275,6 +275,30 @@ func TestStatusBarShowsUpdateSummaryWhenAvailable(t *testing.T) {
 	}
 	if containsString(ansi.Strip(bar), "Faster update flow.") {
 		t.Fatalf("expected status bar to keep update summary out of the main prompt, got %q", ansi.Strip(bar))
+	}
+}
+
+func TestStatusBarAlwaysShowsGlobalKeyHints(t *testing.T) {
+	m := Model{
+		width:         120,
+		styles:        BuildStyles(CatppuccinMocha, "comfortable"),
+		keys:          DefaultKeys,
+		feeds:         []db.Feed{{ID: 1, Title: "Example", URL: "https://example.com/feed", UnreadCount: 1}},
+		sidebarRows:   []sidebarRow{{kind: rowKindFeed, feedID: 1}},
+		sidebarCursor: 0,
+	}
+	plain := ansi.Strip(m.renderStatusBar())
+	for _, want := range []string{"feed manager", "settings", "search", "? help"} {
+		if !containsString(plain, want) {
+			t.Fatalf("expected status bar to include %q, got %q", want, plain)
+		}
+	}
+
+	m.statusMsg = "notice"
+	m.statusErr = false
+	withMsg := ansi.Strip(m.renderStatusBar())
+	if !containsString(withMsg, "notice") || !containsString(withMsg, "? help") {
+		t.Fatalf("expected transient status to retain global hints, got %q", withMsg)
 	}
 }
 
@@ -743,7 +767,7 @@ func TestFeedSelectionChangeWithArticlesKeepsFrameStable(t *testing.T) {
 }
 
 func TestBuildStylesUsesThemeOverlayColors(t *testing.T) {
-	styles := BuildStyles(CatppuccinMocha)
+	styles := BuildStyles(CatppuccinMocha, "comfortable")
 	wantBg := adjustLightness(CatppuccinMocha.Bg, 0.06)
 
 	if got := styles.Overlay.GetBackground(); got != wantBg {
@@ -757,8 +781,22 @@ func TestBuildStylesUsesThemeOverlayColors(t *testing.T) {
 	}
 }
 
+func TestBuildStylesListStrideReflectsDensity(t *testing.T) {
+	comfort := BuildStyles(CatppuccinMocha, "comfortable")
+	compact := BuildStyles(CatppuccinMocha, "compact")
+	if comfort.ListItemLineStride() <= compact.ListItemLineStride() {
+		t.Fatalf("expected comfortable list stride > compact, got %d vs %d",
+			comfort.ListItemLineStride(), compact.ListItemLineStride())
+	}
+	hComfort := lipgloss.Height(comfort.FeedItem.Width(20).Render("x"))
+	hCompact := lipgloss.Height(compact.FeedItem.Width(20).Render("x"))
+	if hComfort <= hCompact {
+		t.Fatalf("expected comfortable feed row height > compact, got %d vs %d", hComfort, hCompact)
+	}
+}
+
 func TestBuildStylesUsesDistinctHelpSectionSurface(t *testing.T) {
-	styles := BuildStyles(CatppuccinMocha)
+	styles := BuildStyles(CatppuccinMocha, "comfortable")
 	overlayBg := terminalColorAsColor(styles.Overlay.GetBackground())
 	sectionBg := terminalColorAsColor(styles.HelpSection.GetBackground())
 
@@ -774,7 +812,7 @@ func TestBuildStylesUsesDistinctHelpSectionSurface(t *testing.T) {
 }
 
 func TestHelpStylesShareSectionSurfaceBackground(t *testing.T) {
-	styles := BuildStyles(CatppuccinMocha)
+	styles := BuildStyles(CatppuccinMocha, "comfortable")
 	sectionBg := string(terminalColorAsColor(styles.HelpSection.GetBackground()))
 
 	if sectionBg == "" {
@@ -801,7 +839,7 @@ func TestResetHelpViewportUsesFullOverlayWidth(t *testing.T) {
 	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m.width = 120
 	m.height = 30
-	m.styles = BuildStyles(CatppuccinMocha)
+	m.styles = BuildStyles(CatppuccinMocha, "comfortable")
 
 	m.resetHelpVP()
 
@@ -2685,7 +2723,7 @@ func TestRenderArticleContentFillsPaneWidth(t *testing.T) {
 	m := Model{
 		width:  120,
 		height: 30,
-		styles: BuildStyles(GruvboxLight),
+		styles: BuildStyles(GruvboxLight, "comfortable"),
 	}
 
 	got := m.renderArticleContent(db.Article{
@@ -2706,7 +2744,7 @@ func TestRenderArticleContentUsesOneCharacterLeftMargin(t *testing.T) {
 	m := Model{
 		width:  120,
 		height: 30,
-		styles: BuildStyles(GruvboxLight),
+		styles: BuildStyles(GruvboxLight, "comfortable"),
 	}
 
 	got := m.renderArticleContent(db.Article{
@@ -2731,7 +2769,7 @@ func TestRenderArticleContentKeepsHeaderSingleLineWithinMargins(t *testing.T) {
 	m := Model{
 		width:  70,
 		height: 30,
-		styles: BuildStyles(GruvboxLight),
+		styles: BuildStyles(GruvboxLight, "comfortable"),
 	}
 
 	publishedAt := unixTestTime(1710000000)
@@ -2771,7 +2809,7 @@ func TestThemePickerUsesFullWidthChromeRows(t *testing.T) {
 		width:       120,
 		height:      30,
 		themeCursor: 7,
-		styles:      BuildStyles(GruvboxLight),
+		styles:      BuildStyles(GruvboxLight, "comfortable"),
 	}
 
 	chrome := newManagerChrome(40, m.styles.Theme)
@@ -2940,7 +2978,7 @@ func TestFolderAccentStylesPropagateToFeedsAndArticles(t *testing.T) {
 }
 
 func TestSidebarSelectedStyleUsesFilledBackground(t *testing.T) {
-	m := Model{styles: BuildStyles(CatppuccinMocha), focused: paneFeeds}
+	m := Model{styles: BuildStyles(CatppuccinMocha, "comfortable"), focused: paneFeeds}
 
 	selected := m.sidebarSelectedStyle("")
 	if got := selected.GetBackground(); got == CatppuccinMocha.Bg {
@@ -2952,7 +2990,7 @@ func TestSidebarSelectedStyleUsesFilledBackground(t *testing.T) {
 }
 
 func TestSidebarSelectedStyleSoftensWhenFeedsPaneUnfocused(t *testing.T) {
-	m := Model{styles: BuildStyles(CatppuccinMocha), focused: paneArticles}
+	m := Model{styles: BuildStyles(CatppuccinMocha, "comfortable"), focused: paneArticles}
 
 	selected := m.sidebarSelectedStyle("")
 	if got := selected.GetBackground(); got != m.styles.FeedItemSelectedUnfocused.GetBackground() {
@@ -2964,7 +3002,7 @@ func TestSidebarSelectedStyleSoftensWhenFeedsPaneUnfocused(t *testing.T) {
 }
 
 func TestSidebarSelectedStyleUsesFolderAccentAsFocusedBackground(t *testing.T) {
-	m := Model{styles: BuildStyles(CatppuccinMocha), focused: paneFeeds}
+	m := Model{styles: BuildStyles(CatppuccinMocha, "comfortable"), focused: paneFeeds}
 
 	selected := m.sidebarSelectedStyle(lipgloss.Color("#f7768e"))
 	if got := selected.GetBackground(); got != lipgloss.Color("#f7768e") {

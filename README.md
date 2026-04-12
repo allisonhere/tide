@@ -7,6 +7,8 @@ A terminal RSS reader built with [Bubble Tea](https://github.com/charmbracelet/b
 ## Features
 
 - Three-pane layout: feeds, articles, content
+- Status bar reminders: feed manager, settings, search, and help keys (`m` · `S` · `/` · `?`)
+- Comfortable or compact list spacing (Settings → Display; configurable in `config.toml`)
 - Live theme switching with full preview
 - Theme-aware dialogs and overlays
 - Feed manager: add, edit, delete, import/export OPML
@@ -67,6 +69,8 @@ Config and database are stored in `~/.config/rss/`.
 
 If you have **no feeds yet**, use **`a`** (add) or **`m`** (feed manager) to subscribe. **`Enter`** does not open the add dialog on an empty feed list.
 
+The **bottom status line** always shows **`m` feed manager**, **`S` settings**, **`/` search**, and **`?` help** on the left (alongside feed status). That matches the shortcuts documented in **`?` help**.
+
 ## Feed Manager And Sources
 
 Open the feed manager with `m`. Tide keeps one shared manager flow for local feeds and Google Reader-compatible sources.
@@ -108,6 +112,7 @@ Display options:
 - Toggle Unicode icons for pane headers and item state markers
 - Switch between relative and absolute dates
 - Toggle mark-read-on-open
+- **Layout density:** comfortable (extra vertical spacing in lists) or **compact** (default; more rows on small terminals)
 - Set a custom browser command
 
 Feed options:
@@ -137,7 +142,7 @@ Tide can summarize the currently selected article when focus is in the `Articles
 
 - Press `s` to open an AI summary for the selected article
 - Press `c` in the summary dialog to copy the summary
-- Press `m` in the summary dialog to save it as `.md`
+- Press `M` in the summary dialog to save it as `.md`
 - If AI is not configured, Tide shows a prompt to open Settings with `S`
 
 Supported providers and current built-in models:
@@ -177,6 +182,7 @@ icons = false
 date_format = "relative"
 mark_read_on_open = true
 browser = ""
+density = "compact"
 
 [feed]
 max_body_mib = 10
@@ -235,13 +241,13 @@ Tide can check GitHub releases for a newer version and install the matching bina
 |-----|--------|
 | `s` | AI summary for selected article when focus is in Articles or Content |
 | `c` | Copy summary in summary dialog |
-| `m` | Save summary as `.md` in summary dialog |
+| `M` | Save summary as `.md` in summary dialog |
 
 ### Feeds
 | Key | Action |
 |-----|--------|
 | `f` | Refresh feed |
-| `F` / `u` | Refresh all |
+| `F` / `I` | Refresh all |
 | `m` | Feed manager |
 
 ### Feed Manager
@@ -260,5 +266,8 @@ Tide can check GitHub releases for a newer version and install the matching bina
 |-----|--------|
 | `T` | Theme picker |
 | `S` | Settings |
+| `/` | Search articles in current feed |
 | `?` | Help |
 | `q` | Quit |
+
+The same **`m`**, **`S`**, **`/`**, and **`?`** shortcuts are repeated on the **status bar** (bottom line) whenever the main reader is visible.
