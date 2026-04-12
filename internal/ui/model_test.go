@@ -3011,6 +3011,26 @@ func TestSettingsViewRendersUpdateActions(t *testing.T) {
 	}
 }
 
+func TestSettingsViewHidesInstallWhenAlreadyOnLatest(t *testing.T) {
+	cfg := config.DefaultConfig()
+	s := newSettings(cfg, settingsUpdateState{
+		currentVersion: "v1.1.0",
+		state:          updateStateIdle,
+		latestVersion:  "v1.1.0",
+		summary:        "Nothing new.",
+	})
+	s.setActiveSection(ssUpdates)
+	chrome := newManagerChrome(62, CatppuccinMocha)
+	view := ansi.Strip(s.View(62, 40, chrome))
+
+	if strings.Contains(view, "Update now") {
+		t.Fatalf("did not expect Update now when already on latest: %q", view)
+	}
+	if strings.Contains(view, "Ignore") {
+		t.Fatalf("did not expect Ignore action when already on latest: %q", view)
+	}
+}
+
 func TestSettingsViewShowsLatestVersionLabelForRestoredRelease(t *testing.T) {
 	cfg := config.DefaultConfig()
 	s := newSettings(cfg, settingsUpdateState{
