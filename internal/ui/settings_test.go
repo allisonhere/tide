@@ -90,6 +90,29 @@ func TestSettingsBadgeWidthStaysStableAcrossFocus(t *testing.T) {
 	}
 }
 
+func TestSettingsApplyToLayoutDensity(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.layoutDensityIdx = 1
+	cfg := s.ApplyTo(config.DefaultConfig())
+	if cfg.Display.Density != "compact" {
+		t.Fatalf("ApplyTo: expected compact, got %q", cfg.Display.Density)
+	}
+	s.layoutDensityIdx = 0
+	cfg = s.ApplyTo(config.DefaultConfig())
+	if cfg.Display.Density != "comfortable" {
+		t.Fatalf("ApplyTo: expected comfortable, got %q", cfg.Display.Density)
+	}
+}
+
+func TestSettingsViewIncludesLayoutDensity(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setFocusedPane(settingsPaneDetail)
+	v := s.View(62, 24, newManagerChrome(62, CatppuccinMocha))
+	if !strings.Contains(v, "Layout density") {
+		t.Fatal("expected settings view to contain layout density label")
+	}
+}
+
 func TestSettingsStartsFocusedOnSidebar(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 

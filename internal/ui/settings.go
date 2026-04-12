@@ -32,6 +32,7 @@ const (
 	sfIcons settingsField = iota
 	sfDateFormat
 	sfMarkReadOnOpen
+	sfDisplayDensity
 	sfBrowser
 	sfFeedMaxBody
 	sfUpdateCheckOnStartup
@@ -112,6 +113,7 @@ type settingsSectionBody struct {
 }
 
 var (
+	layoutDensityLabels   = []string{"Comfortable", "Compact"}
 	aiProviderLabels      = []string{"none", "OpenAI", "Claude", "Gemini", "Ollama"}
 	aiProviderIDs         = []string{"", "openai", "claude", "gemini", "ollama"}
 	settingsSectionLabels = [settingsSectionCount]string{
@@ -139,6 +141,7 @@ type Settings struct {
 	icons                bool
 	dateAbsolute         bool // false = relative, true = absolute
 	markReadOnOpen       bool
+	layoutDensityIdx     int // 0 = comfortable, 1 = compact
 	browserInput         textinput.Model
 	feedMaxBodyInput     textinput.Model
 	updateCheckOnStartup bool
@@ -177,10 +180,15 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		return t
 	}
 
+	layoutIdx := 0
+	if config.NormalizeDisplayDensity(cfg.Display.Density) == "compact" {
+		layoutIdx = 1
+	}
 	s := Settings{
 		icons:                cfg.Display.Icons,
 		dateAbsolute:         cfg.Display.DateFormat == "absolute",
 		markReadOnOpen:       cfg.Display.MarkReadOnOpen,
+		layoutDensityIdx:     layoutIdx,
 		browserInput:         mkInput(cfg.Display.Browser, "xdg-open", false),
 		feedMaxBodyInput:     mkInput(strconv.Itoa(cfg.Feed.MaxBodyMiB), "10", false),
 		updateCheckOnStartup: cfg.Updates.CheckOnStartup,
@@ -216,6 +224,11 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 		cfg.Display.DateFormat = "relative"
 	}
 	cfg.Display.MarkReadOnOpen = s.markReadOnOpen
+	if s.layoutDensityIdx == 1 {
+		cfg.Display.Density = "compact"
+	} else {
+		cfg.Display.Density = "comfortable"
+	}
 	cfg.Display.Browser = strings.TrimSpace(s.browserInput.Value())
 	if n, err := strconv.Atoi(strings.TrimSpace(s.feedMaxBodyInput.Value())); err == nil && n > 0 {
 		cfg.Feed.MaxBodyMiB = n
@@ -360,7 +373,7 @@ func (s Settings) updateNowActionVisible() bool {
 func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
-		return []settingsField{sfIcons, sfDateFormat, sfMarkReadOnOpen, sfBrowser}
+		return []settingsField{sfIcons, sfDateFormat, sfMarkReadOnOpen, sfDisplayDensity, sfBrowser}
 	case ssFeeds:
 		return []settingsField{sfFeedMaxBody}
 	case ssUpdates:
@@ -577,7 +590,7 @@ func (s Settings) focusedTextInputCursorPosition() int {
 
 func (s Settings) isPickerField() bool {
 	switch s.focusedField {
-	case sfProvider:
+	case sfProvider, sfDisplayDensity:
 		return true
 	}
 	return false
@@ -690,6 +703,20 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
 		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
+	case sfDisplayDensity:
+		switch {
+		case keyMatches(key, keys.Left):
+			s.layoutDensityIdx = (s.layoutDensityIdx + len(layoutDensityLabels) - 1) % len(layoutDensityLabels)
+			s.setFocusedField(sfDisplayDensity)
+		case key.String() == " " || keyMatches(key, keys.Enter) || keyMatches(key, keys.Right):
+			s.layoutDensityIdx = (s.layoutDensityIdx + 1) % len(layoutDensityLabels)
+			s.setFocusedField(sfDisplayDensity)
+		case keyMatches(key, keys.Down):
+			s.setFocusedField(s.nextField())
+		case keyMatches(key, keys.Up):
 			s.setFocusedField(s.prevField())
 		}
 
@@ -990,6 +1017,12 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		addToggle("Icons", s.icons, sfIcons)
 		addToggle("Use relative dates", !s.dateAbsolute, sfDateFormat)
 		addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
+		markAnchor(sfDisplayDensity)
+		addLine(ind.Render(s.renderDensitySelector(width-2, chrome)))
+		if hint := s.fieldHint(sfDisplayDensity); hint != "" {
+			addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
+		}
+		addLine(blank)
 		addInput("Browser command", s.browserInput, sfBrowser)
 
 	case ssFeeds:
@@ -1463,6 +1496,14 @@ func (s Settings) renderProviderSelector(width int, chrome managerChrome) string
 	return label + renderSettingsPicker(pickerW, providerName, focused, chrome)
 }
 
+func (s Settings) renderDensitySelector(width int, chrome managerChrome) string {
+	label := s.renderFieldLabel("Layout density", s.focusedField == sfDisplayDensity, width, chrome)
+	focused := s.focusedField == sfDisplayDensity
+	name := layoutDensityLabels[s.layoutDensityIdx]
+	pickerW := max(1, width-labelColW)
+	return label + renderSettingsPicker(pickerW, name, focused, chrome)
+}
+
 func renderSettingsPicker(width int, value string, focused bool, chrome managerChrome) string {
 	maxTextW := max(1, width-5)
 	bg := chrome.surfaceBg
@@ -1501,6 +1542,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "local Ollama endpoint"
 	case sfSavePath:
 		return "directory for exported markdown summaries"
+	case sfDisplayDensity:
+		return "comfortable adds vertical spacing in lists; compact fits more rows on small terminals"
 	case sfUpdateManualCommand:
 		return "enter or c copies the command"
 	default:

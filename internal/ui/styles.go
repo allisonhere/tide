@@ -1,9 +1,15 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+
+	"tide/internal/config"
+)
 
 type Styles struct {
 	Theme Theme
+	// Density is normalized ("comfortable" | "compact") and matches config.Display.Density.
+	Density string
 
 	// Pane containers
 	FeedsPane          lipgloss.Style
@@ -58,7 +64,32 @@ type Styles struct {
 	Spinner lipgloss.Style
 }
 
-func BuildStyles(t Theme) Styles {
+// ListItemLineStride is the number of terminal lines one feed/article list row occupies.
+func (s Styles) ListItemLineStride() int {
+	if s.Density == "compact" {
+		return 1
+	}
+	return 2
+}
+
+func BuildStyles(t Theme, density string) Styles {
+	d := config.NormalizeDisplayDensity(density)
+	listPad := func(s lipgloss.Style) lipgloss.Style {
+		if d == "compact" {
+			return s
+		}
+		// Comfortable: one spacer line below each row (not symmetric top+bottom).
+		return s.Padding(0, 0, 1, 0)
+	}
+	modalPadTop, modalPadRight, modalPadBottom, modalPadLeft := 1, 2, 1, 2
+	contentTitleMB := 1
+	overlayTitleMB := 1
+	if d == "compact" {
+		modalPadTop, modalPadRight, modalPadBottom, modalPadLeft = 0, 1, 0, 1
+		contentTitleMB = 0
+		overlayTitleMB = 0
+	}
+
 	modalBg := modalSurface(t)
 	modalBorder := t.OverlayBorder
 	if modalBorder == "" {
@@ -102,7 +133,8 @@ func BuildStyles(t Theme) Styles {
 	}()
 
 	return Styles{
-		Theme: t,
+		Theme:   t,
+		Density: d,
 
 		FeedsPane: paneBase.
 			Border(lipgloss.NormalBorder(), false, true, false, false).
@@ -124,38 +156,38 @@ func BuildStyles(t Theme) Styles {
 			Foreground(readableText(t.Fg, t.Border, 4.5)).
 			AlignHorizontal(lipgloss.Left),
 
-		FeedItem: lipgloss.NewStyle().
+		FeedItem: listPad(lipgloss.NewStyle().
 			Background(t.Bg).
 			Foreground(t.Fg).
-			AlignHorizontal(lipgloss.Left),
-		FeedItemSelected: lipgloss.NewStyle().
+			AlignHorizontal(lipgloss.Left)),
+		FeedItemSelected: listPad(lipgloss.NewStyle().
 			Background(selectedBg).
 			Foreground(readableText(t.BorderFocus, selectedBg, 4.5)).
 			Bold(true).
-			AlignHorizontal(lipgloss.Left),
-		FeedItemSelectedFocused: lipgloss.NewStyle().
+			AlignHorizontal(lipgloss.Left)),
+		FeedItemSelectedFocused: listPad(lipgloss.NewStyle().
 			Background(selectedBg).
 			Foreground(readableText(t.BorderFocus, selectedBg, 4.5)).
 			Bold(true).
-			AlignHorizontal(lipgloss.Left),
-		FeedItemSelectedUnfocused: lipgloss.NewStyle().
+			AlignHorizontal(lipgloss.Left)),
+		FeedItemSelectedUnfocused: listPad(lipgloss.NewStyle().
 			Background(selectedBgSoft).
 			Foreground(readableText(t.BorderFocus, selectedBgSoft, 4.5)).
 			Bold(true).
-			AlignHorizontal(lipgloss.Left),
+			AlignHorizontal(lipgloss.Left)),
 		UnreadBadge: lipgloss.NewStyle().
 			Foreground(t.Unread).
 			Bold(true),
 
-		ArticleUnread: lipgloss.NewStyle().
+		ArticleUnread: listPad(lipgloss.NewStyle().
 			Background(t.Bg).
 			Foreground(t.Fg).
-			AlignHorizontal(lipgloss.Left),
-		ArticleRead: lipgloss.NewStyle().
+			AlignHorizontal(lipgloss.Left)),
+		ArticleRead: listPad(lipgloss.NewStyle().
 			Background(t.Bg).
 			Foreground(readableText(t.Dimmed, t.Bg, 3.0)).
-			AlignHorizontal(lipgloss.Left),
-		ArticleSelected: lipgloss.NewStyle().
+			AlignHorizontal(lipgloss.Left)),
+		ArticleSelected: listPad(lipgloss.NewStyle().
 			Background(func() lipgloss.Color {
 				if isDark(t.Bg) {
 					return adjustLightness(t.Bg, 0.08)
@@ -169,7 +201,7 @@ func BuildStyles(t Theme) Styles {
 				return adjustLightness(t.Bg, -0.08)
 			}(), 4.5)).
 			Bold(true).
-			AlignHorizontal(lipgloss.Left),
+			AlignHorizontal(lipgloss.Left)),
 		ArticleTime: lipgloss.NewStyle().
 			Background(t.Bg).
 			Foreground(t.Dimmed),
@@ -182,7 +214,7 @@ func BuildStyles(t Theme) Styles {
 			Foreground(readableText(t.Bg, t.BorderFocus, 4.5)).
 			Bold(true).
 			Padding(0, 1).
-			MarginBottom(1),
+			MarginBottom(contentTitleMB),
 		ContentMeta: lipgloss.NewStyle().
 			Background(t.Bg).
 			Foreground(readableText(t.Dimmed, t.Bg, 3.0)).
@@ -215,17 +247,22 @@ func BuildStyles(t Theme) Styles {
 			Background(modalBg).
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(modalBorder).
-			Padding(1, 2),
+			Padding(modalPadTop, modalPadRight, modalPadBottom, modalPadLeft),
 		OverlayTitle: lipgloss.NewStyle().
 			Foreground(accentFg).
 			Background(modalAccent).
 			Bold(true).
 			Padding(0, 1).
-			MarginBottom(1),
+			MarginBottom(overlayTitleMB),
 		OverlayHint: lipgloss.NewStyle().
 			Background(modalBg).
 			Foreground(modalMuted).
-			MarginTop(1),
+			MarginTop(func() int {
+				if d == "compact" {
+					return 0
+				}
+				return 1
+			}()),
 
 		InputFocused: lipgloss.NewStyle().
 			Background(modalBg).

@@ -6,6 +6,28 @@ import (
 	"testing"
 )
 
+func TestDefaultConfigDisplayDensityCompact(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Display.Density != "compact" {
+		t.Fatalf("expected default display density compact, got %q", cfg.Display.Density)
+	}
+}
+
+func TestNormalizeDisplayDensity(t *testing.T) {
+	if got := NormalizeDisplayDensity(""); got != "compact" {
+		t.Fatalf("empty: got %q", got)
+	}
+	if got := NormalizeDisplayDensity("COMPACT"); got != "compact" {
+		t.Fatalf("compact: got %q", got)
+	}
+	if got := NormalizeDisplayDensity("comfortable"); got != "comfortable" {
+		t.Fatalf("comfortable: got %q", got)
+	}
+	if got := NormalizeDisplayDensity("unknown"); got != "compact" {
+		t.Fatalf("unknown: got %q", got)
+	}
+}
+
 func TestDefaultConfigIncludesUpdateDefaults(t *testing.T) {
 	cfg := DefaultConfig()
 	if !cfg.Updates.CheckOnStartup {
@@ -35,6 +57,7 @@ icons = true
 date_format = "relative"
 mark_read_on_open = true
 browser = ""
+density = "compact"
 
 [feed]
 max_body_mib = 10
@@ -90,5 +113,8 @@ greader_password = "secret"
 	}
 	if cfg.Source.GReaderPassword != "secret" {
 		t.Fatalf("unexpected greader_password: %q", cfg.Source.GReaderPassword)
+	}
+	if cfg.Display.Density != "compact" {
+		t.Fatalf("expected display density compact, got %q", cfg.Display.Density)
 	}
 }

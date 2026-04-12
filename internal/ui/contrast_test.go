@@ -123,7 +123,7 @@ func TestAllThemesPassContrastChecks(t *testing.T) {
 	for _, theme := range BuiltinThemes {
 		theme := theme
 		t.Run(theme.Name, func(t *testing.T) {
-			styles := BuildStyles(theme)
+			styles := BuildStyles(theme, "comfortable")
 			for _, check := range contrastChecks {
 				fg := check.fg(styles)
 				bg := check.bg(styles)
@@ -148,7 +148,7 @@ func TestAllThemesContrastReport(t *testing.T) {
 		t.Skip("only runs with -v")
 	}
 	for _, theme := range BuiltinThemes {
-		styles := BuildStyles(theme)
+		styles := BuildStyles(theme, "comfortable")
 		t.Logf("── %s ──", theme.Name)
 		for _, check := range contrastChecks {
 			fg := check.fg(styles)
