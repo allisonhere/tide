@@ -129,6 +129,25 @@ func TestSettingsSidebarRightEntersDetail(t *testing.T) {
 	}
 }
 
+func TestSettingsEscMovesToSidebarThenExits(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setFocusedPane(settingsPaneDetail)
+	s.setActiveSection(ssFeeds)
+
+	next, _, done := s.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+	if done {
+		t.Fatal("expected first esc from detail not to exit")
+	}
+	if next.focusedPane != settingsPaneSidebar {
+		t.Fatalf("expected first esc to focus sidebar, got %v", next.focusedPane)
+	}
+
+	_, _, done = next.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+	if !done {
+		t.Fatal("expected second esc from sidebar to exit")
+	}
+}
+
 func TestSettingsRestoresLastFocusedFieldPerSection(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setActiveSection(ssDisplay)

@@ -975,7 +975,7 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		case keyMatches(msg, keys.Add):
 			fm.focusAdd()
 		case keyMatches(msg, keys.Cancel):
-			fm.returnToListPane()
+			fm.shouldExit = true
 		case keyMatches(msg, keys.Up):
 			if fm.cursor > 0 {
 				fm.cursor--
@@ -1004,7 +1004,12 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 	}
 	switch {
 	case keyMatches(msg, keys.Cancel):
-		fm.returnToListPane()
+		if fm.paneFocus == fmPaneDetail {
+			fm.paneFocus = fmPaneList
+			fm.blurEditInputs()
+			return fm, nil
+		}
+		fm.shouldExit = true
 
 	case keyMatches(msg, keys.Tab), keyMatches(msg, keys.Down):
 		fm.advanceEditField()
@@ -1092,7 +1097,12 @@ func (fm FeedManager) updateFolderEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager
 	}
 	switch {
 	case keyMatches(msg, keys.Cancel):
-		fm.returnToListPane()
+		if fm.paneFocus == fmPaneDetail {
+			fm.paneFocus = fmPaneList
+			fm.titleInput.Blur()
+			return fm, nil
+		}
+		fm.shouldExit = true
 
 	case keyMatches(msg, keys.Tab), keyMatches(msg, keys.Down):
 		if fm.focusedField == 0 {
@@ -1138,7 +1148,12 @@ func (fm FeedManager) updateImport(msg tea.KeyMsg, keys KeyMap) (FeedManager, te
 	}
 	switch {
 	case keyMatches(msg, keys.Cancel):
-		fm.returnToListPane()
+		if fm.paneFocus == fmPaneDetail {
+			fm.paneFocus = fmPaneList
+			fm.importInput.Blur()
+			return fm, nil
+		}
+		fm.shouldExit = true
 
 	case keyMatches(msg, keys.Confirm):
 		path := strings.TrimSpace(fm.importInput.Value())
@@ -1728,7 +1743,7 @@ func (fm FeedManager) viewEdit(width, height int, chrome managerChrome, styles S
 	contentRows := []string{}
 	if fm.editTarget == 0 && !fm.remoteSettingsEdit {
 		contentRows = append(contentRows,
-			renderManagerSection("Source", renderManagerPicker(fieldW, fm.addSourceLabel(), detailFocused && fm.focusedField == fmFieldAddSource, chrome, styles), chrome),
+			renderManagerSection("Source", renderManagerPicker(fieldW, fm.addSourceLabel(), detailFocused && fm.focusedField == fmFieldAddSource, chrome, styles), chrome, detailFocused && fm.focusedField == fmFieldAddSource),
 		)
 	}
 	if fm.remoteSettingsEdit {
@@ -1737,36 +1752,36 @@ func (fm FeedManager) viewEdit(width, height int, chrome managerChrome, styles S
 			feedNameLine = "—"
 		}
 		contentRows = append(contentRows,
-			renderManagerSection("Name", renderManagerPanel(fieldW, feedNameLine+"\n"+strings.ToUpper(truncate("Pulled from the feed (not editable).", max(8, fieldW-4))), chrome), chrome),
-			renderManagerSection("Feed URL", renderManagerPanel(fieldW, strings.ToUpper(truncate(fm.urlInput.Value(), max(8, fieldW-4))), chrome), chrome),
+			renderManagerSection("Name", renderManagerPanel(fieldW, feedNameLine+"\n"+strings.ToUpper(truncate("Pulled from the feed (not editable).", max(8, fieldW-4))), chrome), chrome, false),
+			renderManagerSection("Feed URL", renderManagerPanel(fieldW, strings.ToUpper(truncate(fm.urlInput.Value(), max(8, fieldW-4))), chrome), chrome, false),
 		)
 		contentRows = append(contentRows,
-			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome),
-			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome),
-			renderManagerSection("Password", renderTextInput(fm.greaderPasswordInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderPassword, true, chrome), chrome),
+			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome, detailFocused && fm.focusedField == fmFieldGReaderURL),
+			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome, detailFocused && fm.focusedField == fmFieldGReaderLogin),
+			renderManagerSection("Password", renderTextInput(fm.greaderPasswordInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderPassword, true, chrome), chrome, detailFocused && fm.focusedField == fmFieldGReaderPassword),
 		)
 	} else if fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
 		contentRows = append(contentRows,
-			renderManagerSection("Name", renderManagerPanel(fieldW, strings.ToUpper(truncate("Pulled from the feed when added.", max(8, fieldW-4))), chrome), chrome),
-			renderManagerSection("URL (optional)", renderTextInput(fm.urlInput, fieldW, detailFocused && fm.focusedField == 1, false, chrome), chrome),
-			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome),
-			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome),
-			renderManagerSection("Password", renderTextInput(fm.greaderPasswordInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderPassword, true, chrome), chrome),
+			renderManagerSection("Name", renderManagerPanel(fieldW, strings.ToUpper(truncate("Pulled from the feed when added.", max(8, fieldW-4))), chrome), chrome, false),
+			renderManagerSection("URL (optional)", renderTextInput(fm.urlInput, fieldW, detailFocused && fm.focusedField == 1, false, chrome), chrome, detailFocused && fm.focusedField == 1),
+			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome, detailFocused && fm.focusedField == fmFieldGReaderURL),
+			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome, detailFocused && fm.focusedField == fmFieldGReaderLogin),
+			renderManagerSection("Password", renderTextInput(fm.greaderPasswordInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderPassword, true, chrome), chrome, detailFocused && fm.focusedField == fmFieldGReaderPassword),
 		)
 	} else {
 		contentRows = append(contentRows,
-			renderManagerSection("Title", renderTextInput(fm.titleInput, fieldW, detailFocused && fm.focusedField == 0, false, chrome), chrome),
-			renderManagerSection("URL", renderTextInput(fm.urlInput, fieldW, detailFocused && fm.focusedField == 1, false, chrome), chrome),
-			renderManagerSection("Folder", renderManagerPicker(fieldW, fm.folderOptions()[fm.folderCursor], detailFocused && fm.focusedField == 2, chrome, styles), chrome),
+			renderManagerSection("Title", renderTextInput(fm.titleInput, fieldW, detailFocused && fm.focusedField == 0, false, chrome), chrome, detailFocused && fm.focusedField == 0),
+			renderManagerSection("URL", renderTextInput(fm.urlInput, fieldW, detailFocused && fm.focusedField == 1, false, chrome), chrome, detailFocused && fm.focusedField == 1),
+			renderManagerSection("Folder", renderManagerPicker(fieldW, fm.folderOptions()[fm.folderCursor], detailFocused && fm.focusedField == 2, chrome, styles), chrome, detailFocused && fm.focusedField == 2),
 		)
 		if fm.showNewFolder {
 			contentRows = append(contentRows,
-				renderManagerSection("New", renderTextInput(fm.newFolderInput, fieldW, detailFocused && fm.focusedField == 3, false, chrome), chrome),
+				renderManagerSection("New", renderTextInput(fm.newFolderInput, fieldW, detailFocused && fm.focusedField == 3, false, chrome), chrome, detailFocused && fm.focusedField == 3),
 			)
 		}
 		if fm.shouldShowColorPicker() {
 			contentRows = append(contentRows,
-				renderManagerSection("Color", renderManagerColorPicker(fieldW, fm.displayedColorOption(), detailFocused && fm.focusedField == 4, chrome, styles), chrome),
+				renderManagerSection("Color", renderManagerColorPicker(fieldW, fm.displayedColorOption(), detailFocused && fm.focusedField == 4, chrome, styles), chrome, detailFocused && fm.focusedField == 4),
 			)
 		}
 	}
@@ -1776,15 +1791,15 @@ func (fm FeedManager) viewEdit(width, height int, chrome managerChrome, styles S
 func (fm FeedManager) viewFolderEdit(width, height int, chrome managerChrome, styles Styles) string {
 	fieldW := max(1, width-2)
 	return renderManagerDetailColumn(width, []string{
-		renderManagerSection("Name", renderTextInput(fm.titleInput, fieldW, fm.focusedField == 0, false, chrome), chrome),
-		renderManagerSection("Color", renderManagerColorPicker(fieldW, fm.currentColorOption(), fm.focusedField == 4, chrome, styles), chrome),
+		renderManagerSection("Name", renderTextInput(fm.titleInput, fieldW, fm.focusedField == 0, false, chrome), chrome, fm.focusedField == 0),
+		renderManagerSection("Color", renderManagerColorPicker(fieldW, fm.currentColorOption(), fm.focusedField == 4, chrome, styles), chrome, fm.focusedField == 4),
 	}, chrome)
 }
 
 func (fm FeedManager) viewImport(width, height int, chrome managerChrome) string {
 	fieldW := max(1, width-2)
 	return renderManagerDetailColumn(width, []string{
-		renderManagerSection("PATH", renderManagerInput(fieldW, fm.importInput.Value(), "PATH TO OPML FILE...", true, chrome), chrome),
+		renderManagerSection("PATH", renderManagerInput(fieldW, fm.importInput.Value(), "PATH TO OPML FILE...", true, chrome), chrome, true),
 	}, chrome)
 }
 
@@ -1811,7 +1826,7 @@ func (fm FeedManager) viewConfirmDelete(width, height int, chrome managerChrome)
 		chrome.body.Width(max(12, fieldW)).Render(warning),
 	)
 	return renderManagerDetailColumn(width, []string{
-		renderManagerSection("TARGET", renderManagerPanel(fieldW, strings.ToUpper(truncate(name, max(1, fieldW-4))), chrome), chrome),
+		renderManagerSection("TARGET", renderManagerPanel(fieldW, strings.ToUpper(truncate(name, max(1, fieldW-4))), chrome), chrome, false),
 		warningBlock,
 	}, chrome)
 }
@@ -1827,7 +1842,7 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 				"a", "new feed",
 				"↑/↓", "browse list",
 				"enter", "edit form",
-				"esc", "cancel",
+				"esc", "close",
 			)
 		}
 		enterLabel := "save feed"
@@ -1848,19 +1863,33 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 			"tab", "next field",
 			"←/→", pickLabel,
 			"enter", enterLabel,
-			"esc", "cancel",
+			"esc", "list pane",
 		)
 	case fmFolderEdit:
+		if fm.paneFocus == fmPaneList {
+			return renderManagerActions(width, chrome,
+				"tab", "next field",
+				"←/→", "color",
+				"enter", "save folder",
+				"esc", "close",
+			)
+		}
 		return renderManagerActions(width, chrome,
 			"tab", "next field",
 			"←/→", "color",
 			"enter", "save folder",
-			"esc", "cancel",
+			"esc", "list pane",
 		)
 	case fmImport:
+		if fm.paneFocus == fmPaneList {
+			return renderManagerActions(width, chrome,
+				"enter", "import",
+				"esc", "close",
+			)
+		}
 		return renderManagerActions(width, chrome,
 			"enter", "import",
-			"esc", "cancel",
+			"esc", "list pane",
 		)
 	case fmConfirmDelete:
 		return renderManagerActions(width, chrome,
@@ -1987,9 +2016,13 @@ func renderManagerHeader(title string, width int, chrome managerChrome) string {
 	return chrome.header.Render(title + strings.Repeat(" ", gap))
 }
 
-func renderManagerSection(label, body string, chrome managerChrome) string {
+func renderManagerSection(label, body string, chrome managerChrome, labelActive bool) string {
 	w := lipgloss.Width(body)
-	styledLabel := chrome.sectionLabel.Width(w).Render(label)
+	style := chrome.sectionLabel
+	if labelActive {
+		style = chrome.sectionLabelActive
+	}
+	styledLabel := style.Width(w).Render(label)
 	return lipgloss.JoinVertical(lipgloss.Left, styledLabel, body)
 }
 
@@ -2076,15 +2109,17 @@ func renderTextInput(input textinput.Model, width int, focused bool, compactSecr
 	pad := lipgloss.NewStyle().Background(fieldBg).Render(" ")
 	inner := pad + rendered + pad
 
-	barColor := lipgloss.Color(fieldBg)
+	// Thick left bar only (single-line row height). Unfocused uses theme border color so the bar is visible;
+	// focused uses accent. (A full box border would add multi-line corners and breaks narrow layouts.)
+	barFg := lipgloss.Color(chrome.border)
 	if focused {
-		barColor = chrome.accent
+		barFg = chrome.accent
 	}
 	return lipgloss.NewStyle().
 		Background(fieldBg).
 		BorderLeft(true).
 		BorderStyle(lipgloss.ThickBorder()).
-		BorderForeground(barColor).
+		BorderForeground(barFg).
 		BorderBackground(fieldBg).
 		Render(inner)
 }
