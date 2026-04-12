@@ -658,3 +658,41 @@ func TestSettingsApplyToPreservesSourceConfig(t *testing.T) {
 		t.Fatalf("expected settings save to preserve hidden source config, got %#v want %#v", got.Source, cfg.Source)
 	}
 }
+
+func TestSettingsManualInstallCommandRendersBlock(t *testing.T) {
+	cfg := config.DefaultConfig()
+	s := newSettings(cfg, settingsUpdateState{
+		currentVersion: "v1.0.0",
+		state:          updateStateNeedsElevation,
+		manualCommand:  "sudo install -m 0755 /tmp/tide /usr/local/bin/tide",
+	})
+	s.setActiveSection(ssUpdates)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfUpdateManualCommand)
+
+	view := ansi.Strip(s.View(80, 40, newManagerChrome(80, CatppuccinMocha)))
+	if !strings.Contains(view, "Install command") {
+		t.Fatalf("expected Install command label, got %q", view)
+	}
+	if !strings.Contains(view, "sudo install") {
+		t.Fatalf("expected command text in view, got %q", view)
+	}
+	if !strings.Contains(view, "│") {
+		t.Fatalf("expected bordered code block in view, got %q", view)
+	}
+}
+
+func TestSettingsManualInstallCopyKeySetsAction(t *testing.T) {
+	cfg := config.DefaultConfig()
+	s := newSettings(cfg, settingsUpdateState{
+		manualCommand: "echo hello",
+	})
+	s.setFocusedPane(settingsPaneDetail)
+	s.setActiveSection(ssUpdates)
+	s.setFocusedField(sfUpdateManualCommand)
+
+	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}, DefaultKeys)
+	if got := next.takeAction(); got != settingsActionCopyManualInstall {
+		t.Fatalf("expected copy manual install action, got %v", got)
+	}
+}
