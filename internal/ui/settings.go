@@ -573,7 +573,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		return s.updateFocusedTextInput(msg)
 	}
 
-	// Global: ctrl+s saves, esc cancels.
+	// Global: ctrl+s saves; esc from detail moves to sidebar, esc from sidebar exits.
 	switch key.String() {
 	case "ctrl+s":
 		if msg, ok := s.selectedAIKeyValidation(); !ok {
@@ -587,6 +587,10 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		s.shouldExit = true
 		return s, nil, true
 	case "esc":
+		if s.focusedPane == settingsPaneDetail {
+			s.setFocusedPane(settingsPaneSidebar)
+			return s, nil, false
+		}
 		s.shouldExit = true
 		return s, nil, true
 	}
@@ -807,7 +811,7 @@ func (s Settings) viewSectionsPane(width, height int, chrome managerChrome) stri
 	if s.focusedPane == settingsPaneSidebar {
 		title = "CATEGORIES >"
 	}
-	section := clampView(renderManagerSection(title, body, chrome), width, height, chrome.baseBg)
+	section := clampView(renderManagerSection(title, body, chrome, s.focusedPane == settingsPaneSidebar), width, height, chrome.baseBg)
 	return lipgloss.NewStyle().Width(width).Height(height).Background(chrome.baseBg).Render(section)
 }
 
@@ -817,7 +821,11 @@ func (s Settings) viewSectionPane(width, height int, chrome managerChrome) strin
 		title += " >"
 	}
 	body := s.viewSectionBody(width, chrome)
-	titleRow := chrome.sectionLabel.Width(width).Render(title)
+	titleStyle := chrome.sectionLabel
+	if s.focusedPane == settingsPaneDetail {
+		titleStyle = chrome.sectionLabelActive
+	}
+	titleRow := titleStyle.Width(width).Render(title)
 	bodyHeight := max(1, height-1)
 	section := lipgloss.JoinVertical(lipgloss.Left, titleRow, s.scrollSectionBody(body, width, bodyHeight, chrome))
 	return lipgloss.NewStyle().Width(width).Height(height).Background(chrome.baseBg).Render(section)
@@ -1020,7 +1028,8 @@ func (s Settings) renderSectionLabel(label string, width int, chrome managerChro
 	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render(bar + title)
 }
 
-const labelColW = 20
+// Wide enough for "Feed max size (MiB)" with sectionLabel horizontal padding inside Width().
+const labelColW = 22
 
 func (s Settings) viewHints(width int, chrome managerChrome) string {
 	if s.focusedPane == settingsPaneSidebar {
@@ -1028,7 +1037,7 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 			"↑/↓", "section",
 			"→", "edit",
 			"ctrl+s", "save",
-			"esc", "cancel",
+			"esc", "close",
 		)
 	}
 	if s.isPickerField() {
@@ -1037,7 +1046,7 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 			"↑/↓", "field",
 			"tab", "next",
 			"ctrl+s", "save",
-			"esc", "cancel",
+			"esc", "categories",
 		)
 	}
 	return renderManagerActions(width, chrome,
@@ -1045,7 +1054,7 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 		"↑/↓", "field",
 		"tab", "next",
 		"ctrl+s", "save",
-		"esc", "cancel",
+		"esc", "categories",
 	)
 }
 
@@ -1085,11 +1094,9 @@ func (s Settings) renderSectionNavRow(width int, label, subtitle string, selecte
 }
 
 func (s Settings) renderFieldLabel(label string, focused bool, _ int, chrome managerChrome) string {
-	style := chrome.body
+	style := chrome.sectionLabel
 	if focused {
-		style = style.Foreground(chrome.text).Bold(true)
-	} else {
-		style = style.Foreground(chrome.muted)
+		style = chrome.sectionLabelActive
 	}
 	return style.Width(labelColW).Render(padRight(label, labelColW))
 }

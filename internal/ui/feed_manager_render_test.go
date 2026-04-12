@@ -479,14 +479,19 @@ func TestFeedManagerEditCancelReturnsToListPaneAndClearsRemoteSettings(t *testin
 
 	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
 
-	if next.mode != fmList {
-		t.Fatalf("expected cancel to return to list mode, got %v", next.mode)
+	if next.mode != fmEdit {
+		t.Fatalf("expected first esc to stay in edit mode, got %v", next.mode)
 	}
 	if !next.listPaneFocused() {
-		t.Fatal("expected cancel to return focus to the left pane")
+		t.Fatal("expected first esc to return focus to the left pane")
 	}
-	if next.remoteSettingsEdit {
-		t.Fatal("expected cancel to clear remote settings mode")
+	if !next.remoteSettingsEdit {
+		t.Fatal("expected first esc to keep remote settings mode until overlay closes")
+	}
+
+	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+	if !next.shouldExit {
+		t.Fatal("expected second esc from list pane to exit the manager overlay")
 	}
 }
 
@@ -768,11 +773,16 @@ func TestFeedManagerFolderEditCancelReturnsToListPane(t *testing.T) {
 
 	next, _ := fm.updateFolderEdit(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
 
-	if next.mode != fmList {
-		t.Fatalf("expected cancel to return to list mode, got %v", next.mode)
+	if next.mode != fmFolderEdit {
+		t.Fatalf("expected first esc to stay in folder edit mode, got %v", next.mode)
 	}
 	if !next.listPaneFocused() {
-		t.Fatal("expected folder cancel to return focus to the left pane")
+		t.Fatal("expected first esc to return focus to the left pane")
+	}
+
+	next, _ = next.updateFolderEdit(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+	if !next.shouldExit {
+		t.Fatal("expected second esc to exit the manager overlay")
 	}
 }
 
@@ -782,11 +792,16 @@ func TestFeedManagerImportCancelReturnsToListPane(t *testing.T) {
 
 	next, _ := fm.updateImport(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
 
-	if next.mode != fmList {
-		t.Fatalf("expected import cancel to return to list mode, got %v", next.mode)
+	if next.mode != fmImport {
+		t.Fatalf("expected first esc to stay in import mode, got %v", next.mode)
 	}
 	if !next.listPaneFocused() {
-		t.Fatal("expected import cancel to return focus to the left pane")
+		t.Fatal("expected first esc to return focus to the left pane")
+	}
+
+	next, _ = next.updateImport(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+	if !next.shouldExit {
+		t.Fatal("expected second esc to exit the manager overlay")
 	}
 }
 

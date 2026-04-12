@@ -65,26 +65,30 @@ tide
 
 Config and database are stored in `~/.config/rss/`.
 
+If you have **no feeds yet**, use **`a`** (add) or **`m`** (feed manager) to subscribe. **`Enter`** does not open the add dialog on an empty feed list.
+
 ## Feed Manager And Sources
 
 Open the feed manager with `m`. Tide keeps one shared manager flow for local feeds and Google Reader-compatible sources.
 
-- Press `a` to open the add dialog from anywhere
-- `a` opens the add dialog focused on the form
-- Opening the manager with `m` starts on the left list/details pane
-- From a text field, `←` moves back to the left pane once the cursor is already at the start of the field
-- The `Source` toggle in the add form switches between `Local` and `GReader`
+- Press **`a`** to open the add dialog from the main screen
+- Opening the manager with **`m`** starts on the left list/details pane
+- From a text field, **`←`** moves back to the left pane once the cursor is already at the start of the field
+- The **`Source`** toggle in the add form switches between **`Local`** and **`GReader`**
 
-Local source:
-- `Title`, `URL`, folder, and color behave like the normal Tide add/edit flow
+**Local** source:
 
-GReader source:
-- Uses the same add dialog with `Title`, optional feed `URL`, `API URL`, `Login`, and `Password`
-- If `URL` is blank, Tide saves the source connection and loads your existing remote subscriptions
-- If `URL` is set, Tide also quick-adds that subscription on the remote server
-- Press `e` on a remote feed to open GReader settings for that source
-- GReader settings include local `Folder` and `Color` assignment inside Tide; this is app-only organization and does not modify remote server categories
-- Selecting a remote feed in the manager shows the current saved GReader connection info on the right, with the password masked
+- **`Title`**, **`URL`**, folder, and optional new-folder color behave like the normal Tide add/edit flow
+
+**GReader** source (FreshRSS, etc.):
+
+- **Feed names** come from the server: the add form explains that the **name is taken from the feed** when you subscribe (no separate rename field). Article and feed titles are shown with **HTML entities decoded** (for example apostrophes), including in the sidebar.
+- Fields: optional feed **`URL`**, **`API URL`**, **`Login`**, **`Password`**
+- If **`URL`** is blank, Tide saves the connection and loads your existing remote subscriptions
+- If **`URL`** is set, Tide **quick-adds** that subscription on the remote server
+- Press **`e`** on a remote feed to edit **GReader connection** settings (credentials and read-only name/URL summary). Saving applies API credentials and **clears any local title override** so labels stay aligned with the remote feed
+- Folder placement for remote feeds is **not** changed from that screen; existing folder prefs stay in Tide’s database
+- Selecting a remote feed in the manager shows connection info on the right, with the password masked
 
 FreshRSS works through its Google Reader-compatible endpoint. Use the full API URL, for example:
 
@@ -92,8 +96,7 @@ FreshRSS works through its Google Reader-compatible endpoint. Use the full API U
 https://example.com/FreshRSS/p/api/greader.php
 ```
 
-Saved Google Reader credentials are stored in `~/.config/rss/config.toml` under `[source]`.
-Local folder assignments for remote feeds are stored in Tide's SQLite database.
+Saved Google Reader credentials are stored in `~/.config/rss/config.toml` under `[source]`. Treat this file like a secret (it can contain passwords and API keys). Local folder assignments and remote-feed prefs are stored in Tide’s SQLite database.
 
 ## Settings
 
