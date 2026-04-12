@@ -385,7 +385,7 @@ func TestFeedManagerAddDialogCanSwitchToGReaderFields(t *testing.T) {
 	}
 
 	view := ansi.Strip(next.View(96, 32, BuildStyles(CatppuccinMocha), true))
-	for _, want := range []string{"ADD FEED", "Source", "Title", "URL (optional)", "API URL", "Login", "Password", "alice", "https://rss.example.com/api/greader.php"} {
+	for _, want := range []string{"ADD FEED", "Source", "Name", "PULLED FROM THE FEED WHEN ADDED.", "URL (optional)", "API URL", "Login", "Password", "alice", "https://rss.example.com/api/greader.php"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected greader add dialog to contain %q, got %q", want, view)
 		}
@@ -447,8 +447,10 @@ func TestFeedManagerTextInputLeftArrowMovesToLeftPaneAtCursorStart(t *testing.T)
 	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
 	fm.focusAdd()
 
-	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
-	next.focusedField = 0
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
+	if next.focusedField != 0 {
+		t.Fatalf("expected tab from source to land on title for Local add, got %d", next.focusedField)
+	}
 	next.focusCurrentEditField()
 	next.titleInput.SetValue("abc")
 	next.titleInput.CursorStart()
@@ -492,8 +494,10 @@ func TestFeedManagerTextInputLeftArrowStaysInDetailWhenCursorCanMove(t *testing.
 	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
 	fm.focusAdd()
 
-	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
-	next.focusedField = 0
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
+	if next.focusedField != 0 {
+		t.Fatalf("expected tab from source to land on title for Local add, got %d", next.focusedField)
+	}
 	next.focusCurrentEditField()
 	next.titleInput.SetValue("abc")
 	next.titleInput.CursorEnd()
@@ -698,11 +702,8 @@ func TestEditableFeedManagerEditRemoteFeedOpensGReaderSettings(t *testing.T) {
 	if got := next.greaderURLInput.Value(); got != "https://rss.example.com/api/greader.php" {
 		t.Fatalf("expected remote edit to prefill API URL, got %q", got)
 	}
-	if got := next.currentFolderID(); got != 1 {
-		t.Fatalf("expected remote edit to preselect the feed folder, got %d", got)
-	}
 	view := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha), true))
-	for _, want := range []string{"GREADER SETTINGS", "FEED", "FEED URL", "FOLDER", "COLOR", "API URL"} {
+	for _, want := range []string{"GREADER SETTINGS", "NAME", "REMOTE FEED", "PULLED FROM THE FEED (NOT EDITABLE).", "FEED URL", "API URL"} {
 		if !strings.Contains(strings.ToUpper(view), want) {
 			t.Fatalf("expected remote edit view to contain %q, got %q", want, view)
 		}
@@ -958,6 +959,50 @@ func TestFeedManagerEditTextInputsAcceptMovementRunes(t *testing.T) {
 				t.Fatalf("expected typed rune %q to stay in the field, got %q", string(tc.key), got)
 			}
 		})
+	}
+}
+
+func TestFeedManagerEditTitleRightArrowMovesCursor(t *testing.T) {
+	fm := FeedManager{
+		mode:         fmEdit,
+		paneFocus:    fmPaneDetail,
+		editTarget:   1,
+		focusedField: 0,
+		titleInput:   textinput.New(),
+		urlInput:     textinput.New(),
+	}
+	fm.titleInput.SetValue("abc")
+	fm.titleInput.CursorStart()
+	fm.focusCurrentEditField()
+
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyRight}, DefaultKeys)
+	if got := next.titleInput.Position(); got != 1 {
+		t.Fatalf("expected cursor at position 1 after right arrow, got %d", got)
+	}
+}
+
+func TestFeedManagerSyncedWidthAllowsRightMovementInLongField(t *testing.T) {
+	fm := FeedManager{
+		mode:         fmEdit,
+		paneFocus:    fmPaneDetail,
+		editTarget:   1,
+		focusedField: 0,
+		titleInput:   textinput.New(),
+		urlInput:     textinput.New(),
+	}
+	fm.titleInput.SetValue(strings.Repeat("a", 80))
+	fm.titleInput.CursorStart()
+	fm.focusCurrentEditField()
+	fm.syncTextInputWidthsForRightPane(32)
+
+	next := fm
+	for range 5 {
+		var cmd tea.Cmd
+		next, cmd = next.updateEdit(tea.KeyMsg{Type: tea.KeyRight}, DefaultKeys)
+		_ = cmd
+	}
+	if got := next.titleInput.Position(); got != 5 {
+		t.Fatalf("expected cursor at 5 after five right arrows, got %d", got)
 	}
 }
 

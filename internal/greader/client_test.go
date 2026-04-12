@@ -9,6 +9,18 @@ import (
 	"testing"
 )
 
+func TestUnescapeAPIString(t *testing.T) {
+	if got := UnescapeAPIString(`  NASA&#039;s feed  `); got != "NASA's feed" {
+		t.Fatalf("apostrophe entity: got %q", got)
+	}
+	if got := UnescapeAPIString(`Tom &amp; Jerry`); got != "Tom & Jerry" {
+		t.Fatalf("ampersand entity: got %q", got)
+	}
+	if got := UnescapeAPIString(`NASA&amp;#039;s Podcast`); got != "NASA's Podcast" {
+		t.Fatalf("double-encoded apostrophe: got %q", got)
+	}
+}
+
 func TestListSubscriptionsAndUnreadCounts(t *testing.T) {
 	var authHeader string
 	client := New("https://rss.example.com/api/greader.php", "alice", "secret")
@@ -26,10 +38,10 @@ func TestListSubscriptionsAndUnreadCounts(t *testing.T) {
 				"subscriptions": [
 					{
 						"id": "feed/http://example.com/feed.xml",
-						"title": "Example Feed",
+						"title": "NASA&#039;s Example Feed",
 						"url": "http://example.com/feed.xml",
 						"htmlUrl": "http://example.com/",
-						"categories": [{"id":"user/-/label/Tech","label":"Tech"}]
+						"categories": [{"id":"user/-/label/Tech","label":"Tom &amp; Jerry"}]
 					}
 				]
 			}`), nil
@@ -52,8 +64,11 @@ func TestListSubscriptionsAndUnreadCounts(t *testing.T) {
 	if len(subscriptions) != 1 {
 		t.Fatalf("expected 1 subscription, got %d", len(subscriptions))
 	}
-	if subscriptions[0].Category != "Tech" {
-		t.Fatalf("expected category Tech, got %q", subscriptions[0].Category)
+	if subscriptions[0].Title != "NASA's Example Feed" {
+		t.Fatalf("expected decoded title, got %q", subscriptions[0].Title)
+	}
+	if subscriptions[0].Category != "Tom & Jerry" {
+		t.Fatalf("expected decoded category label, got %q", subscriptions[0].Category)
 	}
 	if authHeader != "GoogleLogin auth=alice/token" {
 		t.Fatalf("unexpected Authorization header %q", authHeader)
@@ -81,7 +96,7 @@ func TestStreamContentsParsesEntries(t *testing.T) {
 				"items": [
 					{
 						"id": "tag:google.com,2005:reader/item/abc123",
-						"title": "Remote Article",
+						"title": "It&#039;s a match",
 						"published": 1710000000,
 						"categories": ["user/-/state/com.google/read"],
 						"alternate": [{"href":"https://example.com/articles/1"}],
@@ -105,6 +120,9 @@ func TestStreamContentsParsesEntries(t *testing.T) {
 	}
 	if !entries[0].Read {
 		t.Fatal("expected entry to be marked read from categories")
+	}
+	if entries[0].Title != "It's a match" {
+		t.Fatalf("expected decoded article title, got %q", entries[0].Title)
 	}
 	if !strings.Contains(entries[0].ContentHTML, "Hello world") {
 		t.Fatalf("unexpected content %q", entries[0].ContentHTML)

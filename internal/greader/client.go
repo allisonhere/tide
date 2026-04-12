@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -85,9 +86,9 @@ func (c *Client) QuickAdd(ctx context.Context, feedURL string) (QuickAddResult, 
 		return QuickAddResult{}, fmt.Errorf("quickadd failed for %s", feedURL)
 	}
 	return QuickAddResult{
-		Query:      strings.TrimSpace(resp.Query),
+		Query:      UnescapeAPIString(resp.Query),
 		StreamID:   strings.TrimSpace(resp.StreamID),
-		StreamName: strings.TrimSpace(resp.StreamName),
+		StreamName: UnescapeAPIString(resp.StreamName),
 	}, nil
 }
 
@@ -157,10 +158,10 @@ func (c *Client) ListSubscriptions(ctx context.Context) ([]Subscription, error) 
 
 		subs = append(subs, Subscription{
 			ID:       sub.ID,
-			Title:    sub.Title,
+			Title:    UnescapeAPIString(sub.Title),
 			FeedURL:  feedURL,
 			HTMLURL:  sub.HTMLURL,
-			Category: category,
+			Category: UnescapeAPIString(category),
 		})
 	}
 	return subs, nil
@@ -252,7 +253,7 @@ func (c *Client) StreamContents(ctx context.Context, streamID string, limit int)
 		entries = append(entries, Entry{
 			ID:          item.ID,
 			StreamID:    entryStreamID,
-			Title:       item.Title,
+			Title:       UnescapeAPIString(item.Title),
 			Link:        link,
 			ContentHTML: contentHTML,
 			PublishedAt: time.Unix(published, 0),
@@ -443,6 +444,36 @@ func (c *Client) httpClient() *http.Client {
 		return c.HTTPClient
 	}
 	return &http.Client{Timeout: 15 * time.Second}
+}
+
+// UnescapeAPIString decodes HTML entities in text from the Reader API (e.g. &#039; → ').
+// It runs multiple passes so double-encoded values (e.g. &amp;#039;) become a single apostrophe.
+// A final literal pass catches refs that still appear verbatim in some JSON/XML pipelines.
+func UnescapeAPIString(s string) string {
+	s = strings.TrimSpace(s)
+	for range 8 {
+		next := strings.TrimSpace(html.UnescapeString(s))
+		if next == s {
+			break
+		}
+		s = next
+	}
+	for _, p := range literalEntityFixes {
+		s = strings.ReplaceAll(s, p.from, p.to)
+	}
+	return s
+}
+
+// literalEntityFixes handles apostrophe-like sequences that can remain after html.UnescapeString
+// (e.g. mixed encodings) or appear without semicolons in upstream data.
+var literalEntityFixes = []struct{ from, to string }{
+	{"&#039;", "'"},
+	{"&#39;", "'"},
+	{"&#x27;", "'"},
+	{"&#X27;", "'"},
+	{"&apos;", "'"},
+	{"&#039", "'"},
+	{"&#39", "'"},
 }
 
 func hasReadState(categories []string) bool {

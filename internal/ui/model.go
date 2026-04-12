@@ -226,6 +226,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.overlay == overlayHelp {
 			m.resetHelpVP()
 		}
+		if m.overlay == overlayFeedManager {
+			fm := m.feedManager
+			fm.syncTextInputWidthsForRightPane(feedManagerRightPaneWidth(m.width))
+			m.feedManager = fm
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -405,7 +410,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds := []tea.Cmd{}
 		if selected := m.selectedFeed(); selected != nil {
-			cmds = append(cmds, m.loadArticlesCmd(selected.ID))
+			cmds = append(cmds, m.loadUnreadArticlesCmd(selected.ID))
 		} else {
 			m.clearArticles()
 		}
@@ -832,9 +837,6 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDown()
 
 	case keyMatches(msg, m.keys.Enter):
-		if len(m.feeds) == 0 {
-			return m.openFeedAddDialog(), nil
-		}
 		if m.focused == paneFeeds && m.toggleSelectedFolder() {
 			return m, nil
 		}
@@ -856,7 +858,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, m.keys.Refresh):
 		if selected := m.selectedFeed(); selected != nil {
 			if m.isRemoteFeed(selected.ID) {
-				return m, tea.Batch(m.loadFeedsCmd(), m.loadArticlesCmd(selected.ID))
+				return m, tea.Batch(m.loadFeedsCmd(), m.loadUnreadArticlesCmd(selected.ID))
 			}
 			return m, m.refreshFeedCmd(selected.ID, selected.URL, true)
 		}
@@ -946,7 +948,7 @@ func (m Model) handleUp() (tea.Model, tea.Cmd) {
 		if m.sidebarCursor > 0 {
 			m.sidebarCursor--
 			if selected := m.selectedFeed(); selected != nil {
-				return m, m.loadArticlesCmd(selected.ID)
+				return m, m.loadUnreadArticlesCmd(selected.ID)
 			}
 			m.clearArticles()
 		}
@@ -974,7 +976,7 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 		if m.sidebarCursor < len(m.sidebarRows)-1 {
 			m.sidebarCursor++
 			if selected := m.selectedFeed(); selected != nil {
-				return m, m.loadArticlesCmd(selected.ID)
+				return m, m.loadUnreadArticlesCmd(selected.ID)
 			}
 			m.clearArticles()
 		}
@@ -1188,7 +1190,9 @@ func (m Model) handleSummaryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleFeedManager(msg tea.Msg) (tea.Model, tea.Cmd) {
-	newFM, cmd, exit := m.feedManager.Update(msg, m.keys)
+	fm := m.feedManager
+	fm.syncTextInputWidthsForRightPane(feedManagerRightPaneWidth(m.width))
+	newFM, cmd, exit := fm.Update(msg, m.keys)
 	m.feedManager = newFM
 	if exit {
 		browseFeedID := m.feedManager.browseFeedID
@@ -1196,7 +1200,7 @@ func (m Model) handleFeedManager(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.overlay = overlayNone
 		if browseFeedID != 0 && m.selectSidebarFeed(browseFeedID) {
 			m.clearArticles()
-			return m, m.loadArticlesCmd(browseFeedID)
+			return m, m.loadUnreadArticlesCmd(browseFeedID)
 		}
 		if editable {
 			return m, m.loadFeedsCmd()
@@ -1301,7 +1305,7 @@ func (m Model) renderArticlesPane() string {
 			style = articleSelected
 		}
 
-		rows = append(rows, style.Width(w-2).Render(renderArticleRow(dot, a.Title, age, w-2)))
+		rows = append(rows, style.Width(w-2).Render(renderArticleRow(dot, unescapeDisplayText(a.Title), age, w-2)))
 	}
 
 	if len(m.filteredArticles) == 0 {
@@ -1415,7 +1419,7 @@ func (m Model) renderArticleContent(a db.Article) string {
 	bodyWidth := m.contentBodyWidth()
 	titleWidth := max(1, contentWidth-m.styles.ContentTitle.GetHorizontalFrameSize())
 	metaWidth := max(1, contentWidth-m.styles.ContentMeta.GetHorizontalFrameSize())
-	title := m.styles.ContentTitle.Width(contentWidth + 2).Render(truncate(a.Title, titleWidth+2))
+	title := m.styles.ContentTitle.Width(contentWidth + 2).Render(truncate(unescapeDisplayText(a.Title), titleWidth+2))
 	meta := " " + m.styles.ContentMeta.Width(contentWidth).Render(truncate(a.PublishedAt.Format("Mon, 02 Jan 2006 15:04")+"  "+a.Link, metaWidth))
 
 	content := a.Content
@@ -1454,7 +1458,7 @@ func (m Model) renderStatusBar() string {
 	if len(m.feeds) > 0 {
 		f := m.selectedFeed()
 		if f != nil {
-			parts = append(parts, f.Title)
+			parts = append(parts, unescapeDisplayText(f.Title))
 			if f.UnreadCount > 0 {
 				parts = append(parts, fmt.Sprintf("%d unread", f.UnreadCount))
 			}
@@ -2462,7 +2466,7 @@ func (m Model) folderName(folderID int64) string {
 	}
 	for _, folder := range m.folders {
 		if folder.ID == folderID {
-			return folder.Name
+			return unescapeDisplayText(folder.Name)
 		}
 	}
 	return "Folder"
@@ -2905,7 +2909,7 @@ func (m Model) renderSidebarFeedRow(feed db.Feed, selected bool, width int) stri
 	}
 
 	prefix := "    "
-	title := feed.Title
+	title := unescapeDisplayText(feed.Title)
 	if m.iconsEnabled() {
 		title = feedDisplayLabel(title, true)
 	} else {
@@ -2976,9 +2980,9 @@ func (m Model) articleRowPrefix(read bool) string {
 
 func (m Model) emptyFeedsHint() string {
 	if m.iconsEnabled() {
-		return "  ＋ press enter or m to add feeds"
+		return "  ＋ press a or m to add feeds"
 	}
-	return "  press enter or m to add feeds"
+	return "  press a or m to add feeds"
 }
 
 func (m Model) openFeedAddDialog() Model {
