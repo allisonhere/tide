@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"tide/internal/config"
+	"tide/internal/update"
 )
 
 // shellCommandKeywords are highlighted as “keywords” in the manual install code block.
@@ -341,6 +342,15 @@ func (s Settings) visibleFields() []settingsField {
 	return s.sectionFields(s.activeSection)
 }
 
+// updateInstallActionsVisible is true when a release exists on the network that is newer than the running app.
+func (s Settings) updateInstallActionsVisible() bool {
+	u := s.update
+	if u.latestVersion == "" {
+		return false
+	}
+	return update.IsNewerVersion(u.latestVersion, u.currentVersion)
+}
+
 func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
@@ -349,7 +359,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		return []settingsField{sfFeedMaxBody}
 	case ssUpdates:
 		fields := []settingsField{sfUpdateCheckOnStartup, sfUpdateCheckNow}
-		if s.update.latestVersion != "" {
+		if s.updateInstallActionsVisible() {
 			fields = append(fields, sfUpdateInstallNow, sfUpdateDismissVersion)
 		}
 		if s.update.manualCommand != "" {
@@ -976,7 +986,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		if !s.update.lastChecked.IsZero() {
 			addValue("Last checked", relativeTime(s.update.lastChecked), false)
 		}
-		addAction("Check now", "query latest release", sfUpdateCheckNow)
+		addAction("Check now", "", sfUpdateCheckNow)
 		if s.update.latestVersion != "" {
 			addValue("Latest version", s.update.latestVersion, false)
 		}
@@ -988,7 +998,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 			addLine(ind.Render(s.renderInlineHint(hintIndent+s.update.summary, width-2, chrome)))
 			addLine(blank)
 		}
-		if s.update.latestVersion != "" {
+		if s.updateInstallActionsVisible() {
 			addAction("Update now", "Update now", sfUpdateInstallNow)
 			addAction("Ignore", "", sfUpdateDismissVersion)
 		}
