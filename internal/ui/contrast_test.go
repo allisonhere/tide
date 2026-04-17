@@ -52,6 +52,12 @@ var contrastChecks = []contrastCheck{
 		minRatio: 3.0,
 	},
 	{
+		name:     "StatusBarJoiner fg/bg",
+		fg:       func(s Styles) lipgloss.Color { return styleColor(s.StatusBarJoiner.GetForeground()) },
+		bg:       func(s Styles) lipgloss.Color { return styleColor(s.StatusBarJoiner.GetBackground()) },
+		minRatio: 4.5,
+	},
+	{
 		name:     "StatusNotice fg/bg",
 		fg:       func(s Styles) lipgloss.Color { return styleColor(s.StatusNotice.GetForeground()) },
 		bg:       func(s Styles) lipgloss.Color { return styleColor(s.StatusNotice.GetBackground()) },

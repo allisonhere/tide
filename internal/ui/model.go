@@ -176,7 +176,10 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string, preview
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#a6e3a1"))
+	// Leave Style empty so frames are plain text; foreground-only styling caused holes
+	// when composed with StatusSpinner.Render on the status bar. Sidebar/summary wrap rows
+	// with their own styles.
+	sp.Style = lipgloss.NewStyle()
 
 	summarizer, _ := ai.New(cfg.AI)
 
@@ -1438,6 +1441,31 @@ func (m Model) keyHint(binding key.Binding) string {
 	return k
 }
 
+// statusBarJoin concatenates status bar segments with a styled "  ·  " separator so gaps
+// keep the status bar background (raw spaces between lipgloss blocks would not).
+func (m Model) statusBarJoin(parts ...string) string {
+	sep := m.styles.StatusBarJoiner.Render("  ·  ")
+	var nonEmpty []string
+	for _, p := range parts {
+		if p != "" {
+			nonEmpty = append(nonEmpty, p)
+		}
+	}
+	if len(nonEmpty) == 0 {
+		return ""
+	}
+	return strings.Join(nonEmpty, sep)
+}
+
+// statusBarInlineText wraps plain segments with a status bar style (no padding) so they share
+// the same background as lipgloss-rendered parts when joined; raw text would otherwise show gaps.
+func (m Model) statusBarInlineText(style lipgloss.Style, s string) string {
+	if s == "" {
+		return ""
+	}
+	return style.Copy().UnsetPadding().Render(s)
+}
+
 // statusBarKeyHintStrip is always shown on the status bar: main shortcuts ending with ? help.
 func (m Model) statusBarKeyHintStrip() string {
 	k := m.keys
@@ -1450,12 +1478,12 @@ func (m Model) statusBarKeyHintStrip() string {
 		}
 		return m.styles.StatusHint.Render(keyStr + " " + desc)
 	}
-	return strings.Join([]string{
+	return m.statusBarJoin(
 		seg(k.FeedManager),
 		seg(k.Settings),
 		seg(k.Search),
 		seg(k.Help),
-	}, "  ·  ")
+	)
 }
 
 func (m Model) renderArticleContent(a db.Article) string {
@@ -1485,15 +1513,16 @@ func (m Model) renderStatusBar() string {
 		if m.statusErr {
 			style = m.styles.StatusError
 		}
-		parts := []string{m.statusMsg}
+		parts := []string{m.statusBarInlineText(style, m.statusMsg)}
 		if updateInfoPart != "" && !m.statusMsgCoversUpdateState() {
 			parts = append(parts, updateInfoPart)
 		}
 		parts = append(parts, m.statusBarKeyHintStrip())
-		return style.Width(w).Render(m.statusLine(strings.Join(parts, "  ·  "), updateActionPart))
+		return style.Width(w).Render(m.statusLine(m.statusBarJoin(parts...), updateActionPart))
 	}
 
 	// Build status from current state
+	sb := m.styles.StatusBar
 	parts := []string{}
 
 	if updateInfoPart != "" {
@@ -1503,17 +1532,17 @@ func (m Model) renderStatusBar() string {
 	if len(m.feeds) > 0 {
 		f := m.selectedFeed()
 		if f != nil {
-			parts = append(parts, unescapeDisplayText(f.Title))
+			parts = append(parts, m.statusBarInlineText(sb, unescapeDisplayText(f.Title)))
 			if f.UnreadCount > 0 {
-				parts = append(parts, fmt.Sprintf("%d unread", f.UnreadCount))
+				parts = append(parts, m.statusBarInlineText(sb, fmt.Sprintf("%d unread", f.UnreadCount)))
 			}
 			if !f.LastFetched.IsZero() && f.LastFetched.Unix() > 0 {
-				parts = append(parts, "updated "+relativeTime(f.LastFetched))
+				parts = append(parts, m.statusBarInlineText(sb, "updated "+relativeTime(f.LastFetched)))
 			}
 		} else if folderID, ok := m.selectedFolderID(); ok {
-			parts = append(parts, m.folderName(folderID))
+			parts = append(parts, m.statusBarInlineText(sb, m.folderName(folderID)))
 			if unread := m.folderUnreadCount(folderID); unread > 0 {
-				parts = append(parts, fmt.Sprintf("%d unread", unread))
+				parts = append(parts, m.statusBarInlineText(sb, fmt.Sprintf("%d unread", unread)))
 			}
 		}
 	}
@@ -1526,7 +1555,7 @@ func (m Model) renderStatusBar() string {
 
 	parts = append(parts, m.statusBarKeyHintStrip())
 
-	return m.styles.StatusBar.Width(w).Render(m.statusLine(strings.Join(parts, "  ·  "), updateActionPart))
+	return m.styles.StatusBar.Width(w).Render(m.statusLine(m.statusBarJoin(parts...), updateActionPart))
 }
 
 func (m Model) statusUpdateInfoPart() string {
@@ -1537,7 +1566,8 @@ func (m Model) statusUpdateInfoPart() string {
 		return ""
 	case updateStateInstalled:
 		if m.updateInstall.Version != "" {
-			return "restart to use Tide " + m.updateInstall.Version
+			msg := "restart to use Tide " + m.updateInstall.Version
+			return m.statusBarInlineText(m.styles.StatusBar, msg)
 		}
 	}
 	return ""
@@ -2901,6 +2931,25 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
+// statusBarSpaceFill renders spaces with the status bar background for pads and gaps
+// (raw spaces would show the terminal default behind lipgloss segments).
+func (m Model) statusBarSpaceFill(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return m.styles.StatusBarJoiner.Render(strings.Repeat(" ", n))
+}
+
+func (m Model) padRightWithStatusBarBG(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) >= width {
+		return s
+	}
+	return s + m.statusBarSpaceFill(width-lipgloss.Width(s))
+}
+
 func (m Model) statusLine(left, right string) string {
 	maxW := max(0, m.width-4) // leave room for status bar padding
 	left = strings.ReplaceAll(left, "\n", " ")
@@ -2915,7 +2964,7 @@ func (m Model) statusLine(left, right string) string {
 		return right
 	}
 	if left == "" {
-		return strings.Repeat(" ", maxW-rightW) + right
+		return m.statusBarSpaceFill(maxW-rightW) + right
 	}
 
 	const gap = 2
@@ -2925,7 +2974,7 @@ func (m Model) statusLine(left, right string) string {
 	}
 
 	left = truncate(left, leftW)
-	return padRight(left, leftW) + strings.Repeat(" ", gap) + right
+	return m.padRightWithStatusBarBG(left, leftW) + m.statusBarSpaceFill(gap) + right
 }
 
 func renderFeedRow(prefix, title, badge string, width int) string {
