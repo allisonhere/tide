@@ -36,6 +36,7 @@ var BuiltinThemes = []Theme{
 	MagentaGeode,
 	CoralSunset,
 	LavenderFieldsForever,
+	VT100,
 }
 
 func ThemeByName(name string) (Theme, int) {
@@ -336,4 +337,21 @@ var LavenderFieldsForever = Theme{
 	Error:         "#ff7062",
 	Overlay:       "#5c509c",
 	OverlayBorder: "#a080e1",
+}
+
+// VT100 — DEC-style green phosphor on black CRT
+var VT100 = Theme{
+	Name:          "vt100",
+	Bg:            "#000000",
+	Fg:            "#33ff33",
+	Border:        "#145214",
+	BorderFocus:   "#00ff00",
+	Selected:      "#00ff00",
+	Unread:        "#66ff66",
+	Dimmed:        "#3dcc3d",
+	StatusBar:     "#001a00",
+	StatusFg:      "#33ff33",
+	Error:         "#ff6b6b",
+	Overlay:       "#001200",
+	OverlayBorder: "#00ff00",
 }
