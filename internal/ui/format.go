@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-func formatArticleBody(content string, width int) string {
+func formatArticleBody(content string, width int, plainUI bool) string {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	paras := splitArticleParagraphs(content)
 	out := make([]string, 0, len(paras))
@@ -15,7 +15,7 @@ func formatArticleBody(content string, width int) string {
 		if p == "" {
 			continue
 		}
-		out = append(out, formatArticleParagraph(p, width))
+		out = append(out, formatArticleParagraph(p, width, plainUI))
 	}
 	if len(out) == 0 {
 		return ""
@@ -55,19 +55,23 @@ func splitArticleParagraphs(content string) []string {
 	return out
 }
 
-func formatArticleParagraph(p string, width int) string {
+func formatArticleParagraph(p string, width int, plainUI bool) string {
 	lines := strings.Split(strings.TrimSpace(p), "\n")
 	if len(lines) == 0 {
 		return ""
 	}
 
+	quoteBar := "│ "
+	if plainUI {
+		quoteBar = "| "
+	}
 	trimmed := strings.TrimSpace(lines[0])
 	switch {
 	case strings.HasPrefix(trimmed, "#"):
 		return wrapWords(strings.TrimSpace(strings.TrimLeft(trimmed, "#")), width)
 	case strings.HasPrefix(trimmed, ">"):
 		quote := normalizeInlineSpacing(strings.TrimSpace(strings.TrimLeft(trimmed, ">")))
-		return wrapWords("│ "+quote, width)
+		return wrapWords(quoteBar+quote, width)
 	case strings.HasPrefix(trimmed, "- "), strings.HasPrefix(trimmed, "* "):
 		items := make([]string, 0, len(lines))
 		for _, line := range lines {

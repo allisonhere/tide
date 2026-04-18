@@ -1497,9 +1497,14 @@ func (fm *FeedManager) exportCmd() tea.Cmd {
 
 // ── View ──────────────────────────────────────────────────────────────────────
 
-func (fm FeedManager) View(width, height int, styles Styles, icons bool) string {
+func (fm *FeedManager) View(width, height int, styles Styles, icons bool) string {
+	if styles.PlainUI {
+		fm.greaderPasswordInput.EchoCharacter = '*'
+	} else {
+		fm.greaderPasswordInput.EchoCharacter = '●'
+	}
 	contentW := min(width, 74)
-	chrome := newManagerChrome(contentW, styles.Theme)
+	chrome := newManagerChrome(contentW, styles.Theme, styles.PlainUI)
 	header := renderManagerHeader("MANAGER", contentW, chrome)
 	status := ""
 	hints := ""
@@ -1585,7 +1590,7 @@ func (fm FeedManager) viewListPane(width, height int, chrome managerChrome, styl
 			if folder := fm.folderByID(feed.FolderID); folder != nil {
 				color = folder.Color
 			}
-			listRows = append(listRows, renderManagerFeedRow(width, title, color, chrome, icons))
+			listRows = append(listRows, renderManagerFeedRow(width, title, color, chrome, styles, icons))
 		}
 	}
 	section := clampView(renderManagerPaneSection(fm.listSectionTitle(), lipgloss.JoinVertical(lipgloss.Left, listRows...), fm.listPaneFocused(), chrome), width, height, chrome.baseBg)
@@ -1619,7 +1624,7 @@ func (fm FeedManager) viewListDetails(width int, chrome managerChrome) string {
 					if login == "" {
 						login = "not set"
 					}
-					password := maskedPreview(strings.TrimSpace(fm.greaderPasswordInput.Value()), 12)
+					password := maskedPreview(strings.TrimSpace(fm.greaderPasswordInput.Value()), 12, chrome.plainUI)
 					if password == "" {
 						password = "not set"
 					}
@@ -1921,9 +1926,24 @@ type managerChrome struct {
 	key                lipgloss.Style
 	keyLabel           lipgloss.Style
 	statusBar          lipgloss.Style
+	plainUI            bool
 }
 
-func newManagerChrome(width int, t Theme) managerChrome {
+func (c managerChrome) pickerChevronLeft() string {
+	if c.plainUI {
+		return "< "
+	}
+	return "◀ "
+}
+
+func (c managerChrome) pickerChevronRight() string {
+	if c.plainUI {
+		return " >"
+	}
+	return " ▶"
+}
+
+func newManagerChrome(width int, t Theme, plainUI bool) managerChrome {
 	baseBg := modalSurface(t)
 	surfaceDelta := 0.04
 	fieldDelta := 0.08
@@ -1963,6 +1983,7 @@ func newManagerChrome(width int, t Theme) managerChrome {
 		baseBg:      baseBg,
 		surfaceBg:   surfaceBg,
 		fieldBg:     fieldBg,
+		plainUI:     plainUI,
 		accent:      accent,
 		accentFg:    accentFg,
 		highlight:   highlight,
@@ -1993,7 +2014,7 @@ func newManagerChrome(width int, t Theme) managerChrome {
 			Width(max(1, width-4)).
 			Background(surfaceBg).
 			Foreground(text).
-			Border(lipgloss.NormalBorder()).
+			Border(lipPaneBorder(plainUI)).
 			BorderForeground(border).
 			BorderBackground(surfaceBg).
 			Padding(0, 1),
@@ -2014,7 +2035,7 @@ func newManagerChrome(width int, t Theme) managerChrome {
 			Width(width).
 			Background(surfaceBg).
 			Foreground(readableText(accent, surfaceBg, 3)).
-			Border(lipgloss.NormalBorder(), true, false, false, false).
+			Border(lipPaneBorder(plainUI), true, false, false, false).
 			BorderForeground(border).
 			Padding(0, 1),
 	}
@@ -2102,7 +2123,7 @@ func renderTextInput(input textinput.Model, width int, focused bool, compactSecr
 
 	rendered := ""
 	if compactSecretPreview && !focused && input.Value() != "" {
-		preview := maskedPreview(input.Value(), 20)
+		preview := maskedPreview(input.Value(), 20, chrome.plainUI)
 		rendered = lipgloss.NewStyle().Background(fieldBg).Foreground(chrome.muted).Render(preview)
 	} else {
 		// bubbles pads input.View() with plain un-styled spaces to fill input.Width.
@@ -2127,7 +2148,7 @@ func renderTextInput(input textinput.Model, width int, focused bool, compactSecr
 	return lipgloss.NewStyle().
 		Background(fieldBg).
 		BorderLeft(true).
-		BorderStyle(lipgloss.ThickBorder()).
+		BorderStyle(lipInputAccentBorder(chrome.plainUI)).
 		BorderForeground(barFg).
 		BorderBackground(fieldBg).
 		Render(inner)
@@ -2152,7 +2173,11 @@ func renderSecretSummary(value string, width int, chrome managerChrome) string {
 	detailText := "not set"
 	if value != "" {
 		badgeText = "saved"
-		detailText = fmt.Sprintf("%d chars • id %s", len([]rune(value)), secretFingerprint(value))
+		if chrome.plainUI {
+			detailText = fmt.Sprintf("%d chars, id %s", len([]rune(value)), secretFingerprint(value))
+		} else {
+			detailText = fmt.Sprintf("%d chars • id %s", len([]rune(value)), secretFingerprint(value))
+		}
 	}
 
 	badge := badgeStyle.Render(badgeText)
@@ -2185,13 +2210,17 @@ func renderSecretEditor(input textinput.Model, width int, chrome managerChrome) 
 
 	return lipgloss.NewStyle().
 		Background(fieldBg).
-		Border(lipgloss.RoundedBorder()).
+		Border(lipOverlayBorder(chrome.plainUI)).
 		BorderForeground(chrome.highlight).
 		BorderBackground(fieldBg).
 		Render(inner)
 }
 
-func maskedPreview(value string, limit int) string {
+func maskedPreview(value string, limit int, plain bool) string {
+	maskChar := "●"
+	if plain {
+		maskChar = "*"
+	}
 	maskCount := len([]rune(value))
 	if maskCount == 0 {
 		return ""
@@ -2199,10 +2228,14 @@ func maskedPreview(value string, limit int) string {
 	if limit < 1 {
 		limit = 1
 	}
-	if maskCount <= limit {
-		return strings.Repeat("●", maskCount)
+	suffix := "…"
+	if plain {
+		suffix = "..."
 	}
-	return strings.Repeat("●", limit) + "…"
+	if maskCount <= limit {
+		return strings.Repeat(maskChar, maskCount)
+	}
+	return strings.Repeat(maskChar, limit) + suffix
 }
 
 func secretFingerprint(value string) string {
@@ -2250,7 +2283,7 @@ func renderManagerPicker(width int, value string, focused bool, chrome managerCh
 	}
 	text := lipgloss.NewStyle().Background(bg).Foreground(fg)
 	accent := lipgloss.NewStyle().Background(bg).Foreground(accentFg).Bold(true)
-	line := accent.Render("◀ ") + text.Render(truncate(value, max(1, textW-4))) + accent.Render(" ▶")
+	line := accent.Render(chrome.pickerChevronLeft()) + text.Render(truncate(value, max(1, textW-4))) + accent.Render(chrome.pickerChevronRight())
 	return lipgloss.NewStyle().Background(bg).Padding(0, 1).Render(clampView(line, textW, 1, bg))
 }
 
@@ -2271,7 +2304,7 @@ func renderManagerColorPicker(width int, option folderColorOption, focused bool,
 		Foreground(contrastFg(option.Color)).
 		Bold(true).
 		Render(" " + strings.ToUpper(option.Name[:min(3, len(option.Name))]) + " ")
-	line := accent.Render("◀ ") + swatch + lipgloss.NewStyle().Background(bg).Render(" ") + nameStyle.Render(option.Name) + accent.Render(" ▶")
+	line := accent.Render(chrome.pickerChevronLeft()) + swatch + lipgloss.NewStyle().Background(bg).Render(" ") + nameStyle.Render(option.Name) + accent.Render(chrome.pickerChevronRight())
 	return lipgloss.NewStyle().Background(bg).Padding(0, 1).Render(clampView(line, textW, 1, bg))
 }
 
@@ -2287,7 +2320,10 @@ func renderManagerRow(width int, title string, chrome managerChrome) string {
 	return clampView(rendered, width, 1, rowBg)
 }
 
-func renderManagerFeedRow(width int, title, color string, chrome managerChrome, icons bool) string {
+func renderManagerFeedRow(width int, title, color string, chrome managerChrome, styles Styles, icons bool) string {
+	if config.IsRetroTerminalTheme(string(styles.Theme.Name)) {
+		color = ""
+	}
 	textW := max(1, width-2)
 	rowBg := chrome.baseBg
 	style := lipgloss.NewStyle().
@@ -2315,6 +2351,9 @@ func renderManagerFeedRow(width int, title, color string, chrome managerChrome, 
 }
 
 func renderManagerFolderRow(width int, title, color string, collapsed bool, chrome managerChrome, styles Styles, selected, icons bool) string {
+	if config.IsRetroTerminalTheme(string(styles.Theme.Name)) {
+		color = ""
+	}
 	textW := max(1, width-2)
 	rowBg := chrome.baseBg
 	style := lipgloss.NewStyle().
@@ -2400,7 +2439,7 @@ func renderManagerActions(width int, chrome managerChrome, pairs ...string) stri
 	bar := lipgloss.NewStyle().
 		Width(width).
 		Background(chrome.baseBg).
-		Border(lipgloss.NormalBorder(), true, false, false, false).
+		Border(lipPaneBorder(chrome.plainUI), true, false, false, false).
 		BorderForeground(chrome.border).
 		Padding(0, 0)
 	parts := make([]string, 0, len(pairs)/2)

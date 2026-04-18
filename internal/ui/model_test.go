@@ -418,7 +418,7 @@ func TestUpdateConfirmOverlayMentionsSettingsAvailability(t *testing.T) {
 		},
 	}
 
-	view := m.renderUpdateConfirmOverlay(72, newManagerChrome(72, CatppuccinMocha))
+	view := m.renderUpdateConfirmOverlay(72, newManagerChrome(72, CatppuccinMocha, false))
 	if !containsString(view, "INSTALL TIDE UPDATE?") {
 		t.Fatalf("expected Tide-specific update header, got %q", view)
 	}
@@ -625,7 +625,7 @@ func TestFetchErrorOverlayOmitsURLUpdateAction(t *testing.T) {
 		},
 	}
 
-	view := m.renderFetchErrorOverlay(72, newManagerChrome(72, CatppuccinMocha))
+	view := m.renderFetchErrorOverlay(72, newManagerChrome(72, CatppuccinMocha, false))
 	if !containsString(view, "Feed permanently moved to new URL") {
 		t.Fatalf("expected redirect note in fetch error overlay, got %q", view)
 	}
@@ -940,7 +940,7 @@ func TestSettingsViewShowsFeedMaxSizeField(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setActiveSection(ssFeeds)
 
-	view := s.View(100, 30, newManagerChrome(100, CatppuccinMocha))
+	view := s.View(100, 30, newManagerChrome(100, CatppuccinMocha, false))
 
 	if !containsString(view, "Feed max size (MiB)") {
 		t.Fatalf("expected feed max size field in settings view: %q", view)
@@ -2812,7 +2812,7 @@ func TestThemePickerUsesFullWidthChromeRows(t *testing.T) {
 		styles:      BuildStyles(GruvboxLight, "comfortable"),
 	}
 
-	chrome := newManagerChrome(40, m.styles.Theme)
+	chrome := newManagerChrome(40, m.styles.Theme, false)
 	got := m.renderThemePicker(40, chrome)
 	lines := strings.Split(got, "\n")
 
@@ -2977,6 +2977,54 @@ func TestFolderAccentStylesPropagateToFeedsAndArticles(t *testing.T) {
 	}
 }
 
+func TestRetroTerminalThemesIgnoreFolderAccents(t *testing.T) {
+	cases := []struct {
+		name  string
+		theme Theme
+	}{
+		{"vt100", VT100},
+		{"vt52", VT52},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := Model{
+				styles:  BuildStyles(tc.theme, "comfortable"),
+				focused: paneFeeds,
+				folders: []db.Folder{{ID: 10, Name: "Tech", Color: "#f7768e"}},
+				feeds:   []db.Feed{{ID: 1, Title: "Feed One", URL: "https://example.com/1", FolderID: 10, UnreadCount: 3}},
+				sidebarRows: []sidebarRow{
+					{kind: rowKindFolder, folderID: 10},
+					{kind: rowKindFeed, feedID: 1},
+				},
+				sidebarCursor: 1,
+			}
+			if got := m.folderColor(10); got != "" {
+				t.Fatalf("folderColor: got %q, want empty", got)
+			}
+			pink := lipgloss.Color("#f7768e")
+			if got := m.feedAccentStyle(m.feeds[0], false).GetForeground(); got == pink {
+				t.Fatalf("feed accent foreground still folder pink, got %q", got)
+			}
+			if got := m.feedBadgeStyle(m.feeds[0], false).GetForeground(); got == pink {
+				t.Fatalf("feed badge foreground still folder pink, got %q", got)
+			}
+			articleUnread, _, articleSelected, headerActive, _, borderFocus := m.articleRowStyles()
+			if got := articleUnread.GetForeground(); got == pink {
+				t.Fatalf("article unread foreground still folder pink, got %q", got)
+			}
+			if got := articleSelected.GetForeground(); got == pink {
+				t.Fatalf("article selected foreground still folder pink, got %q", got)
+			}
+			if got := headerActive.GetBackground(); got == pink {
+				t.Fatalf("article header active background still folder pink, got %q", got)
+			}
+			if borderFocus != lipgloss.Color(m.styles.Theme.BorderFocus) {
+				t.Fatalf("borderFocus %q, want theme BorderFocus %q", borderFocus, m.styles.Theme.BorderFocus)
+			}
+		})
+	}
+}
+
 func TestSidebarSelectedStyleUsesFilledBackground(t *testing.T) {
 	m := Model{styles: BuildStyles(CatppuccinMocha, "comfortable"), focused: paneFeeds}
 
@@ -3088,7 +3136,7 @@ func TestSettingsViewRendersUpdateActions(t *testing.T) {
 		summary:        "Faster update flow.",
 	})
 	s.setActiveSection(ssUpdates)
-	chrome := newManagerChrome(62, CatppuccinMocha)
+	chrome := newManagerChrome(62, CatppuccinMocha, false)
 	view := s.View(62, 40, chrome)
 
 	if !containsString(view, "CATEGORIES") {
@@ -3112,7 +3160,7 @@ func TestSettingsViewHidesUpdateNowWhenManualInstallRequired(t *testing.T) {
 		summary:        "Requires elevation.",
 	})
 	s.setActiveSection(ssUpdates)
-	chrome := newManagerChrome(62, CatppuccinMocha)
+	chrome := newManagerChrome(62, CatppuccinMocha, false)
 	view := ansi.Strip(s.View(62, 40, chrome))
 
 	if !strings.Contains(view, "Ignore") {
@@ -3135,7 +3183,7 @@ func TestSettingsViewHidesInstallWhenAlreadyOnLatest(t *testing.T) {
 		summary:        "Nothing new.",
 	})
 	s.setActiveSection(ssUpdates)
-	chrome := newManagerChrome(62, CatppuccinMocha)
+	chrome := newManagerChrome(62, CatppuccinMocha, false)
 	view := ansi.Strip(s.View(62, 40, chrome))
 
 	if strings.Contains(view, "Update now") {
@@ -3156,7 +3204,7 @@ func TestSettingsViewShowsLatestVersionLabelForRestoredRelease(t *testing.T) {
 		summary:        "Faster update flow.",
 	})
 	s.setActiveSection(ssUpdates)
-	chrome := newManagerChrome(62, CatppuccinMocha)
+	chrome := newManagerChrome(62, CatppuccinMocha, false)
 	view := s.View(62, 40, chrome)
 
 	if !containsString(view, "Latest version") {
@@ -3202,7 +3250,7 @@ func unixTestTime(ts int64) time.Time {
 
 func TestFormatArticleBodyWrapsParagraphsAndBullets(t *testing.T) {
 	body := "This is a long paragraph that should wrap cleanly across multiple lines without turning into one unreadable run-on sentence.\n\n- first bullet point with a bit more detail\n- second bullet point\n\n> quoted line here"
-	got := formatArticleBody(body, 24)
+	got := formatArticleBody(body, 24, false)
 
 	if !containsString(got, "\n") {
 		t.Fatalf("expected wrapped output, got %q", got)
