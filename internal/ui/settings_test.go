@@ -80,7 +80,7 @@ func TestSettingsTextInputsAcceptOpenBracket(t *testing.T) {
 
 func TestSettingsBadgeWidthStaysStableAcrossFocus(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
-	chrome := newManagerChrome(62, CatppuccinMocha)
+	chrome := newManagerChrome(62, CatppuccinMocha, false)
 
 	focused := s.renderBadge("ON", true, chrome)
 	unfocused := s.renderBadge("ON", false, chrome)
@@ -107,7 +107,7 @@ func TestSettingsApplyToLayoutDensity(t *testing.T) {
 func TestSettingsViewIncludesLayoutDensity(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setFocusedPane(settingsPaneDetail)
-	v := s.View(62, 24, newManagerChrome(62, CatppuccinMocha))
+	v := s.View(62, 24, newManagerChrome(62, CatppuccinMocha, false))
 	if !strings.Contains(v, "Layout density") {
 		t.Fatal("expected settings view to contain layout density label")
 	}
@@ -346,7 +346,7 @@ func TestSettingsAboutViewShowsLinksAndTagline(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setActiveSection(ssAbout)
 
-	view := s.View(100, 30, newManagerChrome(100, CatppuccinMocha))
+	view := s.View(100, 30, newManagerChrome(100, CatppuccinMocha, false))
 
 	for _, want := range []string{
 		"ABOUT",
@@ -461,7 +461,7 @@ func TestSettingsAboutTaglineStaysOnOneLine(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setActiveSection(ssAbout)
 	s.aboutGradientFrame = 18
-	view := s.renderAboutHero(56, newManagerChrome(84, CatppuccinMocha))
+	view := s.renderAboutHero(56, newManagerChrome(84, CatppuccinMocha, false))
 	if strings.Count(ansi.Strip(view), "Your feeds, no algorithm, no bullshit") != 1 {
 		t.Fatalf("expected tagline to render once on a single line, got %q", ansi.Strip(view))
 	}
@@ -470,7 +470,7 @@ func TestSettingsAboutTaglineStaysOnOneLine(t *testing.T) {
 func TestSettingsAboutHeroKeepsPreviousHeight(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setActiveSection(ssAbout)
-	view := s.renderAboutHero(56, newManagerChrome(84, CatppuccinMocha))
+	view := s.renderAboutHero(56, newManagerChrome(84, CatppuccinMocha, false))
 	if got := lipgloss.Height(view); got != 6 {
 		t.Fatalf("expected about hero height 6, got %d", got)
 	}
@@ -479,7 +479,7 @@ func TestSettingsAboutHeroKeepsPreviousHeight(t *testing.T) {
 func TestSettingsAboutGradientDoesNotShiftHeroLayout(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setActiveSection(ssAbout)
-	chrome := newManagerChrome(84, CatppuccinMocha)
+	chrome := newManagerChrome(84, CatppuccinMocha, false)
 
 	before := s.renderAboutHero(56, chrome)
 	s.aboutGradientFrame = 7
@@ -500,7 +500,7 @@ func TestSettingsAboutGradientDoesNotShiftHeroLayout(t *testing.T) {
 func TestSettingsAboutLinksUseTwoColumnsWhenWide(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setActiveSection(ssAbout)
-	chrome := newManagerChrome(96, CatppuccinMocha)
+	chrome := newManagerChrome(96, CatppuccinMocha, false)
 
 	wide := s.renderAboutLinks(60, chrome)
 	narrow := s.renderAboutLinks(40, chrome)
@@ -538,7 +538,7 @@ func TestSettingsRightPaneScrollsToFocusedFieldOnShortView(t *testing.T) {
 	s.ensureSectionFieldVisible(ssAI)
 	s.setFocusedField(sfSavePath)
 
-	chrome := newManagerChrome(62, CatppuccinMocha)
+	chrome := newManagerChrome(62, CatppuccinMocha, false)
 	view := ansi.Strip(s.View(62, 12, chrome))
 
 	if !strings.Contains(view, "Save summaries to") {
@@ -558,7 +558,7 @@ func TestSettingsAPIKeySummaryUsesCompactSecretState(t *testing.T) {
 	s.setActiveSection(ssAI)
 	s.setFocusedField(sfSavePath)
 
-	view := ansi.Strip(s.View(84, 22, newManagerChrome(84, CatppuccinMocha)))
+	view := ansi.Strip(s.View(84, 22, newManagerChrome(84, CatppuccinMocha, false)))
 
 	if strings.Contains(view, "abcdefghijklmnopqrstuvwxyz") {
 		t.Fatalf("expected API key summary to hide the raw key, got %q", view)
@@ -576,7 +576,7 @@ func TestSettingsAPIKeyFocusShowsExpandedInlineEditor(t *testing.T) {
 	s.setActiveSection(ssAI)
 	s.setFocusedField(sfAPIKey)
 
-	view := ansi.Strip(s.View(84, 22, newManagerChrome(84, CatppuccinMocha)))
+	view := ansi.Strip(s.View(84, 22, newManagerChrome(84, CatppuccinMocha, false)))
 
 	if !strings.Contains(view, "masked while typing") {
 		t.Fatalf("expected focused API key editor header, got %q", view)
@@ -595,7 +595,7 @@ func TestSettingsAPIKeySummaryDoesNotWrapAcrossLines(t *testing.T) {
 	s.setActiveSection(ssAI)
 	s.setFocusedField(sfSavePath)
 
-	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha))
+	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha, false))
 	stripped := ansi.Strip(strings.Join(body.lines, "\n"))
 
 	if strings.Count(stripped, "saved") != 1 {
@@ -610,7 +610,7 @@ func TestSettingsProviderSelectorStaysSingleLineInNarrowPane(t *testing.T) {
 	s := newSettings(cfg, settingsUpdateState{})
 	s.setActiveSection(ssAI)
 
-	row := s.renderProviderSelector(42, newManagerChrome(62, CatppuccinMocha))
+	row := s.renderProviderSelector(42, newManagerChrome(62, CatppuccinMocha, false))
 	if got := lipgloss.Height(row); got != 1 {
 		t.Fatalf("expected provider selector to stay on one line, got height %d", got)
 	}
@@ -631,7 +631,7 @@ func TestSettingsFocusedAPIKeyHeaderStaysSingleLine(t *testing.T) {
 	s.setActiveSection(ssAI)
 	s.setFocusedField(sfAPIKey)
 
-	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha))
+	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha, false))
 	for _, line := range body.lines {
 		if strings.Contains(ansi.Strip(line), "OpenAI key") {
 			if got := lipgloss.Height(line); got != 1 {
@@ -652,7 +652,7 @@ func TestSettingsSavePathRowStaysSingleLineInNarrowPane(t *testing.T) {
 	s.setActiveSection(ssAI)
 	s.setFocusedField(sfSavePath)
 
-	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha))
+	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha, false))
 	for _, line := range body.lines {
 		if strings.Contains(ansi.Strip(line), "Save summaries to") {
 			if got := lipgloss.Height(line); got != 1 {
@@ -670,7 +670,7 @@ func TestSettingsFeedsSectionShowsFeedMaxSizeFieldOnly(t *testing.T) {
 	s := newSettings(cfg, settingsUpdateState{})
 	s.setActiveSection(ssFeeds)
 
-	view := ansi.Strip(s.View(96, 24, newManagerChrome(96, CatppuccinMocha)))
+	view := ansi.Strip(s.View(96, 24, newManagerChrome(96, CatppuccinMocha, false)))
 
 	if !strings.Contains(view, "Feed max size (MiB)") {
 		t.Fatalf("expected feeds settings view to contain feed max size, got %q", view)
@@ -708,7 +708,7 @@ func TestSettingsManualInstallCommandRendersBlock(t *testing.T) {
 	s.setFocusedPane(settingsPaneDetail)
 	s.setFocusedField(sfUpdateManualCommand)
 
-	view := ansi.Strip(s.View(80, 40, newManagerChrome(80, CatppuccinMocha)))
+	view := ansi.Strip(s.View(80, 40, newManagerChrome(80, CatppuccinMocha, false)))
 	if !strings.Contains(view, "Copy Command") {
 		t.Fatalf("expected Copy Command label, got %q", view)
 	}

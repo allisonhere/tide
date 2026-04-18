@@ -168,14 +168,18 @@ type Model struct {
 }
 
 func NewModel(database *db.DB, cfg config.Config, currentVersion string, previewManualUpdate bool) Model {
-	_, themeIdx := ThemeByName(cfg.Theme)
+	merged, themeIdx := MergedThemeFromConfig(cfg)
 
 	si := textinput.New()
 	si.Placeholder = "search articles..."
 	si.CharLimit = 100
 
 	sp := spinner.New()
-	sp.Spinner = spinner.Dot
+	if ThemeUsesASCII(merged.Name) {
+		sp.Spinner = spinner.Line
+	} else {
+		sp.Spinner = spinner.Dot
+	}
 	// Leave Style empty so frames are plain text; foreground-only styling caused holes
 	// when composed with StatusSpinner.Render on the status bar. Sidebar/summary wrap rows
 	// with their own styles.
@@ -192,7 +196,7 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string, preview
 		focused:               paneFeeds,
 		confirmedTheme:        themeIdx,
 		activeTheme:           themeIdx,
-		styles:                BuildStyles(BuiltinThemes[themeIdx], cfg.Display.Density),
+		styles:                BuildStyles(merged, cfg.Display.Density),
 		feedManager:           NewFeedManager(database),
 		searchInput:           si,
 		spinner:               sp,
@@ -343,7 +347,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clearCachedAvailableUpdate()
 		config.Save(m.cfg) //nolint:errcheck
 		m.syncSettingsUpdateState()
-		m.setStatus("Tide updated to "+msg.Result.Version+" · restart when ready", false)
+		m.setStatus("Tide updated to "+msg.Result.Version+m.styles.InlineMidDot()+"restart when ready", false)
 		return m, m.clearStatusCmd()
 
 	case RestartedMsg:
@@ -565,7 +569,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
 		}
 		if msg.StreamID == "" {
-			m.feedManager.statusMsg = fmt.Sprintf("CONNECTED GREADER · %d FEEDS", msg.FeedCount)
+			m.feedManager.statusMsg = fmt.Sprintf("CONNECTED GREADER%s%d FEEDS", m.styles.InlineMidDot(), msg.FeedCount)
 			m.setStatus(fmt.Sprintf("connected greader: %d feeds", msg.FeedCount), false)
 			return m, tea.Batch(m.loadFeedsCmd(), m.clearStatusCmd())
 		}
@@ -1050,7 +1054,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.themeCursor > 0 {
 				m.themeCursor--
 				m.activeTheme = m.themeCursor
-				m.styles = BuildStyles(BuiltinThemes[m.activeTheme], m.cfg.Display.Density)
+				m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density)
 				if len(m.filteredArticles) > 0 {
 					m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
 				}
@@ -1059,7 +1063,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.themeCursor < len(BuiltinThemes)-1 {
 				m.themeCursor++
 				m.activeTheme = m.themeCursor
-				m.styles = BuildStyles(BuiltinThemes[m.activeTheme], m.cfg.Display.Density)
+				m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density)
 				if len(m.filteredArticles) > 0 {
 					m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
 				}
@@ -1074,7 +1078,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case keyMatches(msg, m.keys.Cancel):
 			m.activeTheme = m.confirmedTheme
-			m.styles = BuildStyles(BuiltinThemes[m.activeTheme], m.cfg.Display.Density)
+			m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density)
 			m.overlay = overlayNone
 			if len(m.filteredArticles) > 0 {
 				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
@@ -1182,7 +1186,13 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if done {
 		if m.settings.shouldSave {
 			m.cfg = m.settings.ApplyTo(m.cfg)
-			m.styles = BuildStyles(BuiltinThemes[m.activeTheme], m.cfg.Display.Density)
+			merged, _ := MergedThemeFromConfig(m.cfg)
+			m.styles = BuildStyles(merged, m.cfg.Display.Density)
+			if ThemeUsesASCII(merged.Name) {
+				m.spinner.Spinner = spinner.Line
+			} else {
+				m.spinner.Spinner = spinner.Dot
+			}
 			feed.SetMaxFeedBodyBytes(m.cfg.Feed.MaxBodyMiB << 20)
 			config.Save(m.cfg)
 			m.summarizer, _ = ai.New(m.cfg.AI)
@@ -1293,7 +1303,7 @@ func (m Model) renderFeedsPane() string {
 	}
 	footer := fmt.Sprintf("  %d feeds", len(m.feeds))
 	if len(m.folders) > 0 {
-		footer = fmt.Sprintf("  %d folders · %d feeds", len(m.folders), len(m.feeds))
+		footer = fmt.Sprintf("  %d folders%s%d feeds", len(m.folders), m.styles.InlineMidDot(), len(m.feeds))
 	}
 	footer = m.styles.ArticleRead.Width(innerW).Render(footer)
 	bodyHeight := max(0, m.mainHeight()-1)
@@ -1361,7 +1371,7 @@ func (m Model) renderArticlesPane() string {
 	bg := m.styles.Theme.Bg
 	return lipgloss.NewStyle().
 		Background(bg).
-		Border(lipgloss.NormalBorder(), false, false, true, false).
+		Border(lipPaneBorder(m.styles.PlainUI), false, false, true, false).
 		BorderForeground(lipgloss.Color(func() string {
 			if focused {
 				return string(borderFocus)
@@ -1441,10 +1451,10 @@ func (m Model) keyHint(binding key.Binding) string {
 	return k
 }
 
-// statusBarJoin concatenates status bar segments with a styled "  ·  " separator so gaps
+// statusBarJoin concatenates status bar segments with a styled separator so gaps
 // keep the status bar background (raw spaces between lipgloss blocks would not).
 func (m Model) statusBarJoin(parts ...string) string {
-	sep := m.styles.StatusBarJoiner.Render("  ·  ")
+	sep := m.styles.StatusBarJoiner.Render(m.styles.StatusBarSepText())
 	var nonEmpty []string
 	for _, p := range parts {
 		if p != "" {
@@ -1498,7 +1508,7 @@ func (m Model) renderArticleContent(a db.Article) string {
 	if content == "" {
 		content = "No content available. Press o to open in browser."
 	}
-	body := indentBlock(m.styles.ContentBody.Width(bodyWidth).Render(formatArticleBody(content, bodyWidth)), 1)
+	body := indentBlock(m.styles.ContentBody.Width(bodyWidth).Render(formatArticleBody(content, bodyWidth, m.styles.PlainUI)), 1)
 
 	return fillViewWidth(title+"\n"+meta+"\n\n"+body, m.articlesPaneWidth(), m.styles.Theme.Bg)
 }
@@ -1608,7 +1618,7 @@ func (m Model) renderOverlay(base string) string {
 	case overlayQuitConfirm:
 		quitW := 40
 		qt := m.styles.Theme
-		chrome := newManagerChrome(quitW, qt)
+		chrome := newManagerChrome(quitW, qt, m.styles.PlainUI)
 		header := renderManagerHeader("QUIT TIDE?", quitW, chrome)
 		body := lipgloss.NewStyle().
 			Background(chrome.baseBg).
@@ -1626,14 +1636,14 @@ func (m Model) renderOverlay(base string) string {
 
 	case overlaySearch:
 		winW := min(m.width-4, 52)
-		chrome := newManagerChrome(winW, m.styles.Theme)
+		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
 		inner := m.renderSearchOverlay(winW, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
 		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
 
 	case overlayThemePicker:
 		winW := min(m.width-4, 40)
-		chrome := newManagerChrome(winW, m.styles.Theme)
+		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
 		inner := m.renderThemePicker(winW, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
 		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
@@ -1641,7 +1651,7 @@ func (m Model) renderOverlay(base string) string {
 	case overlayFeedManager:
 		winW := min(m.width-4, 74)
 		winH := min(m.height-4, 40)
-		chrome := newManagerChrome(winW, m.styles.Theme)
+		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
 		m.feedManager.collapsedFolders = m.collapsedFolders
 		inner := m.feedManager.View(winW, winH, m.styles, m.iconsEnabled())
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
@@ -1664,7 +1674,7 @@ func (m Model) renderOverlay(base string) string {
 			Render("[esc/?/q] close  [j/k/↑↓] scroll")
 		box = lipgloss.NewStyle().
 			Background(surface).
-			Border(lipgloss.NormalBorder()).
+			Border(lipPaneBorder(m.styles.PlainUI)).
 			BorderForeground(border).
 			Width(winW).Height(winH).
 			Render(m.helpVP.View() + "\n" + footer)
@@ -1673,7 +1683,7 @@ func (m Model) renderOverlay(base string) string {
 		if m.lastFetchError != nil {
 			winW := min(m.width-4, 70)
 			et := m.styles.Theme
-			chrome := newManagerChrome(winW, et)
+			chrome := newManagerChrome(winW, et, m.styles.PlainUI)
 			inner := m.renderFetchErrorOverlay(winW, chrome)
 			inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
 			box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
@@ -1682,14 +1692,14 @@ func (m Model) renderOverlay(base string) string {
 	case overlaySettings:
 		winW := min(m.width-4, 62)
 		winH := min(m.height-4, 36)
-		chrome := newManagerChrome(winW, m.styles.Theme)
+		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
 		inner := m.settings.View(winW, winH, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
 		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
 
 	case overlayUpdateConfirm:
 		winW := min(m.width-8, 72)
-		chrome := newManagerChrome(winW, m.styles.Theme)
+		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
 		inner := m.renderUpdateConfirmOverlay(winW, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
 		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
@@ -1697,7 +1707,7 @@ func (m Model) renderOverlay(base string) string {
 	case overlaySummary:
 		winW := min(m.width-8, 76)
 		winH := min(m.height-6, 20)
-		chrome := newManagerChrome(winW, m.styles.Theme)
+		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
 		inner := m.renderSummaryOverlay(winW, winH, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
 		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
@@ -1709,7 +1719,7 @@ func (m Model) renderOverlay(base string) string {
 func renderChromeOverlayBox(inner string, width int, chrome managerChrome, border lipgloss.Color) string {
 	return lipgloss.NewStyle().
 		Background(chrome.baseBg).
-		Border(lipgloss.NormalBorder()).
+		Border(lipPaneBorder(chrome.plainUI)).
 		BorderForeground(border).
 		BorderBackground(chrome.baseBg).
 		Width(width).
@@ -1761,7 +1771,11 @@ func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) str
 	if !m.summaryGenerating && m.summaryErr == "" {
 		provider := ""
 		if m.summarizer != nil {
-			provider = "  ·  " + m.summarizer.ProviderName()
+			prefix := "  ·  "
+			if m.styles.PlainUI {
+				prefix = " | "
+			}
+			provider = prefix + m.summarizer.ProviderName()
 		}
 		providerLine := lipgloss.NewStyle().
 			Background(chrome.baseBg).
@@ -1867,7 +1881,7 @@ func (m Model) renderThemePicker(width int, chrome managerChrome) string {
 	rows := make([]string, 0, len(BuiltinThemes))
 	for i, t := range BuiltinThemes {
 		if i == m.themeCursor {
-			rows = append(rows, renderManagerSelectedRow(width, "▶ "+t.Name, chrome, m.styles))
+			rows = append(rows, renderManagerSelectedRow(width, m.styles.ThemePickerCursor()+t.Name, chrome, m.styles))
 		} else {
 			rows = append(rows, clampView(
 				lipgloss.NewStyle().
@@ -2605,6 +2619,9 @@ func (m Model) folderColor(folderID int64) lipgloss.Color {
 	if folderID == 0 {
 		return ""
 	}
+	if config.IsRetroTerminalTheme(string(m.styles.Theme.Name)) {
+		return ""
+	}
 	for _, folder := range m.folders {
 		if folder.ID == folderID && folder.Color != "" {
 			return lipgloss.Color(folder.Color)
@@ -3103,6 +3120,12 @@ func (m Model) headerLabel(label string) string {
 }
 
 func (m Model) feedRowPrefix(selected bool) string {
+	if m.styles.PlainUI {
+		if selected {
+			return "> "
+		}
+		return "  "
+	}
 	if !m.iconsEnabled() {
 		if selected {
 			return "> "
@@ -3116,6 +3139,12 @@ func (m Model) feedRowPrefix(selected bool) string {
 }
 
 func (m Model) articleRowPrefix(read bool) string {
+	if m.styles.PlainUI {
+		if read {
+			return "- "
+		}
+		return "* "
+	}
 	if !m.iconsEnabled() {
 		if read {
 			return "  "
@@ -3129,6 +3158,12 @@ func (m Model) articleRowPrefix(read bool) string {
 }
 
 func (m Model) emptyFeedsHint() string {
+	if m.styles.PlainUI {
+		if m.iconsEnabled() {
+			return "  + press a or m to add feeds"
+		}
+		return "  press a or m to add feeds"
+	}
 	if m.iconsEnabled() {
 		return "  ＋ press a or m to add feeds"
 	}

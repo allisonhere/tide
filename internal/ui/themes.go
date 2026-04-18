@@ -37,6 +37,7 @@ var BuiltinThemes = []Theme{
 	CoralSunset,
 	LavenderFieldsForever,
 	VT100,
+	VT52,
 }
 
 func ThemeByName(name string) (Theme, int) {
@@ -354,4 +355,21 @@ var VT100 = Theme{
 	Error:         "#ff6b6b",
 	Overlay:       "#001200",
 	OverlayBorder: "#00ff00",
+}
+
+// VT52 — P4-style amber phosphor on black; ASCII borders when this theme is active (see ThemeUsesASCII).
+var VT52 = Theme{
+	Name:          "vt52",
+	Bg:            "#000000",
+	Fg:            "#ffcc66",
+	Border:        "#6b4e14",
+	BorderFocus:   "#ffb020",
+	Selected:      "#ffb020",
+	Unread:        "#ffe6a8",
+	Dimmed:        "#a67c2e",
+	StatusBar:     "#1a1206",
+	StatusFg:      "#ffcc66",
+	Error:         "#ff6666",
+	Overlay:       "#140e04",
+	OverlayBorder: "#ffb020",
 }

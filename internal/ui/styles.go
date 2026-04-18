@@ -8,6 +8,8 @@ import (
 
 type Styles struct {
 	Theme Theme
+	// PlainUI is true for the vt52 theme (ASCII borders and glyphs).
+	PlainUI bool
 	// Density is normalized ("comfortable" | "compact") and matches config.Display.Density.
 	Density string
 
@@ -73,7 +75,32 @@ func (s Styles) ListItemLineStride() int {
 	return 2
 }
 
+// lipPaneBorder returns Unicode line-drawing or ASCII borders for panes and overlays.
+func lipPaneBorder(plain bool) lipgloss.Border {
+	if plain {
+		return lipgloss.ASCIIBorder()
+	}
+	return lipgloss.NormalBorder()
+}
+
+// lipOverlayBorder returns rounded corners or ASCII corners for modal chrome.
+func lipOverlayBorder(plain bool) lipgloss.Border {
+	if plain {
+		return lipgloss.ASCIIBorder()
+	}
+	return lipgloss.RoundedBorder()
+}
+
+// lipInputAccentBorder returns a thick left accent bar (Unicode) or ASCII pipe.
+func lipInputAccentBorder(plain bool) lipgloss.Border {
+	if plain {
+		return lipgloss.ASCIIBorder()
+	}
+	return lipgloss.ThickBorder()
+}
+
 func BuildStyles(t Theme, density string) Styles {
+	plainUI := t.Name == ThemeNameVT52
 	d := config.NormalizeDisplayDensity(density)
 	listPad := func(s lipgloss.Style) lipgloss.Style {
 		if d == "compact" {
@@ -135,14 +162,15 @@ func BuildStyles(t Theme, density string) Styles {
 
 	return Styles{
 		Theme:   t,
+		PlainUI: plainUI,
 		Density: d,
 
 		FeedsPane: paneBase.
-			Border(lipgloss.NormalBorder(), false, true, false, false).
+			Border(lipPaneBorder(plainUI), false, true, false, false).
 			BorderBackground(t.Bg).
 			AlignVertical(lipgloss.Top),
 		ArticlesPane: focusedPane.
-			Border(lipgloss.NormalBorder(), false, false, true, false).
+			Border(lipPaneBorder(plainUI), false, false, true, false).
 			BorderBackground(t.Bg).
 			AlignVertical(lipgloss.Top),
 		ContentPane: lipgloss.NewStyle().
@@ -251,7 +279,7 @@ func BuildStyles(t Theme, density string) Styles {
 
 		Overlay: lipgloss.NewStyle().
 			Background(modalBg).
-			Border(lipgloss.RoundedBorder()).
+			Border(lipOverlayBorder(plainUI)).
 			BorderForeground(modalBorder).
 			Padding(modalPadTop, modalPadRight, modalPadBottom, modalPadLeft),
 		OverlayTitle: lipgloss.NewStyle().
@@ -273,13 +301,13 @@ func BuildStyles(t Theme, density string) Styles {
 		InputFocused: lipgloss.NewStyle().
 			Background(modalBg).
 			Foreground(modalFg).
-			Border(lipgloss.NormalBorder()).
+			Border(lipPaneBorder(plainUI)).
 			BorderForeground(modalAccent).
 			Padding(0, 1),
 		InputUnfocused: lipgloss.NewStyle().
 			Background(modalBg).
 			Foreground(modalFg).
-			Border(lipgloss.NormalBorder()).
+			Border(lipPaneBorder(plainUI)).
 			BorderForeground(modalBorder).
 			Padding(0, 1),
 		InputLabel: lipgloss.NewStyle().

@@ -17,12 +17,21 @@ type Config struct {
 	Source  SourceConfig  `toml:"source"`
 }
 
+// RetroTerminalTweak holds optional #rrggbb overrides for vt52 / vt100 built-in themes (empty = default palette).
+type RetroTerminalTweak struct {
+	Bg     string `toml:"bg"`
+	Fg     string `toml:"fg"`
+	Accent string `toml:"accent"`
+}
+
 type DisplayConfig struct {
-	Icons          bool   `toml:"icons"`
-	DateFormat     string `toml:"date_format"` // "relative" | "absolute"
-	MarkReadOnOpen bool   `toml:"mark_read_on_open"`
-	Browser        string `toml:"browser"`
-	Density        string `toml:"density"` // "comfortable" | "compact"
+	Icons          bool               `toml:"icons"`
+	DateFormat     string             `toml:"date_format"` // "relative" | "absolute"
+	MarkReadOnOpen bool               `toml:"mark_read_on_open"`
+	Browser        string             `toml:"browser"`
+	Density        string             `toml:"density"` // "comfortable" | "compact"
+	VT52           RetroTerminalTweak `toml:"vt52"`
+	VT100          RetroTerminalTweak `toml:"vt100"`
 }
 
 type FeedConfig struct {
@@ -111,6 +120,12 @@ func Load() (Config, error) {
 
 // NormalizeDisplayDensity returns "comfortable" or "compact".
 // Empty or unrecognized values default to "compact".
+// IsRetroTerminalTheme is true for vt52 / vt100 (optional palette overrides in display config).
+func IsRetroTerminalTheme(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	return n == "vt52" || n == "vt100"
+}
+
 func NormalizeDisplayDensity(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "comfortable":

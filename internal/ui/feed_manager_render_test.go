@@ -43,7 +43,7 @@ func TestFeedManagerListViewGeometry(t *testing.T) {
 }
 
 func TestManagerChromeUsesThemeOverlaySurface(t *testing.T) {
-	chrome := newManagerChrome(80, CatppuccinMocha)
+	chrome := newManagerChrome(80, CatppuccinMocha, false)
 	wantBase := adjustLightness(CatppuccinMocha.Bg, 0.06)
 
 	if chrome.baseBg != wantBase {
@@ -64,7 +64,7 @@ func TestManagerChromeUsesThemeOverlaySurface(t *testing.T) {
 }
 
 func TestManagerChromeKeepsReadableLightThemeContrast(t *testing.T) {
-	chrome := newManagerChrome(80, CatppuccinLatte)
+	chrome := newManagerChrome(80, CatppuccinLatte, false)
 	wantBase := adjustLightness(CatppuccinLatte.Bg, -0.06)
 
 	if chrome.baseBg != wantBase {
@@ -99,7 +99,7 @@ func TestRenderTextInputCompactsUnfocusedSecretPreview(t *testing.T) {
 	input.EchoCharacter = '●'
 	input.SetValue("sk-abcdefghijklmnopqrstuvwxyz123456")
 
-	rendered := ansi.Strip(renderTextInput(input, 30, false, true, newManagerChrome(60, CatppuccinMocha)))
+	rendered := ansi.Strip(renderTextInput(input, 30, false, true, newManagerChrome(60, CatppuccinMocha, false)))
 
 	if strings.Contains(rendered, "abcdefghijklmnopqrstuvwxyz") {
 		t.Fatalf("secret preview leaked raw value: %q", rendered)
@@ -110,7 +110,7 @@ func TestRenderTextInputCompactsUnfocusedSecretPreview(t *testing.T) {
 }
 
 func TestRenderSecretSummaryUsesFingerprintInsteadOfRawValue(t *testing.T) {
-	rendered := ansi.Strip(renderSecretSummary("sk-abcdefghijklmnopqrstuvwxyz123456", 40, newManagerChrome(60, CatppuccinMocha)))
+	rendered := ansi.Strip(renderSecretSummary("sk-abcdefghijklmnopqrstuvwxyz123456", 40, newManagerChrome(60, CatppuccinMocha, false)))
 
 	if strings.Contains(rendered, "abcdefghijklmnopqrstuvwxyz") {
 		t.Fatalf("secret summary leaked raw value: %q", rendered)
@@ -130,7 +130,7 @@ func TestRenderSecretEditorKeepsExpectedGeometry(t *testing.T) {
 	input.Focus()
 	input.SetValue("sk-abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqrstuvwxyz1234567890")
 
-	rendered := renderSecretEditor(input, 40, newManagerChrome(60, CatppuccinMocha))
+	rendered := renderSecretEditor(input, 40, newManagerChrome(60, CatppuccinMocha, false))
 	lines := strings.Split(rendered, "\n")
 
 	if got := len(lines); got != 3 {

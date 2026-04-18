@@ -48,6 +48,9 @@ const (
 	sfOllamaModel
 	sfSavePath
 	sfUpdateManualCommand
+	sfRetroBg
+	sfRetroFg
+	sfRetroAccent
 )
 
 type settingsSection int
@@ -165,6 +168,10 @@ type Settings struct {
 	saveError          string
 	shouldSave         bool
 	shouldExit         bool
+	themeName          string // cfg.Theme at settings open (drives retro color fields)
+	retroBgInput       textinput.Model
+	retroFgInput       textinput.Model
+	retroAccentInput   textinput.Model
 }
 
 func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
@@ -175,7 +182,11 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		t.SetValue(value)
 		if masked {
 			t.EchoMode = textinput.EchoPassword
-			t.EchoCharacter = '●'
+			if ThemeUsesASCII(cfg.Theme) {
+				t.EchoCharacter = '*'
+			} else {
+				t.EchoCharacter = '●'
+			}
 		}
 		return t
 	}
@@ -184,8 +195,19 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 	if config.NormalizeDisplayDensity(cfg.Display.Density) == "compact" {
 		layoutIdx = 1
 	}
+	var retroTweak config.RetroTerminalTweak
+	switch cfg.Theme {
+	case ThemeNameVT52:
+		retroTweak = cfg.Display.VT52
+	case ThemeNameVT100:
+		retroTweak = cfg.Display.VT100
+	}
 	s := Settings{
 		icons:                cfg.Display.Icons,
+		themeName:            cfg.Theme,
+		retroBgInput:         mkInput(retroTweak.Bg, "optional #rrggbb", false),
+		retroFgInput:         mkInput(retroTweak.Fg, "optional #rrggbb", false),
+		retroAccentInput:     mkInput(retroTweak.Accent, "optional #rrggbb", false),
 		dateAbsolute:         cfg.Display.DateFormat == "absolute",
 		markReadOnOpen:       cfg.Display.MarkReadOnOpen,
 		layoutDensityIdx:     layoutIdx,
@@ -211,8 +233,19 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		},
 		focusedField: sfIcons,
 	}
+	s.syncMaskedEchoChars()
 	s.applyFocus()
 	return s
+}
+
+func (s *Settings) syncMaskedEchoChars() {
+	ch := '●'
+	if ThemeUsesASCII(s.themeName) {
+		ch = '*'
+	}
+	s.openaiInput.EchoCharacter = ch
+	s.claudeInput.EchoCharacter = ch
+	s.geminiInput.EchoCharacter = ch
 }
 
 // ApplyTo merges the settings screen state back into a Config.
@@ -230,6 +263,15 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 		cfg.Display.Density = "comfortable"
 	}
 	cfg.Display.Browser = strings.TrimSpace(s.browserInput.Value())
+	bg := strings.TrimSpace(s.retroBgInput.Value())
+	fg := strings.TrimSpace(s.retroFgInput.Value())
+	ac := strings.TrimSpace(s.retroAccentInput.Value())
+	switch strings.ToLower(strings.TrimSpace(s.themeName)) {
+	case ThemeNameVT52:
+		cfg.Display.VT52 = config.RetroTerminalTweak{Bg: bg, Fg: fg, Accent: ac}
+	case ThemeNameVT100:
+		cfg.Display.VT100 = config.RetroTerminalTweak{Bg: bg, Fg: fg, Accent: ac}
+	}
 	if n, err := strconv.Atoi(strings.TrimSpace(s.feedMaxBodyInput.Value())); err == nil && n > 0 {
 		cfg.Feed.MaxBodyMiB = n
 	}
@@ -317,6 +359,9 @@ func (s *Settings) ensureSectionFieldVisible(section settingsSection) {
 
 func (s *Settings) applyFocus() {
 	s.browserInput.Blur()
+	s.retroBgInput.Blur()
+	s.retroFgInput.Blur()
+	s.retroAccentInput.Blur()
 	s.feedMaxBodyInput.Blur()
 	s.openaiInput.Blur()
 	s.claudeInput.Blur()
@@ -349,6 +394,12 @@ func (s *Settings) applyFocus() {
 		s.ollamaModelInput.Focus()
 	case sfSavePath:
 		s.savePathInput.Focus()
+	case sfRetroBg:
+		s.retroBgInput.Focus()
+	case sfRetroFg:
+		s.retroFgInput.Focus()
+	case sfRetroAccent:
+		s.retroAccentInput.Focus()
 	}
 }
 
@@ -373,7 +424,11 @@ func (s Settings) updateNowActionVisible() bool {
 func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
-		return []settingsField{sfIcons, sfDateFormat, sfMarkReadOnOpen, sfDisplayDensity, sfBrowser}
+		fields := []settingsField{sfIcons, sfDateFormat, sfMarkReadOnOpen, sfDisplayDensity}
+		if config.IsRetroTerminalTheme(s.themeName) {
+			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
+		}
+		return append(fields, sfBrowser)
 	case ssFeeds:
 		return []settingsField{sfFeedMaxBody}
 	case ssUpdates:
@@ -469,7 +524,8 @@ func (s Settings) isTextInput() bool {
 		return false
 	}
 	switch s.focusedField {
-	case sfBrowser, sfFeedMaxBody, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath:
+	case sfBrowser, sfFeedMaxBody, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
+		sfRetroBg, sfRetroFg, sfRetroAccent:
 		return true
 	}
 	return false
@@ -498,6 +554,12 @@ func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) 
 		s.ollamaModelInput, cmd = s.ollamaModelInput.Update(msg)
 	case sfSavePath:
 		s.savePathInput, cmd = s.savePathInput.Update(msg)
+	case sfRetroBg:
+		s.retroBgInput, cmd = s.retroBgInput.Update(msg)
+	case sfRetroFg:
+		s.retroFgInput, cmd = s.retroFgInput.Update(msg)
+	case sfRetroAccent:
+		s.retroAccentInput, cmd = s.retroAccentInput.Update(msg)
 	}
 	return s, cmd, false
 }
@@ -584,6 +646,12 @@ func (s Settings) focusedTextInputCursorPosition() int {
 		return s.ollamaModelInput.Position()
 	case sfSavePath:
 		return s.savePathInput.Position()
+	case sfRetroBg:
+		return s.retroBgInput.Position()
+	case sfRetroFg:
+		return s.retroFgInput.Position()
+	case sfRetroAccent:
+		return s.retroAccentInput.Position()
 	}
 	return -1
 }
@@ -826,7 +894,8 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
-	case sfBrowser, sfFeedMaxBody, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath:
+	case sfBrowser, sfFeedMaxBody, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
+		sfRetroBg, sfRetroFg, sfRetroAccent:
 		// Enter advances to next field; everything else goes to the text input.
 		if keyMatches(key, keys.Enter) {
 			s.setFocusedField(s.nextField())
@@ -1023,6 +1092,23 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 			addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
 		}
 		addLine(blank)
+		if config.IsRetroTerminalTheme(s.themeName) {
+			addInput("VT background (#rrggbb)", s.retroBgInput, sfRetroBg)
+			if hint := s.fieldHint(sfRetroBg); hint != "" {
+				addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
+			}
+			addLine(blank)
+			addInput("VT foreground (#rrggbb)", s.retroFgInput, sfRetroFg)
+			if hint := s.fieldHint(sfRetroFg); hint != "" {
+				addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
+			}
+			addLine(blank)
+			addInput("VT accent (#rrggbb)", s.retroAccentInput, sfRetroAccent)
+			if hint := s.fieldHint(sfRetroAccent); hint != "" {
+				addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
+			}
+			addLine(blank)
+		}
 		addInput("Browser command", s.browserInput, sfBrowser)
 
 	case ssFeeds:
@@ -1102,6 +1188,8 @@ func (s Settings) inputWidth(field settingsField, maxWidth int) int {
 	switch field {
 	case sfFeedMaxBody:
 		return min(maxWidth, 12)
+	case sfRetroBg, sfRetroFg, sfRetroAccent:
+		return min(maxWidth, 44)
 	case sfBrowser, sfSavePath:
 		return min(maxWidth, 36)
 	case sfOllamaURL, sfOllamaModel:
@@ -1256,7 +1344,7 @@ func (s Settings) manualInstallCommandLines(rowContentW int, command string, foc
 	inner := lipgloss.JoinVertical(lipgloss.Left, styledLines...)
 	box := lipgloss.NewStyle().
 		Background(codeBg).
-		Border(lipgloss.NormalBorder()).
+		Border(lipPaneBorder(chrome.plainUI)).
 		BorderForeground(borderFg).
 		PaddingTop(1).PaddingBottom(1).PaddingLeft(2).PaddingRight(2).
 		Width(boxW).
@@ -1517,7 +1605,7 @@ func renderSettingsPicker(width int, value string, focused bool, chrome managerC
 	value = truncate(value, maxTextW)
 	text := lipgloss.NewStyle().Background(bg).Foreground(fg)
 	accent := lipgloss.NewStyle().Background(bg).Foreground(accentFg).Bold(true)
-	line := accent.Render("◀ ") + text.Render(value) + accent.Render(" ▶")
+	line := accent.Render(chrome.pickerChevronLeft()) + text.Render(value) + accent.Render(chrome.pickerChevronRight())
 	return lipgloss.NewStyle().Background(bg).Padding(0, 1).Render(line)
 }
 
@@ -1542,6 +1630,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "local Ollama endpoint"
 	case sfSavePath:
 		return "directory for exported markdown summaries"
+	case sfRetroBg, sfRetroFg, sfRetroAccent:
+		return "leave blank to use the built-in palette for this theme"
 	case sfDisplayDensity:
 		return "comfortable adds vertical spacing in lists; compact fits more rows on small terminals"
 	case sfUpdateManualCommand:
@@ -1599,7 +1689,7 @@ func (s Settings) renderAboutHero(width int, chrome managerChrome) string {
 	panel := lipgloss.NewStyle().
 		Width(panelW).
 		Background(panelBg).
-		Border(lipgloss.NormalBorder()).
+		Border(lipPaneBorder(chrome.plainUI)).
 		BorderForeground(lipgloss.Color("#193847")).
 		BorderBackground(panelBg).
 		Padding(0, 1).
@@ -1660,7 +1750,7 @@ func (s Settings) renderAboutLinkCard(width int, title, hint, url string, focuse
 	card := lipgloss.NewStyle().
 		Width(panelW).
 		Background(bg).
-		Border(lipgloss.NormalBorder()).
+		Border(lipPaneBorder(chrome.plainUI)).
 		BorderForeground(border).
 		BorderBackground(bg).
 		Padding(0, 1).
