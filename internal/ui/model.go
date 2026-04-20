@@ -749,14 +749,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setStatus(fmt.Sprintf("summary not saved: %v", err), true)
 			}
 		}
+		var markReadArticle *db.Article
 		for i := range m.articles {
 			if m.articles[i].ID == msg.ArticleID {
 				m.articles[i].Summary = msg.Summary
+				if m.cfg.AI.MarkReadOnSummarize && !m.articles[i].Read {
+					a := m.articles[i]
+					markReadArticle = &a
+				}
 			}
 		}
 		m.applyFilter()
 		if m.summaryArticle.ID == msg.ArticleID {
 			m.summaryArticle.Summary = msg.Summary
+		}
+		if markReadArticle != nil {
+			return m, m.setArticleReadCmd(*markReadArticle, true, false)
 		}
 		return m, nil
 
@@ -1213,11 +1221,8 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			feed.SetMaxFeedBodyBytes(m.cfg.Feed.MaxBodyMiB << 20)
 			config.Save(m.cfg)
-			summarizer, aiErr := ai.New(m.cfg.AI)
+			summarizer, _ := ai.New(m.cfg.AI)
 			m.summarizer = summarizer
-			if aiErr != nil {
-				m.setStatus(fmt.Sprintf("AI summarizer disabled: %v", aiErr), true)
-			}
 			m.resetSourceClient()
 			m.overlay = overlayNone
 			m.sidebarCursor = 0

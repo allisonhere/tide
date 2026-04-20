@@ -47,6 +47,7 @@ const (
 	sfOllamaURL // visible when provider is ollama
 	sfOllamaModel
 	sfSavePath
+	sfMarkReadOnSummarize
 	sfUpdateManualCommand
 	sfRetroBg
 	sfRetroFg
@@ -160,9 +161,10 @@ type Settings struct {
 	openaiInput      textinput.Model
 	claudeInput      textinput.Model
 	geminiInput      textinput.Model
-	ollamaURLInput   textinput.Model
-	ollamaModelInput textinput.Model
-	savePathInput    textinput.Model
+	ollamaURLInput      textinput.Model
+	ollamaModelInput    textinput.Model
+	savePathInput       textinput.Model
+	markReadOnSummarize bool
 
 	activeSection      settingsSection
 	focusedPane        settingsPaneFocus
@@ -229,6 +231,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		ollamaURLInput:       mkInput(cfg.AI.OllamaURL, "http://localhost:11434", false),
 		ollamaModelInput:     mkInput(cfg.AI.OllamaModel, "llama3.2", false),
 		savePathInput:        mkInput(cfg.AI.SavePath, "~/", false),
+		markReadOnSummarize:  cfg.AI.MarkReadOnSummarize,
 		activeSection:        ssDisplay,
 		focusedPane:          settingsPaneSidebar,
 		sectionField: [settingsSectionCount]settingsField{
@@ -294,6 +297,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	cfg.AI.OllamaURL = strings.TrimSpace(s.ollamaURLInput.Value())
 	cfg.AI.OllamaModel = strings.TrimSpace(s.ollamaModelInput.Value())
 	cfg.AI.SavePath = strings.TrimSpace(s.savePathInput.Value())
+	cfg.AI.MarkReadOnSummarize = s.markReadOnSummarize
 	return cfg
 }
 
@@ -471,7 +475,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		case 1, 2, 3:
 			fields = append(fields, sfAPIKey)
 		}
-		fields = append(fields, sfSavePath)
+		fields = append(fields, sfSavePath, sfMarkReadOnSummarize)
 		return fields
 	case ssAbout:
 		return []settingsField{sfBackToSections, sfAboutRepo, sfAboutIssues}
@@ -842,6 +846,15 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 	case sfMarkReadOnOpen:
 		if key.String() == " " || keyMatches(key, keys.Enter) {
 			s.markReadOnOpen = !s.markReadOnOpen
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
+	case sfMarkReadOnSummarize:
+		if key.String() == " " || keyMatches(key, keys.Enter) {
+			s.markReadOnSummarize = !s.markReadOnSummarize
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
 		} else if keyMatches(key, keys.Up) {
@@ -1240,6 +1253,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 			addInput("Model", s.ollamaModelInput, sfOllamaModel)
 		}
 		addInput("Save summaries to", s.savePathInput, sfSavePath)
+		addToggle("Mark read on summarize", s.markReadOnSummarize, sfMarkReadOnSummarize)
 
 	}
 

@@ -49,13 +49,14 @@ type UpdatesConfig struct {
 }
 
 type AIConfig struct {
-	Provider    string `toml:"provider"` // "openai" | "claude" | "gemini" | "ollama" | ""
-	OpenAIKey   string `toml:"openai_key"`
-	ClaudeKey   string `toml:"claude_key"`
-	GeminiKey   string `toml:"gemini_key"`
-	OllamaURL   string `toml:"ollama_url"`
-	OllamaModel string `toml:"ollama_model"`
-	SavePath    string `toml:"save_path"`
+	Provider            string `toml:"provider"` // "openai" | "claude" | "gemini" | "ollama" | ""
+	OpenAIKey           string `toml:"openai_key"`
+	ClaudeKey           string `toml:"claude_key"`
+	GeminiKey           string `toml:"gemini_key"`
+	OllamaURL           string `toml:"ollama_url"`
+	OllamaModel         string `toml:"ollama_model"`
+	SavePath            string `toml:"save_path"`
+	MarkReadOnSummarize bool   `toml:"mark_read_on_summarize"`
 }
 
 type SourceConfig struct {
