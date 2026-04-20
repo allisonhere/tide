@@ -166,10 +166,11 @@ func TestSettingsSidebarRightEntersDetail(t *testing.T) {
 	}
 }
 
-func TestSettingsEscMovesToSidebarThenExits(t *testing.T) {
+func TestSettingsEscMovesToSidebarThenSavesAndExits(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setFocusedPane(settingsPaneDetail)
 	s.setActiveSection(ssFeeds)
+	s.feedMaxBodyInput.SetValue("20")
 
 	next, _, done := s.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
 	if done {
@@ -178,10 +179,19 @@ func TestSettingsEscMovesToSidebarThenExits(t *testing.T) {
 	if next.focusedPane != settingsPaneSidebar {
 		t.Fatalf("expected first esc to focus sidebar, got %v", next.focusedPane)
 	}
+	if next.shouldSave {
+		t.Fatal("expected first esc from detail not to save yet")
+	}
+	if got := next.feedMaxBodyInput.Value(); got != "20" {
+		t.Fatalf("expected first esc to keep pending edit, got %q", got)
+	}
 
-	_, _, done = next.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+	next, _, done = next.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
 	if !done {
 		t.Fatal("expected second esc from sidebar to exit")
+	}
+	if !next.shouldSave {
+		t.Fatal("expected second esc from sidebar to save edits")
 	}
 }
 
@@ -256,6 +266,61 @@ func TestSettingsAPIKeyLeftArrowMovesToSidebarAtCursorStart(t *testing.T) {
 	}
 	if next.activeSection != ssAI {
 		t.Fatalf("expected active section to remain AI, got %v", next.activeSection)
+	}
+}
+
+func TestSettingsSavedAPIKeyTypingReplacesExistingValue(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+	cfg.AI.OpenAIKey = "sk-old"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfAPIKey)
+
+	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}, DefaultKeys)
+
+	if got := next.openaiInput.Value(); got != "n" {
+		t.Fatalf("expected first typed rune to replace saved key, got %q", got)
+	}
+}
+
+func TestSettingsSavedAPIKeyPasteReplacesExistingValue(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+	cfg.AI.OpenAIKey = "sk-old"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfAPIKey)
+
+	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("sk-new"), Paste: true}, DefaultKeys)
+
+	if got := next.openaiInput.Value(); got != "sk-new" {
+		t.Fatalf("expected pasted key to replace saved key, got %q", got)
+	}
+}
+
+func TestSettingsSavedAPIKeyNavigationPreservesExistingValue(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+	cfg.AI.OpenAIKey = "sk-old"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfAPIKey)
+	s.openaiInput.CursorStart()
+
+	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyRight}, DefaultKeys)
+
+	if got := next.openaiInput.Value(); got != "sk-old" {
+		t.Fatalf("expected navigation to preserve saved key, got %q", got)
+	}
+	if got := next.openaiInput.Position(); got != 1 {
+		t.Fatalf("expected right arrow to move within saved key, got cursor %d", got)
 	}
 }
 
@@ -339,6 +404,51 @@ func TestSettingsCtrlSSaveBlockedByInvalidSelectedProviderKey(t *testing.T) {
 	}
 	if !strings.Contains(next.saveError, "looks like OpenAI, but Claude is selected") {
 		t.Fatalf("expected save error to explain mismatch, got %q", next.saveError)
+	}
+}
+
+func TestSettingsEscFromSidebarSaveBlockedByInvalidSelectedProviderKey(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "claude"
+	cfg.AI.ClaudeKey = "sk-proj-test123"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedPane(settingsPaneSidebar)
+	s.setFocusedField(sfSavePath)
+
+	next, _, done := s.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+
+	if done {
+		t.Fatal("expected invalid provider/key pair to block esc save")
+	}
+	if next.shouldSave {
+		t.Fatal("expected invalid provider/key pair not to mark settings for save")
+	}
+	if next.activeSection != ssAI {
+		t.Fatalf("expected validation failure to keep AI section active, got %v", next.activeSection)
+	}
+	if next.focusedField != sfAPIKey {
+		t.Fatalf("expected validation failure to focus API key field, got %v", next.focusedField)
+	}
+	if !strings.Contains(next.saveError, "looks like OpenAI, but Claude is selected") {
+		t.Fatalf("expected save error to explain mismatch, got %q", next.saveError)
+	}
+}
+
+func TestSettingsDetailHintsUseEscCategories(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfIcons)
+
+	view := s.View(80, 24, newManagerChrome(80, CatppuccinMocha, false))
+	text := strings.ToLower(ansi.Strip(view))
+
+	if strings.Contains(text, "ctrl+s") {
+		t.Fatalf("expected settings detail hints not to reference ctrl+s, got %q", view)
+	}
+	if !strings.Contains(text, "categories") {
+		t.Fatalf("expected settings detail hints to mention categories, got %q", view)
 	}
 }
 

@@ -918,6 +918,36 @@ func TestSettingsCanReopenAfterSave(t *testing.T) {
 	}
 }
 
+func TestSettingsSaveAppliesDefaultUnreadOnlyImmediately(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.Display.DefaultUnreadOnly = false
+	m := NewModel(database, cfg, "v1.0.0", false)
+	m.settings = newSettings(m.cfg, m.settingsUpdateState())
+	m.settings.defaultUnreadOnly = true
+	m.settings.setFocusedPane(settingsPaneSidebar)
+	m.overlay = overlaySettings
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+
+	if m.overlay != overlayNone {
+		t.Fatalf("expected settings overlay to close on save, got %v", m.overlay)
+	}
+	if !m.cfg.Display.DefaultUnreadOnly {
+		t.Fatal("expected settings save to update config default unread-only")
+	}
+	if !m.showUnreadOnly {
+		t.Fatal("expected settings save to apply unread-only filter state immediately")
+	}
+}
+
 func TestSettingsOverlayOpensWithSidebarFocus(t *testing.T) {
 	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", false)
 	m.keys = DefaultKeys
@@ -2615,6 +2645,39 @@ func TestMarkReadKeyTogglesArticleBackToUnread(t *testing.T) {
 	}
 	if updateMsg.Advance {
 		t.Fatal("expected content-pane toggle to avoid advancing")
+	}
+}
+
+func TestUnreadOnlyToggleClearsContentWhenNoArticlesRemain(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feed := db.Feed{ID: 1, Title: "Feed One", URL: "https://example.com/feed"}
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
+	m = m2.(Model)
+	m.focused = paneArticles
+	m.articles = []db.Article{
+		{ID: 1, FeedID: 1, Title: "Read Article", Link: "https://example.com/a", Content: "stale content", PublishedAt: unixTestTime(1710000100), Read: true},
+	}
+	m.applyFilter()
+	m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[0]))
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	m = next.(Model)
+
+	if len(m.filteredArticles) != 0 {
+		t.Fatalf("expected unread-only filter to hide read article, got %d articles", len(m.filteredArticles))
+	}
+	if got := m.viewport.View(); strings.Contains(got, "stale content") || strings.Contains(got, "Read Article") {
+		t.Fatalf("expected empty content pane after unread-only filter removes all articles, got %q", got)
 	}
 }
 

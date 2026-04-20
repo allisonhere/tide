@@ -32,6 +32,7 @@ const (
 	sfIcons settingsField = iota
 	sfDateFormat
 	sfMarkReadOnOpen
+	sfDefaultUnreadOnly
 	sfDisplayDensity
 	sfBrowser
 	sfFeedMaxBody
@@ -149,6 +150,7 @@ type Settings struct {
 	icons                bool
 	dateAbsolute         bool // false = relative, true = absolute
 	markReadOnOpen       bool
+	defaultUnreadOnly    bool
 	layoutDensityIdx     int // 0 = comfortable, 1 = compact
 	browserInput         textinput.Model
 	feedMaxBodyInput     textinput.Model
@@ -157,10 +159,13 @@ type Settings struct {
 	action               settingsAction
 
 	// AI
-	providerIdx      int
-	openaiInput      textinput.Model
-	claudeInput      textinput.Model
-	geminiInput      textinput.Model
+	providerIdx         int
+	openaiInput         textinput.Model
+	claudeInput         textinput.Model
+	geminiInput         textinput.Model
+	openaiKeyEdited     bool
+	claudeKeyEdited     bool
+	geminiKeyEdited     bool
 	ollamaURLInput      textinput.Model
 	ollamaModelInput    textinput.Model
 	savePathInput       textinput.Model
@@ -219,6 +224,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		retroAccentInput:     mkInput(retroTweak.Accent, "optional #rrggbb", false),
 		dateAbsolute:         cfg.Display.DateFormat == "absolute",
 		markReadOnOpen:       cfg.Display.MarkReadOnOpen,
+		defaultUnreadOnly:    cfg.Display.DefaultUnreadOnly,
 		layoutDensityIdx:     layoutIdx,
 		browserInput:         mkInput(cfg.Display.Browser, "xdg-open", false),
 		feedMaxBodyInput:     mkInput(strconv.Itoa(cfg.Feed.MaxBodyMiB), "10", false),
@@ -270,6 +276,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 		cfg.Display.DateFormat = "relative"
 	}
 	cfg.Display.MarkReadOnOpen = s.markReadOnOpen
+	cfg.Display.DefaultUnreadOnly = s.defaultUnreadOnly
 	if s.layoutDensityIdx == 1 {
 		cfg.Display.Density = "compact"
 	} else {
@@ -445,7 +452,7 @@ func (s Settings) updateNowActionVisible() bool {
 func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
-		fields := []settingsField{sfBackToSections, sfIcons, sfDateFormat, sfMarkReadOnOpen, sfTheme, sfDisplayDensity}
+		fields := []settingsField{sfBackToSections, sfIcons, sfDateFormat, sfMarkReadOnOpen, sfDefaultUnreadOnly, sfTheme, sfDisplayDensity}
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
@@ -554,6 +561,9 @@ func (s Settings) isTextInput() bool {
 
 func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) {
 	s.clearSaveError()
+	if key, ok := msg.(tea.KeyMsg); ok {
+		s.prepareSecretFieldForEdit(key)
+	}
 	var cmd tea.Cmd
 	switch s.focusedField {
 	case sfBrowser:
@@ -583,6 +593,43 @@ func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) 
 		s.retroAccentInput, cmd = s.retroAccentInput.Update(msg)
 	}
 	return s, cmd, false
+}
+
+func (s *Settings) prepareSecretFieldForEdit(key tea.KeyMsg) {
+	if s.focusedField != sfAPIKey || !textInputKeyEditsValue(key) {
+		return
+	}
+
+	switch s.providerIdx {
+	case 1:
+		if !s.openaiKeyEdited {
+			s.openaiInput.SetValue("")
+			s.openaiKeyEdited = true
+		}
+	case 2:
+		if !s.claudeKeyEdited {
+			s.claudeInput.SetValue("")
+			s.claudeKeyEdited = true
+		}
+	case 3:
+		if !s.geminiKeyEdited {
+			s.geminiInput.SetValue("")
+			s.geminiKeyEdited = true
+		}
+	}
+}
+
+func textInputKeyEditsValue(key tea.KeyMsg) bool {
+	if key.Type == tea.KeyRunes {
+		return true
+	}
+	switch key.String() {
+	case "backspace", "ctrl+h", "delete", "ctrl+d", "ctrl+u", "ctrl+k", "ctrl+w",
+		"alt+backspace", "alt+delete", "alt+d", "ctrl+v":
+		return true
+	default:
+		return false
+	}
 }
 
 func selectedAIKeyFormat(value string) string {
@@ -713,24 +760,23 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		return s.updateFocusedTextInput(msg)
 	}
 
-	// Global: ctrl+s saves; esc from detail moves to sidebar, esc from sidebar exits.
+	// Global: ctrl+s saves immediately. Esc from detail keeps edits in the
+	// settings model and moves back to categories; esc from categories saves.
+	// Invalid AI key format keeps the user in settings when saving.
 	switch key.String() {
 	case "ctrl+s":
-		if msg, ok := s.selectedAIKeyValidation(); !ok {
-			s.saveError = msg
-			s.setActiveSection(ssAI)
-			s.setFocusedPane(settingsPaneDetail)
-			s.setFocusedField(sfAPIKey)
-			return s, nil, false
-		}
-		s.shouldSave = true
-		s.shouldExit = true
-		return s, nil, true
+		return s.saveAndExit()
 	case "esc":
 		if s.focusedPane == settingsPaneDetail {
 			s.setFocusedPane(settingsPaneSidebar)
 			return s, nil, false
 		}
+		return s.saveAndExit()
+	case "q":
+		if s.focusedPane != settingsPaneSidebar {
+			break
+		}
+		s.shouldSave = false
 		s.shouldExit = true
 		return s, nil, true
 	}
@@ -846,6 +892,15 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 	case sfMarkReadOnOpen:
 		if key.String() == " " || keyMatches(key, keys.Enter) {
 			s.markReadOnOpen = !s.markReadOnOpen
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
+	case sfDefaultUnreadOnly:
+		if key.String() == " " || keyMatches(key, keys.Enter) {
+			s.defaultUnreadOnly = !s.defaultUnreadOnly
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
 		} else if keyMatches(key, keys.Up) {
@@ -977,6 +1032,19 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 	}
 
 	return s, nil, false
+}
+
+func (s Settings) saveAndExit() (Settings, tea.Cmd, bool) {
+	if msg, ok := s.selectedAIKeyValidation(); !ok {
+		s.saveError = msg
+		s.setActiveSection(ssAI)
+		s.setFocusedPane(settingsPaneDetail)
+		s.setFocusedField(sfAPIKey)
+		return s, nil, false
+	}
+	s.shouldSave = true
+	s.shouldExit = true
+	return s, nil, true
 }
 
 // ── View ──────────────────────────────────────────────────────────────────────
@@ -1162,6 +1230,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		addToggle("Icons", s.icons, sfIcons)
 		addToggle("Use relative dates", !s.dateAbsolute, sfDateFormat)
 		addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
+		addToggle("Default to unread only", s.defaultUnreadOnly, sfDefaultUnreadOnly)
 		markAnchor(sfTheme)
 		addLine(ind.Render(s.renderThemeSelector(width-2, chrome)))
 		addLine(blank)
@@ -1300,8 +1369,8 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 		return renderManagerActions(width, chrome,
 			"↑/↓", "section",
 			"→", "edit",
-			"ctrl+s", "save",
-			"esc", "close",
+			"esc", "save & close",
+			"q", "discard",
 		)
 	}
 	if s.isPickerField() {
@@ -1309,7 +1378,6 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 			"←/→", "change",
 			"↑/↓", "field",
 			"tab", "next",
-			"ctrl+s", "save",
 			"esc", "categories",
 		)
 	}
@@ -1318,7 +1386,6 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 			"enter", "copy",
 			"c", "copy",
 			"tab", "next",
-			"ctrl+s", "save",
 			"esc", "categories",
 		)
 	}
@@ -1326,7 +1393,6 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 		"←", "sections",
 		"↑/↓", "field",
 		"tab", "next",
-		"ctrl+s", "save",
 		"esc", "categories",
 	)
 }

@@ -18,6 +18,7 @@ type KeyMap struct {
 	MarkAllRead key.Binding
 	OpenBrowser key.Binding
 	Search      key.Binding
+	UnreadOnly  key.Binding
 
 	FeedManager key.Binding
 	ThemePicker key.Binding
@@ -61,6 +62,7 @@ var DefaultKeys = KeyMap{
 	MarkAllRead: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "mark all read")),
 	OpenBrowser: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open in browser")),
 	Search:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+	UnreadOnly:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle unread only")),
 
 	FeedManager: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "feed manager")),
 	ThemePicker: key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "theme picker")),

@@ -104,6 +104,7 @@ type Model struct {
 	articleCursor    int
 	listOffset       int
 	searchQuery      string
+	showUnreadOnly   bool
 
 	// Content pane
 	viewport viewport.Model
@@ -207,6 +208,7 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string, preview
 		firstLoad:             true,
 		keys:                  DefaultKeys,
 		summarizer:            summarizer,
+		showUnreadOnly:        cfg.Display.DefaultUnreadOnly,
 	}
 	m.resetSourceClient()
 	m.restoreCachedUpdateState()
@@ -841,6 +843,33 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.searchInput.Focus()
 		return m, nil
 
+	case keyMatches(msg, m.keys.UnreadOnly):
+		if m.focused == paneFeeds {
+			return m, nil
+		}
+		m.showUnreadOnly = !m.showUnreadOnly
+		var currentID int64
+		if len(m.filteredArticles) > 0 {
+			currentID = m.filteredArticles[m.articleCursor].ID
+		}
+		m.applyFilter()
+		if idx := m.indexOfFilteredArticle(currentID); idx >= 0 {
+			m.articleCursor = idx
+		} else {
+			m.articleCursor = clamp(m.articleCursor, 0, max(0, len(m.filteredArticles)-1))
+		}
+		if m.showUnreadOnly {
+			m.setStatus("showing unread only", false)
+		} else {
+			m.setStatus("showing all articles", false)
+		}
+		if len(m.filteredArticles) > 0 {
+			m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+		} else {
+			m.viewport.SetContent("")
+		}
+		return m, m.clearStatusCmd()
+
 	case keyMatches(msg, m.keys.NextPane):
 		m.focused = pane((int(m.focused) + 1) % 3)
 		return m, nil
@@ -1212,6 +1241,7 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if done {
 		if m.settings.shouldSave {
 			m.cfg = m.settings.ApplyTo(m.cfg)
+			m.showUnreadOnly = m.cfg.Display.DefaultUnreadOnly
 			merged, _ := MergedThemeFromConfig(m.cfg)
 			m.styles = BuildStyles(merged, m.cfg.Display.Density)
 			if ThemeUsesASCII(merged.Name) {
@@ -1396,6 +1426,9 @@ func (m Model) renderArticlesPane() string {
 	title := "Articles"
 	if m.searchQuery != "" {
 		title = fmt.Sprintf("Articles [/%s]", m.searchQuery)
+	}
+	if m.showUnreadOnly {
+		title += " (unread)"
 	}
 
 	contentRows := append([]string{m.renderPaneHeaderWithAccent(paneArticles, title, focused, w, headerActive)}, rows...)
@@ -2797,15 +2830,19 @@ func (m *Model) toggleSelectedFolder() bool {
 
 func (m *Model) applyFilter() {
 	q := strings.ToLower(m.searchQuery)
-	if q == "" {
+	if q == "" && !m.showUnreadOnly {
 		m.filteredArticles = m.articles
 		return
 	}
 	filtered := make([]db.Article, 0, len(m.articles))
 	for _, a := range m.articles {
-		if strings.Contains(strings.ToLower(a.Title), q) {
-			filtered = append(filtered, a)
+		if m.showUnreadOnly && a.Read {
+			continue
 		}
+		if q != "" && !strings.Contains(strings.ToLower(a.Title), q) {
+			continue
+		}
+		filtered = append(filtered, a)
 	}
 	m.filteredArticles = filtered
 }

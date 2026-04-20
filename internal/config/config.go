@@ -25,13 +25,14 @@ type RetroTerminalTweak struct {
 }
 
 type DisplayConfig struct {
-	Icons          bool               `toml:"icons"`
-	DateFormat     string             `toml:"date_format"` // "relative" | "absolute"
-	MarkReadOnOpen bool               `toml:"mark_read_on_open"`
-	Browser        string             `toml:"browser"`
-	Density        string             `toml:"density"` // "comfortable" | "compact"
-	VT52           RetroTerminalTweak `toml:"vt52"`
-	VT100          RetroTerminalTweak `toml:"vt100"`
+	Icons             bool               `toml:"icons"`
+	DateFormat        string             `toml:"date_format"` // "relative" | "absolute"
+	MarkReadOnOpen    bool               `toml:"mark_read_on_open"`
+	DefaultUnreadOnly bool               `toml:"default_unread_only"`
+	Browser           string             `toml:"browser"`
+	Density           string             `toml:"density"` // "comfortable" | "compact"
+	VT52              RetroTerminalTweak `toml:"vt52"`
+	VT100             RetroTerminalTweak `toml:"vt100"`
 }
 
 type FeedConfig struct {
