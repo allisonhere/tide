@@ -1697,7 +1697,8 @@ func (s Settings) renderThemeSelector(width int, chrome managerChrome) string {
 }
 
 func renderSettingsPicker(width int, value string, focused bool, chrome managerChrome) string {
-	maxTextW := max(1, width-5)
+	// Chrome cells: 2 (left chevron) + 2 (right chevron) + 2 (horizontal padding) = 6.
+	maxTextW := max(1, width-6)
 	bg := chrome.surfaceBg
 	fg := chrome.text
 	accentFg := chrome.muted
@@ -1710,7 +1711,7 @@ func renderSettingsPicker(width int, value string, focused bool, chrome managerC
 	text := lipgloss.NewStyle().Background(bg).Foreground(fg)
 	accent := lipgloss.NewStyle().Background(bg).Foreground(accentFg).Bold(true)
 	line := accent.Render(chrome.pickerChevronLeft()) + text.Render(value) + accent.Render(chrome.pickerChevronRight())
-	return lipgloss.NewStyle().Background(bg).Padding(0, 1).Render(line)
+	return lipgloss.NewStyle().Background(bg).Padding(0, 1).MaxWidth(width).Render(line)
 }
 
 func (s Settings) fieldHint(field settingsField) string {
