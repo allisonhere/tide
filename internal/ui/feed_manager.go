@@ -70,7 +70,6 @@ type feedManagerSource interface {
 	Load() ([]db.Feed, []db.Folder, error)
 	Name() string
 	Editable() bool
-	ShowUncategorizedFolder() bool
 }
 
 type dbFeedManagerSource struct {
@@ -96,14 +95,11 @@ func (s dbFeedManagerSource) Name() string { return "Local" }
 
 func (s dbFeedManagerSource) Editable() bool { return true }
 
-func (s dbFeedManagerSource) ShowUncategorizedFolder() bool { return true }
-
 type staticFeedManagerSource struct {
-	name              string
-	feeds             []db.Feed
-	folders           []db.Folder
-	editable          bool
-	showUncategorized bool
+	name     string
+	feeds    []db.Feed
+	folders  []db.Folder
+	editable bool
 }
 
 func (s staticFeedManagerSource) Load() ([]db.Feed, []db.Folder, error) {
@@ -115,8 +111,6 @@ func (s staticFeedManagerSource) Load() ([]db.Feed, []db.Folder, error) {
 func (s staticFeedManagerSource) Name() string { return s.name }
 
 func (s staticFeedManagerSource) Editable() bool { return s.editable }
-
-func (s staticFeedManagerSource) ShowUncategorizedFolder() bool { return s.showUncategorized }
 
 type FeedManager struct {
 	db               *db.DB
@@ -171,11 +165,10 @@ func NewFeedManagerWithSource(database *db.DB, sourceCfg config.SourceConfig) Fe
 
 func NewRemoteFeedManager(sourceName string, feeds []db.Feed, folders []db.Folder) FeedManager {
 	return newFeedManager(nil, staticFeedManagerSource{
-		name:              sourceName,
-		feeds:             feeds,
-		folders:           folders,
-		editable:          false,
-		showUncategorized: false,
+		name:     sourceName,
+		feeds:    feeds,
+		folders:  folders,
+		editable: false,
 	}, config.SourceConfig{})
 }
 
@@ -249,19 +242,18 @@ func (fm *FeedManager) reload() {
 }
 
 func (fm *FeedManager) rebuildRows() {
-	fm.rows = buildFeedManagerRows(fm.feeds, fm.folders, fm.showUncategorizedFolder())
+	fm.rows = buildFeedManagerRows(fm.feeds, fm.folders)
 }
 
 func (fm FeedManager) managerRows() []fmRow {
 	if len(fm.rows) > 0 {
 		return fm.rows
 	}
-	return buildFeedManagerRows(fm.feeds, fm.folders, fm.showUncategorizedFolder())
+	return buildFeedManagerRows(fm.feeds, fm.folders)
 }
 
-func buildFeedManagerRows(feeds []db.Feed, folders []db.Folder, showUncategorized bool) []fmRow {
-	_ = showUncategorized
-	rows := make([]fmRow, 0, len(feeds)+len(folders)+1)
+func buildFeedManagerRows(feeds []db.Feed, folders []db.Folder) []fmRow {
+	rows := make([]fmRow, 0, len(feeds)+len(folders))
 	for _, folder := range folders {
 		rows = append(rows, fmRow{kind: fmRowFolder, folderID: folder.ID})
 	}
@@ -281,13 +273,6 @@ func (fm FeedManager) sourceName() string {
 func (fm FeedManager) editable() bool {
 	if fm.source != nil {
 		return fm.source.Editable()
-	}
-	return true
-}
-
-func (fm FeedManager) showUncategorizedFolder() bool {
-	if fm.source != nil {
-		return fm.source.ShowUncategorizedFolder()
 	}
 	return true
 }
@@ -1368,16 +1353,22 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 
 		// Upsert articles immediately so the panes aren't empty
 		conv := md.NewConverter("", true, nil)
+		var firstUpsertErr error
 		for _, item := range parsed.Items {
 			content, _ := conv.ConvertString(item.Content)
-			_ = database.UpsertArticle(db.Article{
+			if err := database.UpsertArticle(db.Article{
 				FeedID:      id,
 				GUID:        item.GUID,
 				Title:       item.Title,
 				Link:        item.Link,
 				Content:     content,
 				PublishedAt: item.PublishedAt,
-			})
+			}); err != nil && firstUpsertErr == nil {
+				firstUpsertErr = err
+			}
+		}
+		if firstUpsertErr != nil {
+			fmt.Fprintf(os.Stderr, "initial article upsert failed (feed %d): %v\n", id, firstUpsertErr)
 		}
 
 		f, _ := database.GetFeed(id)

@@ -51,6 +51,10 @@ const (
 	sfRetroBg
 	sfRetroFg
 	sfRetroAccent
+	sfTheme
+	// sfBackToSections is the first focusable target in the detail pane.
+	// Activating it restores focus to the sidebar so users never auto-land on a text input.
+	sfBackToSections
 )
 
 type settingsSection int
@@ -168,7 +172,8 @@ type Settings struct {
 	saveError          string
 	shouldSave         bool
 	shouldExit         bool
-	themeName          string // cfg.Theme at settings open (drives retro color fields)
+	themeName          string // current picker selection (drives retro color fields)
+	themeIdx           int    // index into BuiltinThemes
 	retroBgInput       textinput.Model
 	retroFgInput       textinput.Model
 	retroAccentInput   textinput.Model
@@ -202,9 +207,11 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 	case ThemeNameVT100:
 		retroTweak = cfg.Display.VT100
 	}
+	_, themeIdx := ThemeByName(cfg.Theme)
 	s := Settings{
 		icons:                cfg.Display.Icons,
 		themeName:            cfg.Theme,
+		themeIdx:             themeIdx,
 		retroBgInput:         mkInput(retroTweak.Bg, "optional #rrggbb", false),
 		retroFgInput:         mkInput(retroTweak.Fg, "optional #rrggbb", false),
 		retroAccentInput:     mkInput(retroTweak.Accent, "optional #rrggbb", false),
@@ -225,13 +232,13 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		activeSection:        ssDisplay,
 		focusedPane:          settingsPaneSidebar,
 		sectionField: [settingsSectionCount]settingsField{
-			ssDisplay: sfIcons,
-			ssFeeds:   sfFeedMaxBody,
-			ssUpdates: sfUpdateCheckOnStartup,
-			ssAI:      sfProvider,
-			ssAbout:   sfAboutRepo,
+			ssDisplay: sfBackToSections,
+			ssFeeds:   sfBackToSections,
+			ssUpdates: sfBackToSections,
+			ssAI:      sfBackToSections,
+			ssAbout:   sfBackToSections,
 		},
-		focusedField: sfIcons,
+		focusedField: sfBackToSections,
 	}
 	s.syncMaskedEchoChars()
 	s.applyFocus()
@@ -250,6 +257,9 @@ func (s *Settings) syncMaskedEchoChars() {
 
 // ApplyTo merges the settings screen state back into a Config.
 func (s Settings) ApplyTo(cfg config.Config) config.Config {
+	if s.themeIdx >= 0 && s.themeIdx < len(BuiltinThemes) {
+		cfg.Theme = BuiltinThemes[s.themeIdx].Name
+	}
 	cfg.Display.Icons = s.icons
 	if s.dateAbsolute {
 		cfg.Display.DateFormat = "absolute"
@@ -309,7 +319,14 @@ func (s *Settings) clearSaveError() {
 }
 
 func (s *Settings) setFocusedPane(pane settingsPaneFocus) {
+	prev := s.focusedPane
 	s.focusedPane = pane
+	// Entering the detail pane always lands on the back-link so text inputs
+	// are never auto-focused — users must explicitly Tab or arrow-down onto a field.
+	if pane == settingsPaneDetail && prev != settingsPaneDetail {
+		s.focusedField = sfBackToSections
+		s.sectionField[s.activeSection] = sfBackToSections
+	}
 	s.applyFocus()
 }
 
@@ -424,15 +441,15 @@ func (s Settings) updateNowActionVisible() bool {
 func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
-		fields := []settingsField{sfIcons, sfDateFormat, sfMarkReadOnOpen, sfDisplayDensity}
+		fields := []settingsField{sfBackToSections, sfIcons, sfDateFormat, sfMarkReadOnOpen, sfTheme, sfDisplayDensity}
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
 		return append(fields, sfBrowser)
 	case ssFeeds:
-		return []settingsField{sfFeedMaxBody}
+		return []settingsField{sfBackToSections, sfFeedMaxBody}
 	case ssUpdates:
-		fields := []settingsField{sfUpdateCheckOnStartup, sfUpdateCheckNow}
+		fields := []settingsField{sfBackToSections, sfUpdateCheckOnStartup, sfUpdateCheckNow}
 		if s.updateNowActionVisible() {
 			fields = append(fields, sfUpdateInstallNow)
 		}
@@ -447,7 +464,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		}
 		return fields
 	case ssAI:
-		fields := []settingsField{sfProvider}
+		fields := []settingsField{sfBackToSections, sfProvider}
 		switch s.providerIdx {
 		case 4:
 			fields = append(fields, sfOllamaURL, sfOllamaModel)
@@ -457,7 +474,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		fields = append(fields, sfSavePath)
 		return fields
 	case ssAbout:
-		return []settingsField{sfAboutRepo, sfAboutIssues}
+		return []settingsField{sfBackToSections, sfAboutRepo, sfAboutIssues}
 	default:
 		return nil
 	}
@@ -658,7 +675,7 @@ func (s Settings) focusedTextInputCursorPosition() int {
 
 func (s Settings) isPickerField() bool {
 	switch s.focusedField {
-	case sfProvider, sfDisplayDensity:
+	case sfProvider, sfDisplayDensity, sfTheme:
 		return true
 	}
 	return false
@@ -756,6 +773,20 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 
 	// Field-specific handling.
 	switch s.focusedField {
+	case sfBackToSections:
+		switch {
+		case key.String() == " " || keyMatches(key, keys.Enter), keyMatches(key, keys.Left):
+			s.setFocusedPane(settingsPaneSidebar)
+			return s, nil, false
+		case keyMatches(key, keys.Down):
+			s.setFocusedField(s.nextField())
+			return s, nil, false
+		case keyMatches(key, keys.Up):
+			// Up from the back link stays put; it's the first focusable row.
+			return s, nil, false
+		}
+		return s, nil, false
+
 	case sfIcons:
 		if key.String() == " " || keyMatches(key, keys.Enter) {
 			s.icons = !s.icons
@@ -782,6 +813,26 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		case key.String() == " " || keyMatches(key, keys.Enter) || keyMatches(key, keys.Right):
 			s.layoutDensityIdx = (s.layoutDensityIdx + 1) % len(layoutDensityLabels)
 			s.setFocusedField(sfDisplayDensity)
+		case keyMatches(key, keys.Down):
+			s.setFocusedField(s.nextField())
+		case keyMatches(key, keys.Up):
+			s.setFocusedField(s.prevField())
+		}
+
+	case sfTheme:
+		switch {
+		case keyMatches(key, keys.Left):
+			s.themeIdx = (s.themeIdx + len(BuiltinThemes) - 1) % len(BuiltinThemes)
+			s.themeName = BuiltinThemes[s.themeIdx].Name
+			s.syncMaskedEchoChars()
+			s.ensureSectionFieldVisible(ssDisplay)
+			s.setFocusedField(sfTheme)
+		case key.String() == " " || keyMatches(key, keys.Enter) || keyMatches(key, keys.Right):
+			s.themeIdx = (s.themeIdx + 1) % len(BuiltinThemes)
+			s.themeName = BuiltinThemes[s.themeIdx].Name
+			s.syncMaskedEchoChars()
+			s.ensureSectionFieldVisible(ssDisplay)
+			s.setFocusedField(sfTheme)
 		case keyMatches(key, keys.Down):
 			s.setFocusedField(s.nextField())
 		case keyMatches(key, keys.Up):
@@ -941,16 +992,20 @@ func (s Settings) viewSplit(width, height int, chrome managerChrome) string {
 }
 
 func (s Settings) viewSectionsPane(width, height int, chrome managerChrome) string {
-	rows := make([]string, 0, settingsSectionCount)
+	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
+	rows := make([]string, 0, settingsSectionCount*2)
 	for i, label := range settingsSectionLabels {
 		selected := settingsSection(i) == s.activeSection
 		subtitle := ""
 		if settingsSection(i) == ssAI && s.providerIdx > 0 {
 			subtitle = strings.ToLower(aiProviderLabels[s.providerIdx])
 		}
+		if i > 0 {
+			rows = append(rows, blank)
+		}
 		rows = append(rows, s.renderSectionNavRow(width, label, subtitle, selected, s.focusedPane == settingsPaneSidebar, chrome))
 	}
-	body := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	body := lipgloss.JoinVertical(lipgloss.Left, append([]string{blank}, rows...)...)
 	title := "CATEGORIES"
 	if s.focusedPane == settingsPaneSidebar {
 		title = "CATEGORIES >"
@@ -970,8 +1025,9 @@ func (s Settings) viewSectionPane(width, height int, chrome managerChrome) strin
 		titleStyle = chrome.sectionLabelActive
 	}
 	titleRow := titleStyle.Width(width).Render(title)
-	bodyHeight := max(1, height-1)
-	section := lipgloss.JoinVertical(lipgloss.Left, titleRow, s.scrollSectionBody(body, width, bodyHeight, chrome))
+	headingGap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
+	bodyHeight := max(1, height-2)
+	section := lipgloss.JoinVertical(lipgloss.Left, titleRow, headingGap, s.scrollSectionBody(body, width, bodyHeight, chrome))
 	return lipgloss.NewStyle().Width(width).Height(height).Background(chrome.baseBg).Render(section)
 }
 
@@ -998,7 +1054,9 @@ func settingsScrollOffset(totalLines, anchorLine, height int) int {
 
 func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSectionBody {
 	if s.activeSection == ssAbout {
-		return s.renderAboutSection(width, chrome)
+		body := s.renderAboutSection(width, chrome)
+		body = s.prependBackLink(body, width, chrome)
+		return body
 	}
 
 	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2)
@@ -1010,6 +1068,11 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 	markAnchor := func(field settingsField) {
 		body.anchors[field] = len(body.lines)
 	}
+
+	// Back-to-sections link is the first focusable row in every section.
+	markAnchor(sfBackToSections)
+	addLine(ind.Render(s.renderBackLinkRow(s.focusedField == sfBackToSections, width-2, chrome)))
+	addLine(blank)
 
 	hintIndent := strings.Repeat(" ", labelColW)
 
@@ -1086,6 +1149,9 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		addToggle("Icons", s.icons, sfIcons)
 		addToggle("Use relative dates", !s.dateAbsolute, sfDateFormat)
 		addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
+		markAnchor(sfTheme)
+		addLine(ind.Render(s.renderThemeSelector(width-2, chrome)))
+		addLine(blank)
 		markAnchor(sfDisplayDensity)
 		addLine(ind.Render(s.renderDensitySelector(width-2, chrome)))
 		if hint := s.fieldHint(sfDisplayDensity); hint != "" {
@@ -1492,6 +1558,36 @@ func hardWrapString(s string, maxW int) []string {
 	return out
 }
 
+func (s Settings) renderBackLinkRow(focused bool, width int, chrome managerChrome) string {
+	label := "← Back to sections"
+	style := chrome.body.Foreground(chrome.muted)
+	if focused {
+		style = chrome.sectionLabelActive
+	}
+	return style.Width(max(1, width)).Render(label)
+}
+
+// prependBackLink inserts the back-link row and a blank separator at the top of an
+// already-rendered section body, bumping existing anchors by the insertion count.
+func (s Settings) prependBackLink(body settingsSectionBody, width int, chrome managerChrome) settingsSectionBody {
+	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2)
+	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
+	prefix := []string{
+		ind.Render(s.renderBackLinkRow(s.focusedField == sfBackToSections, width-2, chrome)),
+		blank,
+	}
+	shift := len(prefix)
+	out := settingsSectionBody{
+		lines:   append(prefix, body.lines...),
+		anchors: make(map[settingsField]int, len(body.anchors)+1),
+	}
+	out.anchors[sfBackToSections] = 0
+	for f, i := range body.anchors {
+		out.anchors[f] = i + shift
+	}
+	return out
+}
+
 func (s Settings) renderActionRow(label, hint string, focused bool, width int, chrome managerChrome) string {
 	label = s.renderFieldLabel(label, focused, width, chrome)
 
@@ -1592,6 +1688,14 @@ func (s Settings) renderDensitySelector(width int, chrome managerChrome) string 
 	return label + renderSettingsPicker(pickerW, name, focused, chrome)
 }
 
+func (s Settings) renderThemeSelector(width int, chrome managerChrome) string {
+	label := s.renderFieldLabel("Theme", s.focusedField == sfTheme, width, chrome)
+	focused := s.focusedField == sfTheme
+	name := BuiltinThemes[s.themeIdx].Name
+	pickerW := max(1, width-labelColW)
+	return label + renderSettingsPicker(pickerW, name, focused, chrome)
+}
+
 func renderSettingsPicker(width int, value string, focused bool, chrome managerChrome) string {
 	maxTextW := max(1, width-5)
 	bg := chrome.surfaceBg
@@ -1659,8 +1763,7 @@ func (s Settings) renderAboutSection(width int, chrome managerChrome) settingsSe
 		lines = append(lines, strings.Split(block, "\n")...)
 		return start
 	}
-	heroStart := addBlock(ind.Render(s.renderAboutHero(bodyW, chrome)))
-	_ = heroStart
+	addBlock(ind.Render(s.renderAboutHero(bodyW, chrome)))
 	lines = append(lines, blank)
 	linksStart := addBlock(ind.Render(s.renderAboutLinks(bodyW, chrome)))
 	lines = append(lines, blank)
