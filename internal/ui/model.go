@@ -1147,8 +1147,19 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
+	prevThemeIdx := m.settings.themeIdx
 	newS, cmd, done := m.settings.Update(msg, m.keys)
 	m.settings = newS
+	tickChanged := m.settings.themeIdx != prevThemeIdx
+	_, cfgThemeIdx := ThemeByName(m.cfg.Theme)
+	previewingTheme := m.settings.themeIdx != cfgThemeIdx
+	if tickChanged && !done {
+		m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.settings.themeIdx), m.cfg.Display.Density)
+		if len(m.filteredArticles) > 0 {
+			m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+		}
+		cmd = tea.Batch(cmd, setTermBgCmd(m.styles.Theme.Bg))
+	}
 	action := m.settings.takeAction()
 	switch action {
 	case settingsActionCheckUpdates:
@@ -1215,6 +1226,14 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadFeedsCmd()
 		}
 		m.overlay = overlayNone
+		if previewingTheme {
+			merged, _ := MergedThemeFromConfig(m.cfg)
+			m.styles = BuildStyles(merged, m.cfg.Display.Density)
+			if len(m.filteredArticles) > 0 {
+				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+			}
+			return m, setTermBgCmd(m.styles.Theme.Bg)
+		}
 		return m, nil
 	}
 	return m, cmd

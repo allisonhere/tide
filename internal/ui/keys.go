@@ -36,6 +36,7 @@ type KeyMap struct {
 	Delete    key.Binding
 	Import    key.Binding
 	Export    key.Binding
+	Move      key.Binding
 
 	// Overlay / input
 	Confirm   key.Binding
@@ -77,6 +78,7 @@ var DefaultKeys = KeyMap{
 	Delete:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 	Import:    key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "import OPML")),
 	Export:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "export OPML")),
+	Move:      key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "move to folder")),
 
 	Confirm:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
 	Cancel:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),

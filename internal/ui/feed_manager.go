@@ -30,6 +30,7 @@ const (
 	fmFolderEdit
 	fmImport
 	fmConfirmDelete
+	fmMove
 )
 
 type fmPaneFocus int
@@ -123,6 +124,8 @@ type FeedManager struct {
 	mode             fmMode
 	editTarget       int64 // 0 = new feed
 	folderEditTarget int64
+	moveTarget       int64 // feed being moved in fmMove mode
+	moveCursor       int   // index into folderOptionsForMove()
 
 	titleInput           textinput.Model
 	urlInput             textinput.Model
@@ -254,10 +257,28 @@ func (fm FeedManager) managerRows() []fmRow {
 
 func buildFeedManagerRows(feeds []db.Feed, folders []db.Folder) []fmRow {
 	rows := make([]fmRow, 0, len(feeds)+len(folders))
+	folderIDs := make(map[int64]bool, len(folders))
+	for _, folder := range folders {
+		folderIDs[folder.ID] = true
+	}
+	emitted := make(map[int64]bool, len(feeds))
 	for _, folder := range folders {
 		rows = append(rows, fmRow{kind: fmRowFolder, folderID: folder.ID})
+		for _, feed := range feeds {
+			if feed.FolderID == folder.ID {
+				rows = append(rows, fmRow{kind: fmRowFeed, feedID: feed.ID})
+				emitted[feed.ID] = true
+			}
+		}
 	}
+	// Orphans (FolderID == 0 or dangling FolderID) fall to the bottom of the list.
 	for _, feed := range feeds {
+		if emitted[feed.ID] {
+			continue
+		}
+		if feed.FolderID != 0 && folderIDs[feed.FolderID] {
+			continue
+		}
 		rows = append(rows, fmRow{kind: fmRowFeed, feedID: feed.ID})
 	}
 	return rows
@@ -441,6 +462,23 @@ func (fm *FeedManager) focusImport() {
 	fm.paneFocus = fmPaneDetail
 }
 
+func (fm *FeedManager) focusMove(f db.Feed) {
+	fm.mode = fmMove
+	fm.paneFocus = fmPaneDetail
+	fm.moveTarget = f.ID
+	fm.statusMsg = ""
+	fm.busy = false
+	fm.busyMsg = ""
+	// Start the picker on the feed's current folder so Enter is a no-op rather than a surprise.
+	fm.moveCursor = 0
+	for i, folder := range fm.folders {
+		if folder.ID == f.FolderID {
+			fm.moveCursor = i + 1
+			break
+		}
+	}
+}
+
 func (fm *FeedManager) returnToListPane() {
 	fm.mode = fmList
 	fm.paneFocus = fmPaneList
@@ -457,6 +495,26 @@ func (fm FeedManager) folderOptions() []string {
 	}
 	options = append(options, "+ New folder")
 	return options
+}
+
+// folderOptionsForMove returns the folder list used by the move-feed picker:
+// "(no folder)" + existing folders, without the "+ New folder" creation option.
+func (fm FeedManager) folderOptionsForMove() []string {
+	options := make([]string, 0, len(fm.folders)+1)
+	options = append(options, "(no folder)")
+	for _, folder := range fm.folders {
+		options = append(options, folder.Name)
+	}
+	return options
+}
+
+// moveFolderIDAt returns the folder ID corresponding to a move-picker cursor index.
+// 0 is the "(no folder)" sentinel; the rest map 1:1 to fm.folders.
+func (fm FeedManager) moveFolderIDAt(idx int) int64 {
+	if idx <= 0 || idx > len(fm.folders) {
+		return 0
+	}
+	return fm.folders[idx-1].ID
 }
 
 func (fm FeedManager) currentFolderID() int64 {
@@ -804,6 +862,8 @@ func (fm FeedManager) update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd) {
 		return fm.updateImport(key, keys)
 	case fmConfirmDelete:
 		return fm.updateConfirmDelete(key, keys)
+	case fmMove:
+		return fm.updateMove(key, keys)
 	}
 	return fm, nil
 }
@@ -932,6 +992,15 @@ func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		}
 		if fm.selectedRow() != nil {
 			fm.mode = fmConfirmDelete
+		}
+
+	case keyMatches(msg, keys.Move):
+		if !fm.editable() {
+			fm.setBrowseOnlyStatus()
+			return fm, nil
+		}
+		if f := fm.selectedFeedRow(); f != nil && !fm.feedIsRemote(f) {
+			fm.focusMove(*f)
 		}
 
 	case keyMatches(msg, keys.Import):
@@ -1151,6 +1220,40 @@ func (fm FeedManager) updateImport(msg tea.KeyMsg, keys KeyMap) (FeedManager, te
 		var cmd tea.Cmd
 		fm.importInput, cmd = fm.importInput.Update(msg)
 		return fm, cmd
+	}
+	return fm, nil
+}
+
+func (fm FeedManager) updateMove(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.Cmd) {
+	if fm.busy {
+		return fm, nil
+	}
+	options := fm.folderOptionsForMove()
+	switch {
+	case keyMatches(msg, keys.Back), keyMatches(msg, keys.Cancel):
+		fm.mode = fmList
+		fm.paneFocus = fmPaneList
+		fm.moveTarget = 0
+	case keyMatches(msg, keys.Up):
+		if fm.moveCursor > 0 {
+			fm.moveCursor--
+		}
+	case keyMatches(msg, keys.Down):
+		if fm.moveCursor < len(options)-1 {
+			fm.moveCursor++
+		}
+	case keyMatches(msg, keys.Confirm):
+		feedID := fm.moveTarget
+		folderID := fm.moveFolderIDAt(fm.moveCursor)
+		if feedID == 0 {
+			fm.mode = fmList
+			fm.paneFocus = fmPaneList
+			return fm, nil
+		}
+		fm.statusMsg = "MOVING FEED..."
+		fm.busyMsg = fm.statusMsg
+		fm.busy = true
+		return fm, fm.moveCmd(feedID, folderID)
 	}
 	return fm, nil
 }
@@ -1384,6 +1487,20 @@ func (fm *FeedManager) deleteCmd(feedID int64) tea.Cmd {
 	}
 }
 
+func (fm *FeedManager) moveCmd(feedID, folderID int64) tea.Cmd {
+	database := fm.db
+	return func() tea.Msg {
+		if err := database.SetFeedFolder(feedID, folderID); err != nil {
+			return FeedSavedMsg{Err: err}
+		}
+		f, err := database.GetFeed(feedID)
+		if err != nil {
+			return FeedSavedMsg{Err: err}
+		}
+		return FeedSavedMsg{Feed: f}
+	}
+}
+
 func (fm *FeedManager) saveFolderCmd() tea.Cmd {
 	folderID := fm.folderEditTarget
 	name := strings.TrimSpace(fm.titleInput.Value())
@@ -1573,15 +1690,34 @@ func (fm FeedManager) viewListPane(width, height int, chrome managerChrome, styl
 				continue
 			}
 			title := strings.ToUpper(truncate(unescapeDisplayText(feed.Title), max(8, width-6)))
+			nested := false
+			last := false
+			if feed.FolderID != 0 {
+				if fm.folderByID(feed.FolderID) != nil {
+					nested = true
+					last = true
+					// Look ahead for a sibling feed in the same folder; if none, this is the last child.
+					for j := i + 1; j < len(rows); j++ {
+						if rows[j].kind != fmRowFeed {
+							break
+						}
+						if sibling := fm.feedByID(rows[j].feedID); sibling != nil && sibling.FolderID == feed.FolderID {
+							last = false
+							break
+						}
+					}
+				}
+			}
 			if i == fm.cursor {
-				listRows = append(listRows, renderManagerSelectedRow(width, feedDisplayLabel(title, icons), chrome, styles))
+				label := managerFeedMarker(chrome, icons, nested, last) + title
+				listRows = append(listRows, renderManagerSelectedRow(width, label, chrome, styles))
 				continue
 			}
 			color := ""
 			if folder := fm.folderByID(feed.FolderID); folder != nil {
 				color = folder.Color
 			}
-			listRows = append(listRows, renderManagerFeedRow(width, title, color, chrome, styles, icons))
+			listRows = append(listRows, renderManagerFeedRow(width, title, color, chrome, styles, icons, nested, last))
 		}
 	}
 	section := clampView(renderManagerPaneSection(fm.listSectionTitle(), lipgloss.JoinVertical(lipgloss.Left, listRows...), fm.listPaneFocused(), chrome), width, height, chrome.baseBg)
@@ -1679,6 +1815,9 @@ func (fm FeedManager) viewWorkspacePane(width, height int, chrome managerChrome,
 	case fmConfirmDelete:
 		title = fm.confirmDeleteTitle()
 		body = fm.viewConfirmDelete(width, height, chrome)
+	case fmMove:
+		title = "MOVE FEED TO FOLDER"
+		body = fm.viewMove(width, height, chrome, styles)
 	}
 	section := clampView(renderManagerPaneSection(title, body, !fm.listPaneFocused(), chrome), width, height, chrome.baseBg)
 	return lipgloss.NewStyle().Width(width).Height(height).Background(chrome.baseBg).Render(section)
@@ -1696,7 +1835,7 @@ func (fm FeedManager) viewListActions(width int, chrome managerChrome) string {
 		)
 	}
 	return renderManagerActionGroups(width, chrome,
-		[]string{"a", "add feed", "n", "add folder", "e", "edit", "d", "delete"},
+		[]string{"a", "add feed", "n", "add folder", "e", "edit", "v", "move", "d", "delete"},
 		[]string{"i", "import", "x", "export", "esc", "back"},
 	)
 }
@@ -1827,6 +1966,56 @@ func (fm FeedManager) viewConfirmDelete(width, height int, chrome managerChrome)
 	}, chrome)
 }
 
+func (fm FeedManager) viewMove(width, height int, chrome managerChrome, styles Styles) string {
+	fieldW := max(1, width-2)
+	retro := config.IsRetroTerminalTheme(string(styles.Theme.Name))
+
+	// ── Feed panel: title tinted by the feed's current folder color ───────────
+	feedName := ""
+	feedColor := ""
+	if f := fm.feedByID(fm.moveTarget); f != nil {
+		feedName = unescapeDisplayText(f.Title)
+		if folder := fm.folderByID(f.FolderID); folder != nil {
+			feedColor = folder.Color
+		}
+	}
+	if retro {
+		feedColor = ""
+	}
+	feedTextW := max(1, fieldW-4)
+	feedTextStyle := lipgloss.NewStyle().Background(chrome.surfaceBg).Foreground(chrome.text)
+	if feedColor != "" {
+		feedTextStyle = feedTextStyle.Foreground(accentReadableOn(lipgloss.Color(feedColor), chrome.surfaceBg, 3))
+	}
+	feedLabel := feedTextStyle.Render(strings.ToUpper(truncate(feedName, feedTextW)))
+
+	// ── Folder picker rows: each option colored by its folder's accent ────────
+	options := fm.folderOptionsForMove()
+	listRows := make([]string, 0, len(options))
+	for i, label := range options {
+		displayed := strings.ToUpper(truncate(label, max(4, fieldW-4)))
+		if i == fm.moveCursor {
+			listRows = append(listRows, renderManagerSelectedRow(fieldW, displayed, chrome, styles))
+			continue
+		}
+		fg := chrome.muted // default for "(no folder)"
+		if i > 0 {
+			folder := fm.folders[i-1]
+			fg = chrome.text
+			if !retro && folder.Color != "" {
+				fg = accentReadableOn(lipgloss.Color(folder.Color), chrome.baseBg, 3)
+			}
+		}
+		row := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(fg).Padding(0, 1).Width(fieldW).Render(displayed)
+		listRows = append(listRows, row)
+	}
+	folderList := lipgloss.JoinVertical(lipgloss.Left, listRows...)
+	return renderManagerDetailColumn(width, []string{
+		renderManagerSection("FEED", renderManagerPanel(fieldW, feedLabel, chrome), chrome, false),
+		renderManagerSection("FOLDER", folderList, chrome, true),
+	}, chrome)
+}
+
 func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 	if fm.busy {
 		return renderManagerActions(width, chrome, "working", strings.ToLower(fm.busyMsg))
@@ -1890,6 +2079,12 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 	case fmConfirmDelete:
 		return renderManagerActions(width, chrome,
 			"y", "confirm",
+			"esc", "cancel",
+		)
+	case fmMove:
+		return renderManagerActions(width, chrome,
+			"↑/↓", "pick folder",
+			"enter", "move",
 			"esc", "cancel",
 		)
 	default:
@@ -2311,7 +2506,55 @@ func renderManagerRow(width int, title string, chrome managerChrome) string {
 	return clampView(rendered, width, 1, rowBg)
 }
 
-func renderManagerFeedRow(width int, title, color string, chrome managerChrome, styles Styles, icons bool) string {
+// managerFolderMarker returns the leading glyph that distinguishes a folder row.
+// With icons: nerdfont folder glyphs. Without icons: triangle disclosure (or ASCII on plainUI).
+func managerFolderMarker(chrome managerChrome, icons, collapsed bool) string {
+	if icons {
+		if collapsed {
+			return "󰉖 "
+		}
+		return "󰉋 "
+	}
+	if chrome.plainUI {
+		if collapsed {
+			return "> "
+		}
+		return "v "
+	}
+	if collapsed {
+		return "▸ "
+	}
+	return "▾ "
+}
+
+// managerFeedMarker returns the leading glyph for a feed row.
+// Nested rows (feeds that belong to a folder) get a tree connector in front of
+// the feed glyph; root-level feeds keep the original flat marker.
+// "last" picks the L-shaped connector for the final child of a folder.
+func managerFeedMarker(chrome managerChrome, icons, nested, last bool) string {
+	tree := ""
+	if nested {
+		switch {
+		case chrome.plainUI && last:
+			tree = "`- "
+		case chrome.plainUI:
+			tree = "|- "
+		case last:
+			tree = "└─ "
+		default:
+			tree = "├─ "
+		}
+	}
+	if icons {
+		return tree + "\U000f046b "
+	}
+	if nested {
+		return tree
+	}
+	return "  "
+}
+
+func renderManagerFeedRow(width int, title, color string, chrome managerChrome, styles Styles, icons, nested, last bool) string {
 	if config.IsRetroTerminalTheme(string(styles.Theme.Name)) {
 		color = ""
 	}
@@ -2320,10 +2563,7 @@ func renderManagerFeedRow(width int, title, color string, chrome managerChrome, 
 	style := lipgloss.NewStyle().
 		Background(rowBg).
 		Padding(0, 1)
-	icon := ""
-	if icons {
-		icon = "\U000f046b "
-	}
+	icon := managerFeedMarker(chrome, icons, nested, last)
 	iconW := lipgloss.Width(icon)
 	nameW := max(1, textW-iconW)
 	name := truncate(title, nameW)
@@ -2359,13 +2599,7 @@ func renderManagerFolderRow(width int, title, color string, collapsed bool, chro
 		contentBg = terminalColorAsColor(style.GetBackground())
 		contentFg = terminalColorAsColor(style.GetForeground())
 	}
-	icon := ""
-	if icons {
-		icon = "󰉋 "
-		if collapsed {
-			icon = "󰉖 "
-		}
-	}
+	icon := managerFolderMarker(chrome, icons, collapsed)
 	iconW := lipgloss.Width(icon)
 	nameW := max(1, textW-iconW)
 	name := truncate(title, nameW)
