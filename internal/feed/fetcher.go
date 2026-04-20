@@ -29,6 +29,13 @@ var errFeedBodyTooLarge = errors.New("feed body exceeds size limit")
 // It follows redirects manually (up to maxRedirects), detects loops,
 // preserves method semantics on 307/308, and classifies all error kinds.
 func FetchFeed(originalURL string) *FetchResult {
+	return fetchFeed(originalURL, maxRedirects, map[string]bool{originalURL: true})
+}
+
+// fetchFeed is the internal implementation. budget and seen are shared across
+// recursive calls (HTML <link rel="alternate"> discovery, parser-requested
+// redirects) so the redirect cap and loop-detection map can't be bypassed.
+func fetchFeed(originalURL string, budget int, seen map[string]bool) *FetchResult {
 	r := &FetchResult{
 		OriginalURL:   originalURL,
 		FinalURL:      originalURL,
@@ -37,11 +44,10 @@ func FetchFeed(originalURL string) *FetchResult {
 
 	method := http.MethodGet
 	currentURL := originalURL
-	seen := map[string]bool{originalURL: true}
 	hadPermanent := false
 	permanentDest := ""
 
-	for hop := 0; hop < maxRedirects; hop++ {
+	for hop := 0; hop < budget; hop++ {
 		req, err := http.NewRequest(method, currentURL, nil)
 		if err != nil {
 			r.Kind = KindNetworkError
@@ -138,7 +144,19 @@ func FetchFeed(originalURL string) *FetchResult {
 		if strings.Contains(ct, "text/html") || (looksLikeHTML(body) && !bodyIsFeedXML(body)) {
 			if feedURL := discoverFeedURL(body); feedURL != "" {
 				discovered, _ := resolveURL(currentURL, feedURL)
-				r2 := FetchFeed(discovered)
+				if seen[discovered] {
+					r.Kind = KindRedirectLoop
+					r.Err = fmt.Errorf("redirect loop: %s visited twice", discovered)
+					return r
+				}
+				seen[discovered] = true
+				remaining := budget - hop - 1
+				if remaining <= 0 {
+					r.Kind = KindTooManyRedirects
+					r.Err = fmt.Errorf("exceeded %d redirects", maxRedirects)
+					return r
+				}
+				r2 := fetchFeed(discovered, remaining, seen)
 				r2.OriginalURL = originalURL
 				// Merge our chain with the sub-fetch's chain (skip its duplicate head).
 				if len(r2.RedirectChain) > 1 {
@@ -171,7 +189,19 @@ func FetchFeed(originalURL string) *FetchResult {
 			var redir *ErrNeedRedirect
 			if isRedirect(parseErr, &redir) {
 				discovered, _ := resolveURL(currentURL, redir.URL)
-				r2 := FetchFeed(discovered)
+				if seen[discovered] {
+					r.Kind = KindRedirectLoop
+					r.Err = fmt.Errorf("redirect loop: %s visited twice", discovered)
+					return r
+				}
+				seen[discovered] = true
+				remaining := budget - hop - 1
+				if remaining <= 0 {
+					r.Kind = KindTooManyRedirects
+					r.Err = fmt.Errorf("exceeded %d redirects", maxRedirects)
+					return r
+				}
+				r2 := fetchFeed(discovered, remaining, seen)
 				r2.OriginalURL = originalURL
 				if len(r2.RedirectChain) > 1 {
 					r2.RedirectChain = append(r.RedirectChain, r2.RedirectChain[1:]...)

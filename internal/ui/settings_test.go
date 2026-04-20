@@ -20,9 +20,9 @@ func TestSettingsFieldNavigationClampsAtEnds(t *testing.T) {
 	if got := s.nextField(); got != sfBrowser {
 		t.Fatalf("nextField at last visible field: got %v want sfBrowser", got)
 	}
-	s.setFocusedField(sfIcons)
-	if got := s.prevField(); got != sfIcons {
-		t.Fatalf("prevField at first visible field: got %v want sfIcons", got)
+	s.setFocusedField(sfBackToSections)
+	if got := s.prevField(); got != sfBackToSections {
+		t.Fatalf("prevField at first visible field: got %v want sfBackToSections", got)
 	}
 }
 
@@ -146,8 +146,8 @@ func TestSettingsSidebarDownChangesSection(t *testing.T) {
 	if next.activeSection != ssFeeds {
 		t.Fatalf("expected active section to move to FEEDS, got %v", next.activeSection)
 	}
-	if next.focusedField != sfFeedMaxBody {
-		t.Fatalf("expected FEEDS section to restore feed max body field, got %v", next.focusedField)
+	if next.focusedField != sfBackToSections {
+		t.Fatalf("expected sidebar navigation to keep back-link focus within detail pane, got %v", next.focusedField)
 	}
 }
 
@@ -161,8 +161,8 @@ func TestSettingsSidebarRightEntersDetail(t *testing.T) {
 	if next.focusedPane != settingsPaneDetail {
 		t.Fatalf("expected right key to enter detail pane, got %v", next.focusedPane)
 	}
-	if next.focusedField != sfFeedMaxBody {
-		t.Fatalf("expected FEEDS section to focus feed max body field, got %v", next.focusedField)
+	if next.focusedField != sfBackToSections {
+		t.Fatalf("expected entry into detail pane to land on back-link (not a text input), got %v", next.focusedField)
 	}
 }
 

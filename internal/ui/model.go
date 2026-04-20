@@ -509,9 +509,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if faviconURL == "" {
 				faviconURL = currentFeed.FaviconURL
 			}
-			_ = m.db.UpdateFeedMeta(msg.FeedID, title, description, faviconURL, now)
+			if err := m.db.UpdateFeedMeta(msg.FeedID, title, description, faviconURL, now); err != nil {
+				fmt.Fprintf(os.Stderr, "feed meta update failed (feed %d): %v\n", msg.FeedID, err)
+			}
 		} else {
-			_ = m.db.TouchFeedFetched(msg.FeedID, now)
+			if err := m.db.TouchFeedFetched(msg.FeedID, now); err != nil {
+				fmt.Fprintf(os.Stderr, "feed touch failed (feed %d): %v\n", msg.FeedID, err)
+			}
 		}
 		if r := msg.Result; r != nil && r.SuggestURLUpdate {
 			if err := m.db.UpdateFeedURL(msg.FeedID, r.SuggestedURL); err != nil {
@@ -740,7 +744,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if !m.articleIsRemote(msg.ArticleID) {
-			_ = m.db.SaveSummary(msg.ArticleID, msg.Summary)
+			if err := m.db.SaveSummary(msg.ArticleID, msg.Summary); err != nil {
+				fmt.Fprintf(os.Stderr, "save summary failed (article %d): %v\n", msg.ArticleID, err)
+				m.setStatus(fmt.Sprintf("summary not saved: %v", err), true)
+			}
 		}
 		for i := range m.articles {
 			if m.articles[i].ID == msg.ArticleID {
@@ -1195,7 +1202,11 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			feed.SetMaxFeedBodyBytes(m.cfg.Feed.MaxBodyMiB << 20)
 			config.Save(m.cfg)
-			m.summarizer, _ = ai.New(m.cfg.AI)
+			summarizer, aiErr := ai.New(m.cfg.AI)
+			m.summarizer = summarizer
+			if aiErr != nil {
+				m.setStatus(fmt.Sprintf("AI summarizer disabled: %v", aiErr), true)
+			}
 			m.resetSourceClient()
 			m.overlay = overlayNone
 			m.sidebarCursor = 0
@@ -2917,7 +2928,7 @@ func truncate(s string, maxW int) string {
 	if maxW <= 1 {
 		return ansi.Truncate(s, maxW, "")
 	}
-	return ansi.Truncate(s, maxW-1, "") + "…"
+	return ansi.Truncate(s, maxW, "…")
 }
 
 func relativeTime(t time.Time) string {
