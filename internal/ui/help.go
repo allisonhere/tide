@@ -40,6 +40,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 				{keys.MarkAllRead.Help().Key, "mark current feed as read"},
 				{keys.OpenBrowser.Help().Key, "open selected article in browser"},
 				{keys.Search.Help().Key, "search articles in current feed"},
+				{keys.UnreadOnly.Help().Key, "toggle unread-only view"},
 			},
 		},
 		{
