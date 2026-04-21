@@ -93,7 +93,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 		},
 	}
 
-	contentW := max(1, width-4)
+	contentW := max(1, width)
 	bodyInnerW := max(1, contentW-styles.HelpSectionBody.GetHorizontalFrameSize())
 	keyW := min(20, max(8, bodyInnerW/3))
 	descW := max(1, bodyInnerW-keyW)
@@ -102,7 +102,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 	lines := []string{
 		lipgloss.NewStyle().
 			Width(contentW).
-			Render("Help — Keyboard Shortcuts"),
+			Render("  Help — Keyboard Shortcuts"),
 		"",
 		styles.HelpSectionBody.Width(contentW).Render(
 			"The status bar always shows these shortcuts on the left: m feed manager · S settings · / search · ? help.",
@@ -125,6 +125,6 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 	content := strings.TrimRight(strings.Join(lines, "\n"), "\n")
 	return lipgloss.NewStyle().
 		Width(width).
-		Padding(1, 2).
+		PaddingTop(1).
 		Render(content)
 }

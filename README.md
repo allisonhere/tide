@@ -82,7 +82,7 @@ Open the feed manager with `m`. Tide keeps one shared manager flow for local fee
 
 **Local** source:
 
-- **`Title`**, **`URL`**, folder, and optional new-folder color behave like the normal Tide add/edit flow
+- **Feed names** come from the feed metadata. Add/edit only asks for **`URL`**, folder, and optional new-folder color.
 
 **GReader** source (FreshRSS, etc.):
 
@@ -90,7 +90,7 @@ Open the feed manager with `m`. Tide keeps one shared manager flow for local fee
 - Fields: optional feed **`URL`**, **`API URL`**, **`Login`**, **`Password`**
 - If **`URL`** is blank, Tide saves the connection and loads your existing remote subscriptions
 - If **`URL`** is set, Tide **quick-adds** that subscription on the remote server
-- Press **`e`** on a remote feed to edit **GReader connection** settings (credentials and read-only name/URL summary). Saving applies API credentials and **clears any local title override** so labels stay aligned with the remote feed
+- Press **`e`** on a remote feed to edit **GReader connection** settings (credentials and read-only name/URL summary). Saving applies API credentials and keeps labels aligned with the remote feed
 - Folder placement for remote feeds is **not** changed from that screen; existing folder prefs stay in Tide’s database
 - Selecting a remote feed in the manager shows connection info on the right, with the password masked
 
