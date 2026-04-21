@@ -82,10 +82,7 @@ func (m Model) loadGReaderFeeds(ctx context.Context) ([]db.Feed, map[int64]strin
 		streams[feedID] = sub.ID
 
 		pref := remotePrefs[feedID]
-		title := greader.UnescapeAPIString(pref.Title)
-		if title == "" {
-			title = greader.UnescapeAPIString(sub.Title)
-		}
+		title := greader.UnescapeAPIString(sub.Title)
 		if title == "" {
 			title = sub.ID
 		}

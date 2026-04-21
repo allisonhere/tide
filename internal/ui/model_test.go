@@ -829,6 +829,16 @@ func TestHelpStylesShareSectionSurfaceBackground(t *testing.T) {
 	}
 }
 
+func TestRenderHelpRowsFitViewportWidth(t *testing.T) {
+	width := 100
+	view := renderHelp(width, BuildStyles(CatppuccinMocha, "comfortable"), DefaultKeys)
+	for i, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > width {
+			t.Fatalf("line %d exceeds help width: got %d want <= %d in %q", i+1, got, width, ansi.Strip(line))
+		}
+	}
+}
+
 func TestResetHelpViewportUsesFullOverlayWidth(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
@@ -1094,7 +1104,7 @@ func TestLoadFeedsCmdAppliesLocalFolderPrefsToGReaderFeeds(t *testing.T) {
 	t.Fatalf("expected remote feed to be present, got %#v", m.feeds)
 }
 
-func TestLoadFeedsCmdAppliesLocalTitleOverrideToGReaderFeeds(t *testing.T) {
+func TestLoadFeedsCmdIgnoresLocalTitleOverrideForGReaderFeeds(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	database, err := db.Open()
 	if err != nil {
@@ -1137,8 +1147,8 @@ func TestLoadFeedsCmdAppliesLocalTitleOverrideToGReaderFeeds(t *testing.T) {
 
 	for _, feed := range m.feeds {
 		if feed.ID == remoteFeedID {
-			if feed.Title != "Custom Remote" {
-				t.Fatalf("expected local title override, got %q", feed.Title)
+			if feed.Title != "Server Title" {
+				t.Fatalf("expected server title despite local override, got %q", feed.Title)
 			}
 			return
 		}
@@ -1743,8 +1753,8 @@ func TestAddKeyOpensAddDialogWithSourceToggle(t *testing.T) {
 	if m.feedManager.listPaneFocused() {
 		t.Fatal("expected add dialog to start focused on the right pane")
 	}
-	if m.feedManager.focusedField != fmFieldAddSource {
-		t.Fatalf("expected add dialog to focus source toggle, got field %d", m.feedManager.focusedField)
+	if m.feedManager.focusedField != fmFieldBack {
+		t.Fatalf("expected add dialog to focus back link, got field %d", m.feedManager.focusedField)
 	}
 }
 
@@ -2015,7 +2025,6 @@ func TestFeedManagerGReaderSaveCmdQuickAddsRemoteFeed(t *testing.T) {
 	fm := NewFeedManagerWithSource(database, config.SourceConfig{})
 	fm.focusAdd()
 	fm.addSourceIdx = fmAddSourceGReader
-	fm.titleInput.SetValue("Custom Title")
 	fm.urlInput.SetValue("https://example.com/feed.xml")
 	fm.greaderURLInput.SetValue("https://rss.example.com/api/greader.php")
 	fm.greaderLoginInput.SetValue("alice")
@@ -2035,8 +2044,8 @@ func TestFeedManagerGReaderSaveCmdQuickAddsRemoteFeed(t *testing.T) {
 	if got.StreamID != "feed/http://example.com/feed.xml" {
 		t.Fatalf("expected stream id from quickadd, got %q", got.StreamID)
 	}
-	if got.Title != "Custom Title" {
-		t.Fatalf("expected local custom title from quickadd, got %q", got.Title)
+	if got.Title != "Example Feed" {
+		t.Fatalf("expected server title from quickadd, got %q", got.Title)
 	}
 	if got.Source.GReaderURL != "https://rss.example.com/api/greader.php" || got.Source.GReaderLogin != "alice" || got.Source.GReaderPassword != "secret" {
 		t.Fatalf("unexpected persisted source config: %#v", got.Source)
@@ -2045,8 +2054,8 @@ func TestFeedManagerGReaderSaveCmdQuickAddsRemoteFeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRemoteFeedPrefs returned error: %v", err)
 	}
-	if got := prefs[remoteStableID("feed", "feed/http://example.com/feed.xml")].Title; got != "Custom Title" {
-		t.Fatalf("expected local title override to be stored, got %q", got)
+	if pref, ok := prefs[remoteStableID("feed", "feed/http://example.com/feed.xml")]; ok && pref.Title != "" {
+		t.Fatalf("expected no local title override to be stored, got %q", pref.Title)
 	}
 }
 

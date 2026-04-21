@@ -379,7 +379,8 @@ func TestFeedManagerAddDialogCanSwitchToGReaderFields(t *testing.T) {
 	})
 	fm.focusAdd()
 
-	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
+	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
 	if next.addSourceIdx != fmAddSourceGReader {
 		t.Fatalf("expected enter on source toggle to switch to greader, got %d", next.addSourceIdx)
 	}
@@ -407,7 +408,9 @@ func TestFeedManagerSourceToggleShowsToggleHint(t *testing.T) {
 	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
 	fm.focusAdd()
 
-	view := ansi.Strip(fm.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
+
+	view := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
 	if !strings.Contains(view, "TOGGLE SOURCE") {
 		t.Fatalf("expected add dialog source toggle hint, got %q", view)
 	}
@@ -438,27 +441,47 @@ func TestFeedManagerAddDialogAResetsFreshAdd(t *testing.T) {
 	if fm.listPaneFocused() {
 		t.Fatal("expected a-driven add dialog to stay on the right pane")
 	}
-	if fm.focusedField != fmFieldAddSource {
-		t.Fatalf("expected add dialog to focus source toggle, got %d", fm.focusedField)
+	if fm.focusedField != fmFieldBack {
+		t.Fatalf("expected add dialog to focus back link, got %d", fm.focusedField)
 	}
 }
 
-func TestFeedManagerTextInputLeftArrowMovesToLeftPaneAtCursorStart(t *testing.T) {
+func TestFeedManagerBackLinkReturnsFocusToListPane(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.setData([]db.Feed{
+		{ID: 1, Title: "Alpha", URL: "https://example.com/alpha.xml"},
+		{ID: 2, Title: "Beta", URL: "https://example.com/beta.xml"},
+	}, nil)
+	fm.focusAdd()
+	fm.cursor = 1
+
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+
+	if !next.listPaneFocused() {
+		t.Fatal("expected back link activation to return focus to the list pane")
+	}
+	if next.cursor != 1 {
+		t.Fatalf("expected back link to preserve selected left row, got cursor %d", next.cursor)
+	}
+}
+
+func TestFeedManagerTextInputLeftArrowMovesToBackLinkAtCursorStart(t *testing.T) {
 	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
 	fm.focusAdd()
 
 	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
-	if next.focusedField != 0 {
-		t.Fatalf("expected tab from source to land on title for Local add, got %d", next.focusedField)
+	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
+	if next.focusedField != 1 {
+		t.Fatalf("expected tab from source to land on URL for Local add, got %d", next.focusedField)
 	}
 	next.focusCurrentEditField()
-	next.titleInput.SetValue("abc")
-	next.titleInput.CursorStart()
+	next.urlInput.SetValue("https://example.com/feed.xml")
+	next.urlInput.CursorStart()
 
 	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyLeft}, DefaultKeys)
 
-	if !next.listPaneFocused() {
-		t.Fatal("expected left arrow at cursor start to move focus to the left pane")
+	if next.focusedField != fmFieldBack {
+		t.Fatalf("expected left arrow at cursor start to move focus to back link, got %d", next.focusedField)
 	}
 	if next.mode != fmEdit {
 		t.Fatalf("expected add dialog to remain in edit mode, got %v", next.mode)
@@ -500,20 +523,21 @@ func TestFeedManagerTextInputLeftArrowStaysInDetailWhenCursorCanMove(t *testing.
 	fm.focusAdd()
 
 	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
-	if next.focusedField != 0 {
-		t.Fatalf("expected tab from source to land on title for Local add, got %d", next.focusedField)
+	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
+	if next.focusedField != 1 {
+		t.Fatalf("expected tab from source to land on URL for Local add, got %d", next.focusedField)
 	}
 	next.focusCurrentEditField()
-	next.titleInput.SetValue("abc")
-	next.titleInput.CursorEnd()
+	next.urlInput.SetValue("abc")
+	next.urlInput.CursorEnd()
 
 	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyLeft}, DefaultKeys)
 
 	if next.listPaneFocused() {
 		t.Fatal("expected left arrow to stay in the detail pane while the cursor can still move left")
 	}
-	if got := next.titleInput.Position(); got != 2 {
-		t.Fatalf("expected title cursor to move left to position 2, got %d", got)
+	if got := next.urlInput.Position(); got != 2 {
+		t.Fatalf("expected URL cursor to move left to position 2, got %d", got)
 	}
 }
 
@@ -521,7 +545,10 @@ func TestFeedManagerGReaderInputLeftArrowMovesToLeftPaneAtCursorStart(t *testing
 	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
 	fm.focusAdd()
 
-	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
+	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
+	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
 	next.focusedField = fmFieldGReaderURL
 	next.focusCurrentEditField()
 	next.greaderURLInput.SetValue("https://rss.example.com/api/greader.php")
@@ -529,8 +556,8 @@ func TestFeedManagerGReaderInputLeftArrowMovesToLeftPaneAtCursorStart(t *testing
 
 	next, _ = next.updateEdit(tea.KeyMsg{Type: tea.KeyLeft}, DefaultKeys)
 
-	if !next.listPaneFocused() {
-		t.Fatal("expected greader API URL left arrow at cursor start to move focus to the left pane")
+	if next.focusedField != fmFieldBack {
+		t.Fatalf("expected greader API URL left arrow at cursor start to move focus to back link, got %d", next.focusedField)
 	}
 	if next.addSourceIdx != fmAddSourceGReader {
 		t.Fatalf("expected greader source to remain selected, got %d", next.addSourceIdx)
@@ -695,8 +722,8 @@ func TestEditableFeedManagerEditRemoteFeedOpensGReaderSettings(t *testing.T) {
 	if next.addSourceIdx != fmAddSourceGReader {
 		t.Fatalf("expected remote edit to stay on greader source, got %d", next.addSourceIdx)
 	}
-	if next.focusedField != fmFieldGReaderURL {
-		t.Fatalf("expected remote edit to focus API URL, got %d", next.focusedField)
+	if next.focusedField != fmFieldBack {
+		t.Fatalf("expected remote edit to focus back link, got %d", next.focusedField)
 	}
 	if got := next.titleInput.Value(); got != "Remote Feed" {
 		t.Fatalf("expected remote edit to keep selected feed title, got %q", got)
@@ -708,7 +735,7 @@ func TestEditableFeedManagerEditRemoteFeedOpensGReaderSettings(t *testing.T) {
 		t.Fatalf("expected remote edit to prefill API URL, got %q", got)
 	}
 	view := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
-	for _, want := range []string{"GREADER SETTINGS", "NAME", "REMOTE FEED", "PULLED FROM THE FEED (NOT EDITABLE).", "FEED URL", "API URL"} {
+	for _, want := range []string{"GREADER SETTINGS", "BACK TO SECTIONS", "NAME", "REMOTE FEED", "FEED URL", "API URL"} {
 		if !strings.Contains(strings.ToUpper(view), want) {
 			t.Fatalf("expected remote edit view to contain %q, got %q", want, view)
 		}
@@ -879,18 +906,19 @@ func TestFeedManagerAddFolderCanFocusColorField(t *testing.T) {
 	fm.titleInput = textinput.New()
 
 	fm.focusAddFolder()
-	if fm.focusedField != 0 {
-		t.Fatalf("expected add-folder flow to start on name field, got %d", fm.focusedField)
+	if fm.focusedField != fmFieldBack {
+		t.Fatalf("expected add-folder flow to start on back link, got %d", fm.focusedField)
 	}
 
 	next, _ := fm.updateFolderEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
+	next, _ = next.updateFolderEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
 	if next.focusedField != 4 {
 		t.Fatalf("expected tab to move focus to color field, got %d", next.focusedField)
 	}
 
 	next, _ = next.updateFolderEdit(tea.KeyMsg{Type: tea.KeyDown}, DefaultKeys)
-	if next.focusedField != 0 {
-		t.Fatalf("expected down from color field to wrap to name field, got %d", next.focusedField)
+	if next.focusedField != fmFieldBack {
+		t.Fatalf("expected down from color field to wrap to back link, got %d", next.focusedField)
 	}
 }
 
@@ -904,14 +932,6 @@ func TestFeedManagerEditTextInputsAcceptMovementRunes(t *testing.T) {
 		value         func(FeedManager) string
 	}{
 		{
-			name:         "title",
-			focusedField: 0,
-			key:          'k',
-			value: func(fm FeedManager) string {
-				return fm.titleInput.Value()
-			},
-		},
-		{
 			name:         "url",
 			focusedField: 1,
 			key:          'j',
@@ -920,11 +940,11 @@ func TestFeedManagerEditTextInputsAcceptMovementRunes(t *testing.T) {
 			},
 		},
 		{
-			name:         "title h at cursor start",
-			focusedField: 0,
+			name:         "url h at cursor start",
+			focusedField: 1,
 			key:          'h',
 			value: func(fm FeedManager) string {
-				return fm.titleInput.Value()
+				return fm.urlInput.Value()
 			},
 		},
 		{
@@ -977,21 +997,21 @@ func TestFeedManagerEditTextInputsAcceptMovementRunes(t *testing.T) {
 	}
 }
 
-func TestFeedManagerEditTitleRightArrowMovesCursor(t *testing.T) {
+func TestFeedManagerEditURLRightArrowMovesCursor(t *testing.T) {
 	fm := FeedManager{
 		mode:         fmEdit,
 		paneFocus:    fmPaneDetail,
 		editTarget:   1,
-		focusedField: 0,
+		focusedField: 1,
 		titleInput:   textinput.New(),
 		urlInput:     textinput.New(),
 	}
-	fm.titleInput.SetValue("abc")
-	fm.titleInput.CursorStart()
+	fm.urlInput.SetValue("abc")
+	fm.urlInput.CursorStart()
 	fm.focusCurrentEditField()
 
 	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyRight}, DefaultKeys)
-	if got := next.titleInput.Position(); got != 1 {
+	if got := next.urlInput.Position(); got != 1 {
 		t.Fatalf("expected cursor at position 1 after right arrow, got %d", got)
 	}
 }
@@ -1001,12 +1021,12 @@ func TestFeedManagerSyncedWidthAllowsRightMovementInLongField(t *testing.T) {
 		mode:         fmEdit,
 		paneFocus:    fmPaneDetail,
 		editTarget:   1,
-		focusedField: 0,
+		focusedField: 1,
 		titleInput:   textinput.New(),
 		urlInput:     textinput.New(),
 	}
-	fm.titleInput.SetValue(strings.Repeat("a", 80))
-	fm.titleInput.CursorStart()
+	fm.urlInput.SetValue(strings.Repeat("a", 80))
+	fm.urlInput.CursorStart()
 	fm.focusCurrentEditField()
 	fm.syncTextInputWidthsForRightPane(32)
 
@@ -1016,7 +1036,7 @@ func TestFeedManagerSyncedWidthAllowsRightMovementInLongField(t *testing.T) {
 		next, cmd = next.updateEdit(tea.KeyMsg{Type: tea.KeyRight}, DefaultKeys)
 		_ = cmd
 	}
-	if got := next.titleInput.Position(); got != 5 {
+	if got := next.urlInput.Position(); got != 5 {
 		t.Fatalf("expected cursor at 5 after five right arrows, got %d", got)
 	}
 }
