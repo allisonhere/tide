@@ -460,8 +460,34 @@ func TestFeedManagerBackLinkReturnsFocusToListPane(t *testing.T) {
 	if !next.listPaneFocused() {
 		t.Fatal("expected back link activation to return focus to the list pane")
 	}
+	if next.mode != fmList {
+		t.Fatalf("expected back link activation to restore list mode, got %v", next.mode)
+	}
 	if next.cursor != 1 {
 		t.Fatalf("expected back link to preserve selected left row, got cursor %d", next.cursor)
+	}
+}
+
+func TestFeedManagerEditCancelRestoresMainActions(t *testing.T) {
+	fm := NewFeedManagerWithSource(nil, config.SourceConfig{})
+	fm.setData([]db.Feed{
+		{ID: 1, Title: "Alpha", URL: "https://example.com/alpha.xml"},
+	}, nil)
+	fm.mode = fmEdit
+	fm.paneFocus = fmPaneDetail
+	fm.editTarget = 1
+	fm.focusedField = fmFieldBack
+
+	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+
+	if next.mode != fmList {
+		t.Fatalf("expected esc from local edit to restore list mode, got %v", next.mode)
+	}
+	view := strings.ToLower(next.View(74, 22, BuildStyles(CatppuccinMocha, "compact"), false))
+	for _, want := range []string{"move", "delete", "import", "export"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected main manager action %q after esc, view:\n%s", want, view)
+		}
 	}
 }
 
@@ -796,20 +822,22 @@ func TestFeedManagerFolderEditCancelReturnsToListPane(t *testing.T) {
 		titleInput:   textinput.New(),
 		focusedField: 0,
 	}
+	fm.setData([]db.Feed{{ID: 1, Title: "Alpha", URL: "https://example.com/alpha.xml"}}, []db.Folder{{ID: 1, Name: "Tech"}})
 	fm.focusCurrentEditField()
 
 	next, _ := fm.updateFolderEdit(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
 
-	if next.mode != fmFolderEdit {
-		t.Fatalf("expected first esc to stay in folder edit mode, got %v", next.mode)
+	if next.mode != fmList {
+		t.Fatalf("expected esc from folder edit to restore list mode, got %v", next.mode)
 	}
 	if !next.listPaneFocused() {
-		t.Fatal("expected first esc to return focus to the left pane")
+		t.Fatal("expected esc to return focus to the left pane")
 	}
-
-	next, _ = next.updateFolderEdit(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
-	if !next.shouldExit {
-		t.Fatal("expected second esc to exit the manager overlay")
+	view := strings.ToLower(next.View(74, 22, BuildStyles(CatppuccinMocha, "compact"), false))
+	for _, want := range []string{"move", "delete", "import", "export"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected main manager action %q after esc, view:\n%s", want, view)
+		}
 	}
 }
 

@@ -497,8 +497,18 @@ func (fm *FeedManager) returnToListPane() {
 	fm.mode = fmList
 	fm.paneFocus = fmPaneList
 	fm.remoteSettingsEdit = false
+	fm.focusedField = fmFieldBack
 	fm.blurEditInputs()
 	fm.importInput.Blur()
+}
+
+func (fm *FeedManager) leaveEditDetail() {
+	if fm.remoteSettingsEdit {
+		fm.paneFocus = fmPaneList
+		fm.blurEditInputs()
+		return
+	}
+	fm.returnToListPane()
 }
 
 func (fm FeedManager) folderOptions() []string {
@@ -1127,8 +1137,7 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 	switch {
 	case keyMatches(msg, keys.Cancel):
 		if fm.paneFocus == fmPaneDetail {
-			fm.paneFocus = fmPaneList
-			fm.blurEditInputs()
+			fm.leaveEditDetail()
 			return fm, nil
 		}
 		fm.shouldExit = true
@@ -1149,8 +1158,7 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		fm.focusCurrentEditField()
 
 	case fm.focusedField == fmFieldBack && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Enter) || msg.String() == " "):
-		fm.paneFocus = fmPaneList
-		fm.blurEditInputs()
+		fm.leaveEditDetail()
 
 	case fm.focusedField == fmFieldAddSource && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Right) || keyMatches(msg, keys.Enter) || msg.String() == " "):
 		fm.addSourceIdx = (fm.addSourceIdx + 1) % len(fmAddSourceLabels)
@@ -1187,8 +1195,7 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 
 	case keyMatches(msg, keys.Confirm):
 		if fm.focusedField == fmFieldBack {
-			fm.paneFocus = fmPaneList
-			fm.blurEditInputs()
+			fm.leaveEditDetail()
 			return fm, nil
 		}
 		if fm.focusedField == fmFieldAddSource {
@@ -1237,8 +1244,7 @@ func (fm FeedManager) updateFolderEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager
 	switch {
 	case keyMatches(msg, keys.Cancel):
 		if fm.paneFocus == fmPaneDetail {
-			fm.paneFocus = fmPaneList
-			fm.titleInput.Blur()
+			fm.returnToListPane()
 			return fm, nil
 		}
 		fm.shouldExit = true
@@ -1250,8 +1256,7 @@ func (fm FeedManager) updateFolderEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager
 		fm = fm.retreatFieldInOrder(fm.folderEditFieldOrder())
 
 	case fm.focusedField == fmFieldBack && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Enter) || msg.String() == " "):
-		fm.paneFocus = fmPaneList
-		fm.blurEditInputs()
+		fm.returnToListPane()
 
 	case fm.focusedField == 4 && keyMatches(msg, keys.Left):
 		if fm.colorCursor > 0 {
@@ -1265,8 +1270,7 @@ func (fm FeedManager) updateFolderEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager
 
 	case keyMatches(msg, keys.Confirm):
 		if fm.focusedField == fmFieldBack {
-			fm.paneFocus = fmPaneList
-			fm.blurEditInputs()
+			fm.returnToListPane()
 			return fm, nil
 		}
 		fm.busyMsg = "SAVING FOLDER..."
