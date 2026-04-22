@@ -1,6 +1,6 @@
 # Tide
 
-[Watch the Tide demo](tide.mp4)
+![Tide demo](tide.gif)
 
 A terminal RSS reader built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lipgloss](https://github.com/charmbracelet/lipgloss).
 
