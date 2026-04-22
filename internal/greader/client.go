@@ -13,6 +13,7 @@ import (
 	"time"
 )
 
+// Client speaks the Google Reader-compatible API used by FreshRSS and similar servers. -allie
 type Client struct {
 	BaseURL    string
 	Login      string
@@ -23,6 +24,7 @@ type Client struct {
 	csrfToken string
 }
 
+// Subscription is the remote feed shape Tide imports into its local sidebar model. -allie
 type Subscription struct {
 	ID       string
 	Title    string
@@ -31,6 +33,7 @@ type Subscription struct {
 	Category string
 }
 
+// Entry is a remote article after Reader API fields are normalized for Tide. -allie
 type Entry struct {
 	ID          string
 	StreamID    string
@@ -41,6 +44,7 @@ type Entry struct {
 	Read        bool
 }
 
+// QuickAddResult captures the stream identity returned when a server subscribes to a feed URL. -allie
 type QuickAddResult struct {
 	Query      string
 	StreamID   string

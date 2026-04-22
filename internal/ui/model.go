@@ -85,12 +85,15 @@ type Model struct {
 	db  *db.DB
 	cfg config.Config
 
+	// Runtime services are kept on the model so commands can snapshot what they need before running async. -allie
 	currentVersion string
 	updater        *update.Updater
 
+	// Layout and focus are the root of every render decision; pane state should stay independent of overlays. -allie
 	width, height int
 	focused       pane
 
+	// Feed pane state owns the sidebar projection, while feeds/folders remain the source data from DB + remote source. -allie
 	// Feed pane
 	feeds            []db.Feed
 	folders          []db.Folder
@@ -98,6 +101,7 @@ type Model struct {
 	sidebarCursor    int
 	collapsedFolders map[int64]bool
 
+	// Article pane keeps the unfiltered cache and current filtered projection so search/unread toggles do not re-query. -allie
 	// Article pane
 	articles         []db.Article
 	filteredArticles []db.Article
@@ -137,6 +141,7 @@ type Model struct {
 	spinner     spinner.Model
 	mdConverter *md.Converter
 
+	// Startup selection is deferred until FeedsLoadedMsg so feed-manager saves can select rows after reload. -allie
 	firstLoad           bool  // true until the initial FeedsLoadedMsg is processed
 	pendingSelectFeedID int64 // select this feed when FeedsLoadedMsg arrives
 	keys                KeyMap
@@ -148,6 +153,7 @@ type Model struct {
 	greaderClient  *greader.Client
 	greaderStreams map[int64]string
 
+	// Update fields mirror Settings state so background checks, prompts, and modal actions share one lifecycle. -allie
 	// Update flow
 	updateState          updateState
 	updateInfo           update.ReleaseInfo
@@ -231,6 +237,7 @@ func (m Model) Init() tea.Cmd {
 // ── Update ───────────────────────────────────────────────────────────────────
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Update handles async results before key routing so completed commands cannot be swallowed by modal focus. -allie
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
@@ -360,6 +367,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case FeedsLoadedMsg:
+		// Reloads preserve the user's sidebar intent, unless a save flow requested a specific feed selection. -allie
 		if msg.Err != nil && len(msg.Feeds) == 0 && len(msg.Folders) == 0 && len(msg.RemoteStreams) == 0 {
 			m.greaderStreams = map[int64]string{}
 			m.feeds = nil
@@ -447,6 +455,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case ArticlesLoadedMsg:
+		// Ignore stale article loads from a previously selected feed; async loads can race with sidebar movement. -allie
 		if msg.Err != nil {
 			if selected := m.selectedFeed(); selected != nil && msg.FeedID == selected.ID {
 				m.clearArticles()
@@ -491,6 +500,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		cmds := []tea.Cmd{}
+		// Successful refreshes update storage first; the visible pane reloads from DB afterward to keep filters consistent. -allie
 		for _, a := range msg.Articles {
 			if err := m.db.UpsertArticle(a); err != nil {
 				continue
@@ -806,6 +816,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Modal overlays get first claim on keys so main-pane shortcuts cannot leak through dialogs. -allie
 	// Overlay / window takes priority
 	if m.overlay != overlayNone {
 		return m.handleOverlayKey(msg)
@@ -847,6 +858,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focused == paneFeeds {
 			return m, nil
 		}
+		// Preserve the current article when the filter toggles, falling back only if that article disappears. -allie
 		m.showUnreadOnly = !m.showUnreadOnly
 		var currentID int64
 		if len(m.filteredArticles) > 0 {
@@ -1184,6 +1196,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Settings previews theme changes live, but only commits them to config when the overlay finishes with Save. -allie
 	prevThemeIdx := m.settings.themeIdx
 	newS, cmd, done := m.settings.Update(msg, m.keys)
 	m.settings = newS
@@ -1292,6 +1305,7 @@ func (m Model) handleSummaryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleFeedManager(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// The manager owns edit-mode details; the root model only syncs source data and final selection on exit. -allie
 	fm := m.feedManager
 	fm.syncTextInputWidthsForRightPane(feedManagerRightPaneWidth(m.width))
 	newFM, cmd, exit := fm.Update(msg, m.keys)

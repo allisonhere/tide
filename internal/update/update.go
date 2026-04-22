@@ -20,6 +20,7 @@ const defaultReleasesURL = "https://api.github.com/repos/allisonhere/tide/releas
 // SuggestedManualInstallScript is shown when an update is available but the running binary's install directory is not writable (before any download/install attempt).
 const SuggestedManualInstallScript = "curl -fsSL https://raw.githubusercontent.com/allisonhere/tide/main/install.sh | sh"
 
+// Updater checks GitHub releases and installs the asset matching the current platform. -allie
 type Updater struct {
 	ReleasesURL string
 	HTTPClient  *http.Client
@@ -27,6 +28,7 @@ type Updater struct {
 	GOARCH      string
 }
 
+// ReleaseInfo is the normalized release and asset metadata the UI needs after a check. -allie
 type ReleaseInfo struct {
 	Version     string
 	PublishedAt time.Time
@@ -36,18 +38,21 @@ type ReleaseInfo struct {
 	DownloadURL string
 }
 
+// CheckResult reports whether a newer stable release is available for the running version. -allie
 type CheckResult struct {
 	CurrentVersion string
 	Latest         ReleaseInfo
 	Available      bool
 }
 
+// DownloadedAsset points at the extracted update payload staged for installation. -allie
 type DownloadedAsset struct {
 	Release     ReleaseInfo
 	ArchivePath string
 	BinaryPath  string
 }
 
+// InstallResult tells the UI whether Tide was replaced directly or needs a manual command. -allie
 type InstallResult struct {
 	Version        string
 	ExecutablePath string

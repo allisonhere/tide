@@ -25,6 +25,7 @@ import (
 type fmMode int
 
 const (
+	// Modes are mutually exclusive screens; pane focus only matters inside fmList/fmEdit split layouts. -allie
 	fmList fmMode = iota
 	fmEdit
 	fmFolderEdit
@@ -48,6 +49,7 @@ const (
 )
 
 type fmRow struct {
+	// Rows are a render/navigation projection, not storage; folder/feed ordering is rebuilt from current data. -allie
 	kind     fmRowKind
 	folderID int64
 	feedID   int64
@@ -72,6 +74,7 @@ const (
 var fmAddSourceLabels = []string{"Local", "GReader"}
 
 type feedManagerSource interface {
+	// Sources let the same manager browse local DB feeds or read-only remote subscription snapshots. -allie
 	Load() ([]db.Feed, []db.Folder, error)
 	Name() string
 	Editable() bool
@@ -118,6 +121,7 @@ func (s staticFeedManagerSource) Name() string { return s.name }
 func (s staticFeedManagerSource) Editable() bool { return s.editable }
 
 type FeedManager struct {
+	// Persistent data and row projection are separated so edits can reload without losing navigation state. -allie
 	db               *db.DB
 	source           feedManagerSource
 	feeds            []db.Feed
@@ -138,6 +142,7 @@ type FeedManager struct {
 	greaderURLInput      textinput.Model
 	greaderLoginInput    textinput.Model
 	greaderPasswordInput textinput.Model
+	// focusedField uses sentinel values for picker/back rows so keyboard movement stays linear across mixed controls. -allie
 	focusedField         int // 0=title, 1=url, 2=folder, 3=new folder, 4=color
 	addSourceIdx         int
 	folderCursor         int
@@ -260,6 +265,7 @@ func (fm FeedManager) managerRows() []fmRow {
 }
 
 func buildFeedManagerRows(feeds []db.Feed, folders []db.Folder) []fmRow {
+	// Folder rows emit their child feeds immediately so keyboard order matches the visual tree. -allie
 	rows := make([]fmRow, 0, len(feeds)+len(folders))
 	folderIDs := make(map[int64]bool, len(folders))
 	for _, folder := range folders {
@@ -366,6 +372,7 @@ func (fm *FeedManager) setBrowseOnlyStatus() {
 }
 
 func (fm *FeedManager) focusAdd() {
+	// Add starts on the back/section control so users can choose Local vs GReader before entering fields. -allie
 	fm.mode = fmEdit
 	fm.paneFocus = fmPaneDetail
 	fm.editTarget = 0
@@ -723,6 +730,7 @@ func (fm *FeedManager) blurEditInputs() {
 }
 
 func (fm FeedManager) editFieldOrder() []int {
+	// Field order is generated from current form state because GReader and new-folder paths expose different controls. -allie
 	if fm.remoteSettingsEdit {
 		return []int{fmFieldBack, fmFieldGReaderURL, fmFieldGReaderLogin, fmFieldGReaderPassword}
 	}
@@ -891,6 +899,7 @@ func (fm FeedManager) Update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd, bo
 }
 
 func (fm FeedManager) update(msg tea.Msg, keys KeyMap) (FeedManager, tea.Cmd) {
+	// Non-key messages are routed to focused inputs first so cursor blink and textinput internals keep working. -allie
 	// Route non-key messages to the focused textinput (cursor blink ticks etc.)
 	if _, ok := msg.(tea.KeyMsg); !ok {
 		if fm.busy {
@@ -1416,6 +1425,7 @@ func validateHTTPURL(raw string, fieldName string) error {
 }
 
 func (fm *FeedManager) saveCmd() tea.Cmd {
+	// Snapshot form values before returning the command; Bubble Tea may keep mutating the manager while it runs. -allie
 	rawURL := strings.TrimSpace(fm.urlInput.Value())
 	newFolderName := strings.TrimSpace(fm.newFolderInput.Value())
 	greaderURL := strings.TrimSpace(fm.greaderURLInput.Value())
@@ -1431,6 +1441,7 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 
 	return func() tea.Msg {
 		if remoteSettingsEdit {
+			// Editing a remote feed updates shared GReader credentials, not the remote subscription placement. -allie
 			if err := validateHTTPURL(greaderURL, "API URL"); err != nil {
 				return RemoteFeedAddedMsg{Err: err}
 			}
@@ -1456,6 +1467,7 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 		}
 
 		if editTarget == 0 && addSourceIdx == fmAddSourceGReader {
+			// Blank feed URL means "connect and import existing subscriptions"; a filled URL quick-adds one feed. -allie
 			if err := validateHTTPURL(greaderURL, "API URL"); err != nil {
 				return RemoteFeedAddedMsg{Err: err}
 			}
@@ -1520,6 +1532,7 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 		}
 
 		if editTarget != 0 {
+			// Existing local feeds keep their discovered title; this form edits URL and folder placement only. -allie
 			current, err := database.GetFeed(editTarget)
 			if err != nil {
 				return FeedSavedMsg{Err: err}
@@ -2441,6 +2454,7 @@ func renderManagerDetailColumn(width int, sections []string, chrome managerChrom
 }
 
 func renderManagerPanel(width int, content string, chrome managerChrome) string {
+	// Panel rows are padded before boxing so ANSI resets inside content cannot expose terminal background at the edge. -allie
 	panelW := max(1, width-4) // total width incl. padding, excl. border
 	textW := max(1, panelW-2) // subtract Padding(0,1) on each side
 	bgStyle := lipgloss.NewStyle().Background(chrome.surfaceBg)
@@ -2466,6 +2480,7 @@ func renderManagerReadOnlyLine(width int, content string, chrome managerChrome) 
 }
 
 func renderTextInput(input textinput.Model, width int, focused bool, compactSecretPreview bool, chrome managerChrome) string {
+	// Input rendering owns every cell's background because bubbles textinput emits plain spaces and ANSI resets. -allie
 	// Layout: border(1) | pad(1) | content(contentW) | pad(1)  →  total = width
 	// bubbles input.Width is the text-only area (prompt "> " = 2 chars excluded).
 	fieldBg := chrome.fieldBg

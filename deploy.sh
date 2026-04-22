@@ -16,6 +16,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DIST_DIR="$PROJECT_DIR/dist"
 BINARY_NAME="tide"
 REPO="allisonhere/tide"
+GITHUB_FILE_LIMIT_BYTES=$((100 * 1024 * 1024))
 
 STEP_START=0
 TOTAL_START=0
@@ -183,6 +184,25 @@ commit_changes() {
   else
     print_substep "Staging and committing changes..."
     git add -A
+    local skipped=0
+    while IFS= read -r path; do
+      if [ -f "$path" ]; then
+        local size
+        size=$(wc -c <"$path" | tr -d ' ')
+        if [ "$size" -gt "$GITHUB_FILE_LIMIT_BYTES" ]; then
+          git restore --staged -- "$path" 2>/dev/null || git reset -q HEAD -- "$path"
+          print_warning "Skipped $path ($(du -h "$path" | cut -f1)); GitHub rejects files over 100 MB"
+          skipped=1
+        fi
+      fi
+    done < <(git diff --cached --name-only)
+    if [ "$skipped" -eq 1 ]; then
+      print_info "Skipped files remain in your working tree; commit them with Git LFS or shrink/remove them before release"
+    fi
+    if git diff --cached --quiet; then
+      print_info "No committable changes after skipping oversized files"
+      return 0
+    fi
     git commit -m "chore: release $VERSION"
     print_success "Committed: release $VERSION"
   fi
