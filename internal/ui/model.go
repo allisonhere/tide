@@ -2573,6 +2573,15 @@ func (m *Model) restoreCachedUpdateState() {
 		m.clearCachedAvailableUpdate()
 		return
 	}
+	if m.cfg.Updates.LastCheckedUnix > 0 && m.cfg.Updates.CheckIntervalHours > 0 {
+		interval := time.Duration(m.cfg.Updates.CheckIntervalHours) * time.Hour
+		lastChecked := time.Unix(m.cfg.Updates.LastCheckedUnix, 0)
+		if time.Since(lastChecked) > interval {
+			m.clearCachedAvailableUpdate()
+			m.cfg.Updates.LastCheckedUnix = 0
+			return
+		}
+	}
 	publishedAt := time.Time{}
 	if m.cfg.Updates.AvailablePublished > 0 {
 		publishedAt = time.Unix(m.cfg.Updates.AvailablePublished, 0)
