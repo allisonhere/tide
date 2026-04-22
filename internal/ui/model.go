@@ -1629,7 +1629,7 @@ func (m Model) renderStatusBar() string {
 				parts = append(parts, m.statusBarInlineText(sb, fmt.Sprintf("%d unread", f.UnreadCount)))
 			}
 			if !f.LastFetched.IsZero() && f.LastFetched.Unix() > 0 {
-				parts = append(parts, m.statusBarInlineText(sb, "updated "+relativeTime(f.LastFetched)))
+				parts = append(parts, m.statusBarInlineText(sb, "fetched "+relativeTime(f.LastFetched)))
 			}
 		} else if folderID, ok := m.selectedFolderID(); ok {
 			parts = append(parts, m.statusBarInlineText(sb, m.folderName(folderID)))
@@ -2045,13 +2045,9 @@ func (m *Model) maybeCheckForUpdatesCmd(manual bool) tea.Cmd {
 	if !m.cfg.Updates.CheckOnStartup {
 		return nil
 	}
-	lastChecked := time.Unix(m.cfg.Updates.LastCheckedUnix, 0)
-	if m.cfg.Updates.LastCheckedUnix > 0 {
-		interval := time.Duration(m.cfg.Updates.CheckIntervalHours) * time.Hour
-		if interval > 0 && time.Since(lastChecked) < interval {
-			return nil
-		}
-	}
+	// Always run the startup check when enabled: the banner is check-first and
+	// does not trust cached results, so skipping here would leave the user
+	// without any update signal for up to CheckIntervalHours. -allie
 	return m.checkForUpdatesCmd(false)
 }
 
@@ -2565,35 +2561,10 @@ func (m *Model) dismissAvailableUpdate() tea.Cmd {
 }
 
 func (m *Model) restoreCachedUpdateState() {
-	version := strings.TrimSpace(m.cfg.Updates.AvailableVersion)
-	if version == "" {
-		return
-	}
-	if !update.IsNewerVersion(version, m.currentVersion) {
-		m.clearCachedAvailableUpdate()
-		return
-	}
-	if m.cfg.Updates.LastCheckedUnix > 0 && m.cfg.Updates.CheckIntervalHours > 0 {
-		interval := time.Duration(m.cfg.Updates.CheckIntervalHours) * time.Hour
-		lastChecked := time.Unix(m.cfg.Updates.LastCheckedUnix, 0)
-		if time.Since(lastChecked) > interval {
-			m.clearCachedAvailableUpdate()
-			m.cfg.Updates.LastCheckedUnix = 0
-			return
-		}
-	}
-	publishedAt := time.Time{}
-	if m.cfg.Updates.AvailablePublished > 0 {
-		publishedAt = time.Unix(m.cfg.Updates.AvailablePublished, 0)
-	}
-	m.updateInfo = update.ReleaseInfo{
-		Version:     version,
-		Summary:     strings.TrimSpace(m.cfg.Updates.AvailableSummary),
-		PublishedAt: publishedAt,
-	}
-	m.updateInfoFresh = false
-	m.updateState = updateStateAvailable
-	m.updateDismissed = version == m.cfg.Updates.DismissedVersion
+	// Banner is check-first: we never surface an update banner from cached config
+	// alone, only after a live GitHub check in this session. Clear any stale
+	// cached "available_*" values so they cannot resurface. -allie
+	m.clearCachedAvailableUpdate()
 }
 
 func (m *Model) clearCachedAvailableUpdate() {

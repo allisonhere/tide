@@ -3174,7 +3174,7 @@ func TestUpdateCheckedMsgMarksAvailableRelease(t *testing.T) {
 	}
 }
 
-func TestNewModelRestoresCachedAvailableUpdate(t *testing.T) {
+func TestNewModelDoesNotShowBannerFromCachedUpdate(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
 		t.Skip("cannot open DB:", err)
@@ -3188,14 +3188,14 @@ func TestNewModelRestoresCachedAvailableUpdate(t *testing.T) {
 
 	m := NewModel(database, cfg, "v1.0.0", false)
 
-	if m.updateState != updateStateAvailable {
-		t.Fatalf("expected cached update to restore available state, got %v", m.updateState)
+	if m.updateState == updateStateAvailable {
+		t.Fatalf("expected cached update NOT to surface banner; got updateStateAvailable")
 	}
-	if m.updateInfo.Version != "v1.1.0" {
-		t.Fatalf("expected cached update version v1.1.0, got %q", m.updateInfo.Version)
+	if m.updateInfo.Version != "" {
+		t.Fatalf("expected no cached update info to populate; got %q", m.updateInfo.Version)
 	}
-	if m.updateInfoFresh {
-		t.Fatal("expected restored cached update to remain marked as stale")
+	if m.cfg.Updates.AvailableVersion != "" {
+		t.Fatalf("expected cached available_version to be cleared, got %q", m.cfg.Updates.AvailableVersion)
 	}
 }
 
