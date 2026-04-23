@@ -33,6 +33,7 @@ const (
 	sfDateFormat
 	sfMarkReadOnOpen
 	sfDefaultUnreadOnly
+	sfActionableLinks
 	sfDisplayDensity
 	sfBrowser
 	sfFeedMaxBody
@@ -151,6 +152,7 @@ type Settings struct {
 	dateAbsolute         bool // false = relative, true = absolute
 	markReadOnOpen       bool
 	defaultUnreadOnly    bool
+	actionableLinks      bool
 	layoutDensityIdx     int // 0 = comfortable, 1 = compact
 	browserInput         textinput.Model
 	feedMaxBodyInput     textinput.Model
@@ -225,6 +227,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		dateAbsolute:         cfg.Display.DateFormat == "absolute",
 		markReadOnOpen:       cfg.Display.MarkReadOnOpen,
 		defaultUnreadOnly:    cfg.Display.DefaultUnreadOnly,
+		actionableLinks:      cfg.Display.ActionableLinks,
 		layoutDensityIdx:     layoutIdx,
 		browserInput:         mkInput(cfg.Display.Browser, "xdg-open", false),
 		feedMaxBodyInput:     mkInput(strconv.Itoa(cfg.Feed.MaxBodyMiB), "10", false),
@@ -277,6 +280,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	}
 	cfg.Display.MarkReadOnOpen = s.markReadOnOpen
 	cfg.Display.DefaultUnreadOnly = s.defaultUnreadOnly
+	cfg.Display.ActionableLinks = s.actionableLinks
 	if s.layoutDensityIdx == 1 {
 		cfg.Display.Density = "compact"
 	} else {
@@ -456,7 +460,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
-		return append(fields, sfBrowser)
+		return append(fields, sfActionableLinks, sfBrowser)
 	case ssFeeds:
 		return []settingsField{sfBackToSections, sfFeedMaxBody}
 	case ssUpdates:
@@ -907,6 +911,15 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
+	case sfActionableLinks:
+		if key.String() == " " || keyMatches(key, keys.Enter) {
+			s.actionableLinks = !s.actionableLinks
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
 	case sfMarkReadOnSummarize:
 		if key.String() == " " || keyMatches(key, keys.Enter) {
 			s.markReadOnSummarize = !s.markReadOnSummarize
@@ -1257,6 +1270,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 			}
 			addLine(blank)
 		}
+		addToggle("Actionable article links", s.actionableLinks, sfActionableLinks)
 		addInput("Browser command", s.browserInput, sfBrowser)
 
 	case ssFeeds:
@@ -1819,6 +1833,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "leave blank to use the built-in palette for this theme"
 	case sfDisplayDensity:
 		return "comfortable adds vertical spacing in lists; compact fits more rows on small terminals"
+	case sfActionableLinks:
+		return "enable ctrl+n / ctrl+p to select links in article content; o opens selected link"
 	case sfUpdateManualCommand:
 		return "enter or c copies the command"
 	default:

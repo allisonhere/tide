@@ -1,12 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
-	"bytes"
 	"os"
 	"time"
 )

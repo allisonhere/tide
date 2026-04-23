@@ -33,12 +33,12 @@ type FeedSavedMsg struct {
 	Err  error
 }
 type RemoteFeedAddedMsg struct {
-	StreamID  string
-	Title     string
-	FeedCount int
+	StreamID     string
+	Title        string
+	FeedCount    int
 	SettingsOnly bool
-	Source    config.SourceConfig
-	Err       error
+	Source       config.SourceConfig
+	Err          error
 }
 type FeedDeletedMsg struct {
 	FeedID int64

@@ -111,7 +111,9 @@ type Model struct {
 	showUnreadOnly   bool
 
 	// Content pane
-	viewport viewport.Model
+	viewport       viewport.Model
+	contentLinks   []string
+	contentLinkIdx int
 
 	// Help overlay
 	helpVP viewport.Model
@@ -215,6 +217,7 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string, preview
 		keys:                  DefaultKeys,
 		summarizer:            summarizer,
 		showUnreadOnly:        cfg.Display.DefaultUnreadOnly,
+		contentLinkIdx:        -1,
 	}
 	m.resetSourceClient()
 	m.restoreCachedUpdateState()
@@ -246,7 +249,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport = viewport.New(m.contentBodyWidth(), m.contentBodyHeight())
 		m.viewport.Style = lipgloss.NewStyle()
 		if len(m.filteredArticles) > 0 {
-			m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+			m.setViewportArticle(m.filteredArticles[m.articleCursor])
 		}
 		if m.overlay == overlayHelp {
 			m.resetHelpVP()
@@ -470,7 +473,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.listOffset = 0
 			var cmd tea.Cmd
 			if len(m.filteredArticles) > 0 {
-				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+				m.setViewportArticle(m.filteredArticles[m.articleCursor])
 				m.viewport.GotoTop()
 				cmd = m.maybeFetchArticleContentCmd(m.filteredArticles[m.articleCursor])
 			}
@@ -691,7 +694,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.filteredArticles) == 0 {
 			m.articleCursor = 0
 			m.listOffset = 0
-			m.viewport.SetContent("")
+			m.clearViewportArticle()
 			return m, nil
 		}
 
@@ -876,9 +879,9 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setStatus("showing all articles", false)
 		}
 		if len(m.filteredArticles) > 0 {
-			m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+			m.setViewportArticle(m.filteredArticles[m.articleCursor])
 		} else {
-			m.viewport.SetContent("")
+			m.clearViewportArticle()
 		}
 		return m, m.clearStatusCmd()
 
@@ -969,7 +972,32 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, m.keys.OpenBrowser):
 		if len(m.filteredArticles) > 0 {
+			if m.focused == paneContent {
+				if link, ok := m.currentContentLink(); ok {
+					return m, m.openBrowserCmd(link)
+				}
+			}
 			return m, m.openBrowserCmd(m.filteredArticles[m.articleCursor].Link)
+		}
+		return m, nil
+
+	case keyMatches(msg, m.keys.NextLink):
+		if m.focused == paneContent && m.actionableLinksEnabled() {
+			m.stepContentLink(1)
+			if len(m.filteredArticles) > 0 {
+				m.setViewportArticle(m.filteredArticles[m.articleCursor])
+				m.viewport.GotoBottom()
+			}
+		}
+		return m, nil
+
+	case keyMatches(msg, m.keys.PrevLink):
+		if m.focused == paneContent && m.actionableLinksEnabled() {
+			m.stepContentLink(-1)
+			if len(m.filteredArticles) > 0 {
+				m.setViewportArticle(m.filteredArticles[m.articleCursor])
+				m.viewport.GotoBottom()
+			}
 		}
 		return m, nil
 
@@ -1031,7 +1059,7 @@ func (m Model) handleUp() (tea.Model, tea.Cmd) {
 				m.listOffset = m.articleCursor
 			}
 			if len(m.filteredArticles) > 0 {
-				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+				m.setViewportArticle(m.filteredArticles[m.articleCursor])
 				m.viewport.GotoTop()
 				return m, m.maybeFetchArticleContentCmd(m.filteredArticles[m.articleCursor])
 			}
@@ -1060,7 +1088,7 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 				m.listOffset = m.articleCursor - visible + 1
 			}
 			if len(m.filteredArticles) > 0 {
-				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+				m.setViewportArticle(m.filteredArticles[m.articleCursor])
 				m.viewport.GotoTop()
 				return m, m.maybeFetchArticleContentCmd(m.filteredArticles[m.articleCursor])
 			}
@@ -1112,7 +1140,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.activeTheme = m.themeCursor
 				m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density)
 				if len(m.filteredArticles) > 0 {
-					m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+					m.setViewportArticle(m.filteredArticles[m.articleCursor])
 				}
 			}
 		case keyMatches(msg, m.keys.Down):
@@ -1121,7 +1149,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.activeTheme = m.themeCursor
 				m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density)
 				if len(m.filteredArticles) > 0 {
-					m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+					m.setViewportArticle(m.filteredArticles[m.articleCursor])
 				}
 			}
 		case keyMatches(msg, m.keys.Confirm):
@@ -1130,14 +1158,14 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cfg.Theme = BuiltinThemes[m.confirmedTheme].Name
 			config.Save(m.cfg)
 			if len(m.filteredArticles) > 0 {
-				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+				m.setViewportArticle(m.filteredArticles[m.articleCursor])
 			}
 		case keyMatches(msg, m.keys.Cancel):
 			m.activeTheme = m.confirmedTheme
 			m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density)
 			m.overlay = overlayNone
 			if len(m.filteredArticles) > 0 {
-				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+				m.setViewportArticle(m.filteredArticles[m.articleCursor])
 			}
 		}
 		if m.activeTheme != prevTheme {
@@ -1206,7 +1234,7 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if tickChanged && !done {
 		m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.settings.themeIdx), m.cfg.Display.Density)
 		if len(m.filteredArticles) > 0 {
-			m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+			m.setViewportArticle(m.filteredArticles[m.articleCursor])
 		}
 		cmd = tea.Batch(cmd, setTermBgCmd(m.styles.Theme.Bg))
 	}
@@ -1267,6 +1295,11 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			summarizer, _ := ai.New(m.cfg.AI)
 			m.summarizer = summarizer
 			m.resetSourceClient()
+			if len(m.filteredArticles) > 0 {
+				m.setViewportArticle(m.filteredArticles[m.articleCursor])
+			} else {
+				m.clearViewportArticle()
+			}
 			m.overlay = overlayNone
 			m.sidebarCursor = 0
 			m.articleCursor = 0
@@ -1278,7 +1311,7 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			merged, _ := MergedThemeFromConfig(m.cfg)
 			m.styles = BuildStyles(merged, m.cfg.Display.Density)
 			if len(m.filteredArticles) > 0 {
-				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+				m.setViewportArticle(m.filteredArticles[m.articleCursor])
 			}
 			return m, setTermBgCmd(m.styles.Theme.Bg)
 		}
@@ -1518,6 +1551,9 @@ func (m Model) renderPaneHint(p pane) string {
 	case paneContent:
 		hint = m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " scroll  " +
 			m.keyHint(m.keys.OpenBrowser) + " open  " + m.keyHint(m.keys.Back) + " back"
+		if m.actionableLinksEnabled() && len(m.contentLinks) > 0 {
+			hint += "  " + m.keyHint(m.keys.PrevLink) + "/" + m.keyHint(m.keys.NextLink) + " links"
+		}
 	}
 	if hint == "" {
 		return ""
@@ -1592,13 +1628,104 @@ func (m Model) renderArticleContent(a db.Article) string {
 	}
 	body := indentBlock(m.styles.ContentBody.Width(bodyWidth).Render(formatArticleBody(content, bodyWidth, m.styles.PlainUI)), 1)
 
+	if m.actionableLinksEnabled() && len(m.contentLinks) > 0 {
+		body += "\n\n" + m.renderContentLinks(bodyWidth)
+	}
+
 	return fillViewWidth(title+"\n"+meta+"\n\n"+body, m.articlesPaneWidth(), m.styles.Theme.Bg)
+}
+
+func (m Model) renderContentLinks(width int) string {
+	lines := make([]string, 0, len(m.contentLinks)+1)
+	lines = append(lines, strings.ToUpper("Links"))
+	activeStyle := lipgloss.NewStyle().
+		Background(m.styles.Theme.BorderFocus).
+		Foreground(contrastFg(m.styles.Theme.BorderFocus)).
+		Bold(true)
+	for i, link := range m.contentLinks {
+		prefix := "  "
+		if i == m.contentLinkIdx {
+			prefix = "> "
+		}
+		line := truncate(prefix+link, max(8, width))
+		if i == m.contentLinkIdx {
+			line = activeStyle.Render(line)
+		}
+		lines = append(lines, line)
+	}
+	return indentBlock(m.styles.ContentBody.Width(width).Render(strings.Join(lines, "\n")), 1)
+}
+
+func (m Model) actionableLinksEnabled() bool {
+	return m.cfg.Display.ActionableLinks
+}
+
+func (m *Model) setViewportArticle(a db.Article) {
+	m.syncContentLinks(a)
+	m.viewport.SetContent(m.renderArticleContent(a))
+}
+
+func (m *Model) clearViewportArticle() {
+	m.viewport.SetContent("")
+	m.contentLinks = nil
+	m.contentLinkIdx = -1
+}
+
+func (m *Model) syncContentLinks(a db.Article) {
+	if !m.actionableLinksEnabled() {
+		m.contentLinks = nil
+		m.contentLinkIdx = -1
+		return
+	}
+
+	links := extractActionableLinks(a.Content, a.Link)
+	if len(links) == 0 {
+		m.contentLinks = nil
+		m.contentLinkIdx = -1
+		return
+	}
+
+	if cur, ok := m.currentContentLink(); ok {
+		for i, link := range links {
+			if link == cur {
+				m.contentLinks = links
+				m.contentLinkIdx = i
+				return
+			}
+		}
+	}
+
+	m.contentLinks = links
+	m.contentLinkIdx = 0
+}
+
+func (m *Model) stepContentLink(delta int) {
+	if len(m.contentLinks) == 0 {
+		m.contentLinkIdx = -1
+		return
+	}
+	if m.contentLinkIdx < 0 {
+		m.contentLinkIdx = 0
+	}
+	m.contentLinkIdx = (m.contentLinkIdx + delta + len(m.contentLinks)) % len(m.contentLinks)
+}
+
+func (m Model) currentContentLink() (string, bool) {
+	if len(m.contentLinks) == 0 || m.contentLinkIdx < 0 || m.contentLinkIdx >= len(m.contentLinks) {
+		return "", false
+	}
+	return m.contentLinks[m.contentLinkIdx], true
 }
 
 func (m Model) renderStatusBar() string {
 	w := m.width
 	updateInfoPart := m.statusUpdateInfoPart()
 	updateActionPart := m.statusUpdateActionPart()
+	linkPart := ""
+	if m.actionableLinksEnabled() && len(m.contentLinks) > 0 {
+		idx := clamp(m.contentLinkIdx, 0, len(m.contentLinks)-1) + 1
+		linkPart = m.statusBarInlineText(m.styles.StatusBar, fmt.Sprintf("link %d/%d", idx, len(m.contentLinks)))
+	}
 
 	if m.statusMsg != "" {
 		style := m.styles.StatusBar
@@ -1608,6 +1735,9 @@ func (m Model) renderStatusBar() string {
 		parts := []string{m.statusBarInlineText(style, m.statusMsg)}
 		if updateInfoPart != "" && !m.statusMsgCoversUpdateState() {
 			parts = append(parts, updateInfoPart)
+		}
+		if linkPart != "" {
+			parts = append(parts, linkPart)
 		}
 		parts = append(parts, m.statusBarKeyHintStrip())
 		return style.Width(w).Render(m.statusLine(m.statusBarJoin(parts...), updateActionPart))
@@ -1619,6 +1749,9 @@ func (m Model) renderStatusBar() string {
 
 	if updateInfoPart != "" {
 		parts = append(parts, updateInfoPart)
+	}
+	if linkPart != "" {
+		parts = append(parts, linkPart)
 	}
 
 	if len(m.feeds) > 0 {
@@ -2655,13 +2788,13 @@ func (m *Model) markFeedsReadInMemory(feedIDs []int64) {
 	if len(m.filteredArticles) == 0 {
 		m.articleCursor = 0
 		m.listOffset = 0
-		m.viewport.SetContent("")
+		m.clearViewportArticle()
 		return
 	}
 	m.articleCursor = clamp(m.articleCursor, 0, max(0, len(m.filteredArticles)-1))
 	maxOffset := max(0, len(m.filteredArticles)-1)
 	m.listOffset = clamp(m.listOffset, 0, maxOffset)
-	m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[m.articleCursor]))
+	m.setViewportArticle(m.filteredArticles[m.articleCursor])
 	m.viewport.GotoTop()
 }
 

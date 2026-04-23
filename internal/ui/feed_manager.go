@@ -143,12 +143,12 @@ type FeedManager struct {
 	greaderLoginInput    textinput.Model
 	greaderPasswordInput textinput.Model
 	// focusedField uses sentinel values for picker/back rows so keyboard movement stays linear across mixed controls. -allie
-	focusedField         int // 0=title, 1=url, 2=folder, 3=new folder, 4=color
-	addSourceIdx         int
-	folderCursor         int
-	showNewFolder        bool
-	colorCursor          int
-	remoteSettingsEdit   bool
+	focusedField       int // 0=title, 1=url, 2=folder, 3=new folder, 4=color
+	addSourceIdx       int
+	folderCursor       int
+	showNewFolder      bool
+	colorCursor        int
+	remoteSettingsEdit bool
 
 	shouldExit   bool
 	browseFeedID int64
@@ -189,9 +189,9 @@ func newFeedManager(database *db.DB, source feedManagerSource, sourceCfg config.
 	title.Placeholder = "Feed title"
 	title.CharLimit = 200
 
-	u := textinput.New()
-	u.Placeholder = "https://example.com/feed.xml"
-	u.CharLimit = 500
+	urlInput := textinput.New()
+	urlInput.Placeholder = "https://example.com/feed.xml"
+	urlInput.CharLimit = 500
 
 	imp := textinput.New()
 	imp.Placeholder = "path to .opml file"
@@ -223,7 +223,7 @@ func newFeedManager(database *db.DB, source feedManagerSource, sourceCfg config.
 		source:               source,
 		collapsedFolders:     map[int64]bool{},
 		titleInput:           title,
-		urlInput:             u,
+		urlInput:             urlInput,
 		importInput:          imp,
 		newFolderInput:       newFolder,
 		greaderURLInput:      greaderURL,
@@ -430,6 +430,25 @@ func (fm *FeedManager) focusRemoteSettingsEdit(feed db.Feed) {
 	fm.busy = false
 	fm.busyMsg = ""
 	fm.focusCurrentEditField()
+}
+
+func (fm *FeedManager) focusLocalFeedEdit(feed db.Feed) {
+	fm.editTarget = feed.ID
+	fm.folderEditTarget = 0
+	fm.remoteSettingsEdit = false
+	fm.statusMsg = ""
+	fm.busy = false
+	fm.busyMsg = ""
+	fm.titleInput.Reset()
+	fm.titleInput.SetValue(feed.Title)
+	fm.urlInput.Reset()
+	fm.urlInput.SetValue(feed.URL)
+	fm.newFolderInput.Reset()
+	fm.focusedField = fmFieldBack
+	fm.setFolderCursorForID(feed.FolderID)
+	fm.focusCurrentEditField()
+	fm.mode = fmEdit
+	fm.paneFocus = fmPaneDetail
 }
 
 func (fm *FeedManager) focusFolderEdit(folder db.Folder) {
@@ -994,22 +1013,7 @@ func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 					fm.focusRemoteSettingsEdit(*f)
 					return fm, nil
 				}
-				fm.editTarget = f.ID
-				fm.folderEditTarget = 0
-				fm.remoteSettingsEdit = false
-				fm.statusMsg = ""
-				fm.busy = false
-				fm.busyMsg = ""
-				fm.titleInput.Reset()
-				fm.titleInput.SetValue(f.Title)
-				fm.urlInput.Reset()
-				fm.urlInput.SetValue(f.URL)
-				fm.newFolderInput.Reset()
-				fm.focusedField = fmFieldBack
-				fm.setFolderCursorForID(f.FolderID)
-				fm.focusCurrentEditField()
-				fm.mode = fmEdit
-				fm.paneFocus = fmPaneDetail
+				fm.focusLocalFeedEdit(*f)
 			}
 		}
 
@@ -1039,22 +1043,7 @@ func (fm FeedManager) updateList(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 					fm.shouldExit = true
 					return fm, nil
 				}
-				fm.editTarget = f.ID
-				fm.folderEditTarget = 0
-				fm.remoteSettingsEdit = false
-				fm.statusMsg = ""
-				fm.busy = false
-				fm.busyMsg = ""
-				fm.titleInput.Reset()
-				fm.titleInput.SetValue(f.Title)
-				fm.urlInput.Reset()
-				fm.urlInput.SetValue(f.URL)
-				fm.newFolderInput.Reset()
-				fm.focusedField = fmFieldBack
-				fm.setFolderCursorForID(f.FolderID)
-				fm.focusCurrentEditField()
-				fm.mode = fmEdit
-				fm.paneFocus = fmPaneDetail
+				fm.focusLocalFeedEdit(*f)
 			}
 		}
 

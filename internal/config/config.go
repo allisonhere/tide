@@ -29,6 +29,7 @@ type DisplayConfig struct {
 	DateFormat        string             `toml:"date_format"` // "relative" | "absolute"
 	MarkReadOnOpen    bool               `toml:"mark_read_on_open"`
 	DefaultUnreadOnly bool               `toml:"default_unread_only"`
+	ActionableLinks   bool               `toml:"actionable_links"`
 	Browser           string             `toml:"browser"`
 	Density           string             `toml:"density"` // "comfortable" | "compact"
 	VT52              RetroTerminalTweak `toml:"vt52"`

@@ -38,7 +38,9 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 			entries: []entry{
 				{keys.MarkRead.Help().Key, "mark read; next article in list"},
 				{keys.MarkAllRead.Help().Key, "mark current feed as read"},
-				{keys.OpenBrowser.Help().Key, "open selected article in browser"},
+				{keys.OpenBrowser.Help().Key, "open selected link (content) or article URL"},
+				{keys.NextLink.Help().Key, "next actionable link in content"},
+				{keys.PrevLink.Help().Key, "previous actionable link in content"},
 				{keys.Search.Help().Key, "search articles in current feed"},
 				{keys.UnreadOnly.Help().Key, "toggle unread-only view"},
 			},
@@ -70,6 +72,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 			name: "Display",
 			entries: []entry{
 				{"S → Display", "layout density: comfortable or compact (default compact)"},
+				{"S → Display", "actionable article links: show links block and enable link navigation"},
 			},
 		},
 		{

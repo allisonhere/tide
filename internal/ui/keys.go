@@ -17,6 +17,8 @@ type KeyMap struct {
 	MarkRead    key.Binding
 	MarkAllRead key.Binding
 	OpenBrowser key.Binding
+	NextLink    key.Binding
+	PrevLink    key.Binding
 	Search      key.Binding
 	UnreadOnly  key.Binding
 
@@ -61,6 +63,8 @@ var DefaultKeys = KeyMap{
 	MarkRead:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "mark read")),
 	MarkAllRead: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "mark all read")),
 	OpenBrowser: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open in browser")),
+	NextLink:    key.NewBinding(key.WithKeys("ctrl+n", "alt+n"), key.WithHelp("ctrl+n", "next link")),
+	PrevLink:    key.NewBinding(key.WithKeys("ctrl+p", "alt+p"), key.WithHelp("ctrl+p", "prev link")),
 	Search:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 	UnreadOnly:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle unread only")),
 

@@ -33,7 +33,7 @@ func TestAccentReadableOnDarkensPastelOnLightBg(t *testing.T) {
 
 func TestAccentReadableOnLightensOnDarkBg(t *testing.T) {
 	accent := lipgloss.Color("#1e2030") // very dark
-	bg := lipgloss.Color("#1e1e2e")      // dark pane
+	bg := lipgloss.Color("#1e1e2e")     // dark pane
 	if contrastRatio(accent, bg) >= 3 {
 		t.Skip("accent already readable on bg")
 	}

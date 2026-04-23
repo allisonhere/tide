@@ -15,6 +15,7 @@ A terminal RSS reader built with [Bubble Tea](https://github.com/charmbracelet/b
 - Google Reader-compatible source support, including FreshRSS
 - Article search and filter
 - Mark read/unread, open in browser
+- Optional actionable links in content pane (Settings → Display)
 - AI summaries with copy and save-to-Markdown actions
 - 17 built-in themes
 - Terminal background sync (OSC 11)
@@ -112,6 +113,7 @@ Display options:
 - Toggle Unicode icons for pane headers and item state markers
 - Switch between relative and absolute dates
 - Toggle mark-read-on-open
+- Toggle actionable article links (shows a `LINKS` block in content pane)
 - **Layout density:** comfortable (extra vertical spacing in lists) or **compact** (default; more rows on small terminals)
 - Set a custom browser command
 
@@ -181,6 +183,7 @@ theme = "catppuccin-mocha"
 icons = false
 date_format = "relative"
 mark_read_on_open = true
+actionable_links = false
 browser = ""
 density = "compact"
 
@@ -233,8 +236,12 @@ Tide can check GitHub releases for a newer version and install the matching bina
 |-----|--------|
 | `r` | Toggle read/unread |
 | `R` | Mark all read |
-| `o` | Open in browser |
+| `o` | Open selected content link (when enabled) or article URL |
+| `Ctrl+N` / `Alt+N` | Next actionable link in content pane |
+| `Ctrl+P` / `Alt+P` | Previous actionable link in content pane |
 | `/` | Search |
+
+When `Display → Actionable article links` is enabled, the content pane renders a `LINKS` block at the bottom. The currently selected link is highlighted and opened with `o`.
 
 ### AI Summary
 | Key | Action |
