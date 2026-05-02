@@ -1144,13 +1144,10 @@ func (s Settings) saveAndExit() (Settings, tea.Cmd, bool) {
 
 func (s Settings) View(width, height int, chrome managerChrome) string {
 	header := renderManagerHeader("SETTINGS", width, chrome)
-	var headerBlock string
-	if s.saveBlockedByAIFormat && s.saveError != "" && s.focusedPane == settingsPaneSidebar {
-		line := "! " + s.saveError + " — esc exit without saving · → edit"
-		banner := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted).Width(width).Render(line)
-		headerBlock = lipgloss.JoinVertical(lipgloss.Left, header, banner)
-	} else {
-		headerBlock = header
+	alert := s.renderSaveBlockedAlert(width, chrome)
+	headerBlock := header
+	if alert != "" {
+		headerBlock = lipgloss.JoinVertical(lipgloss.Left, header, alert)
 	}
 	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	hints := s.viewHints(width, chrome)
@@ -1158,6 +1155,57 @@ func (s Settings) View(width, height int, chrome managerChrome) string {
 	body := s.viewSplit(width, bodyH, chrome)
 
 	return lipgloss.JoinVertical(lipgloss.Left, headerBlock, gap, body, hints)
+}
+
+// renderSaveBlockedAlert draws a full-width panel when AI key validation blocked save.
+func (s Settings) renderSaveBlockedAlert(width int, chrome managerChrome) string {
+	if !s.saveBlockedByAIFormat || strings.TrimSpace(s.saveError) == "" {
+		return ""
+	}
+	// Inner text width: panel border + horizontal padding.
+	innerW := max(1, width-6)
+	detail := wrapWords(strings.TrimSpace(s.saveError), innerW)
+
+	title := lipgloss.NewStyle().
+		Foreground(chrome.errorFg).
+		Bold(true).
+		Render("Cannot save settings")
+
+	body := lipgloss.NewStyle().
+		Foreground(chrome.text).
+		Render(detail)
+
+	var footer string
+	if s.focusedPane == settingsPaneSidebar {
+		footer = wrapWords("esc  exit without saving   ·   →   edit section   ·   ↑/↓   categories", innerW)
+	} else {
+		footer = wrapWords("correct the API key below, or esc to categories (second esc exits without saving)", innerW)
+	}
+	footerStyled := lipgloss.NewStyle().
+		Foreground(chrome.muted).
+		Render(footer)
+
+	stack := lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		"",
+		body,
+		"",
+		footerStyled,
+	)
+
+	return lipgloss.NewStyle().
+		Width(width).
+		Background(chrome.baseBg).
+		Render(
+			lipgloss.NewStyle().
+				Width(width).
+				Background(chrome.surfaceBg).
+				Border(lipPaneBorder(chrome.plainUI)).
+				BorderForeground(chrome.errorFg).
+				BorderBackground(chrome.surfaceBg).
+				Padding(0, 1).
+				Render(stack),
+		)
 }
 
 func (s Settings) viewSplit(width, height int, chrome managerChrome) string {
@@ -1176,6 +1224,13 @@ func (s Settings) viewSectionsPane(width, height int, chrome managerChrome) stri
 	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	rows := make([]string, 0, settingsSectionCount*2)
 	for i, label := range settingsSectionLabels {
+		if settingsSection(i) == ssAI && s.saveBlockedByAIFormat && strings.TrimSpace(s.saveError) != "" {
+			if chrome.plainUI {
+				label = "! " + label
+			} else {
+				label = "⚠ " + label
+			}
+		}
 		selected := settingsSection(i) == s.activeSection
 		subtitle := ""
 		if settingsSection(i) == ssAI && s.providerIdx > 0 {
@@ -1929,6 +1984,9 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "checks your key or endpoint against the live provider"
 
 	case sfAPIKey:
+		if s.saveError != "" && s.saveBlockedByAIFormat {
+			return ""
+		}
 		if s.saveError != "" {
 			return s.saveError
 		}

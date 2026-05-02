@@ -2244,6 +2244,7 @@ type managerChrome struct {
 	border             lipgloss.Color
 	text               lipgloss.Color
 	muted              lipgloss.Color
+	errorFg            lipgloss.Color
 	header             lipgloss.Style
 	sectionLabel       lipgloss.Style
 	sectionLabelActive lipgloss.Style
@@ -2305,6 +2306,10 @@ func newManagerChrome(width int, t Theme, plainUI bool) managerChrome {
 	if border == "" {
 		border = accent
 	}
+	errorFg := t.Error
+	if errorFg == "" {
+		errorFg = accent
+	}
 
 	return managerChrome{
 		baseBg:      baseBg,
@@ -2318,6 +2323,7 @@ func newManagerChrome(width int, t Theme, plainUI bool) managerChrome {
 		border:      border,
 		text:        text,
 		muted:       muted,
+		errorFg:     errorFg,
 		header: lipgloss.NewStyle().
 			Width(width).
 			Background(accent).
