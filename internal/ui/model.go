@@ -1317,6 +1317,10 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if aiMsg, ok := msg.(AIValidateDoneMsg); ok && aiMsg.Err == nil {
+		m.setStatus("AI provider connection OK", false)
+		cmd = tea.Batch(cmd, m.clearStatusCmd())
+	}
 	return m, cmd
 }
 

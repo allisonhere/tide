@@ -98,6 +98,11 @@ type AISummaryFetchedMsg struct {
 	Summary   string
 	Err       error
 }
+
+// AIValidateDoneMsg is sent after settings triggers an async AI credential check.
+type AIValidateDoneMsg struct {
+	Err error
+}
 type SummarySavedMsg struct {
 	Path string
 	Err  error

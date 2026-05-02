@@ -48,6 +48,7 @@ const (
 	sfAPIKey    // visible when provider is openai/claude/gemini
 	sfOllamaURL // visible when provider is ollama
 	sfOllamaModel
+	sfTestAIConnection
 	sfSavePath
 	sfMarkReadOnSummarize
 	sfUpdateManualCommand
@@ -173,19 +174,23 @@ type Settings struct {
 	savePathInput       textinput.Model
 	markReadOnSummarize bool
 
-	activeSection      settingsSection
-	focusedPane        settingsPaneFocus
-	sectionField       [settingsSectionCount]settingsField
-	focusedField       settingsField
-	aboutGradientFrame int
-	saveError          string
-	shouldSave         bool
-	shouldExit         bool
-	themeName          string // current picker selection (drives retro color fields)
-	themeIdx           int    // index into BuiltinThemes
-	retroBgInput       textinput.Model
-	retroFgInput       textinput.Model
-	retroAccentInput   textinput.Model
+	activeSection         settingsSection
+	focusedPane           settingsPaneFocus
+	sectionField          [settingsSectionCount]settingsField
+	focusedField          settingsField
+	aboutGradientFrame    int
+	saveError             string
+	saveBlockedByAIFormat bool
+	aiValidatePending     bool
+	aiTestError           string
+	aiTestOk              bool
+	shouldSave            bool
+	shouldExit            bool
+	themeName             string // current picker selection (drives retro color fields)
+	themeIdx              int    // index into BuiltinThemes
+	retroBgInput          textinput.Model
+	retroFgInput          textinput.Model
+	retroAccentInput      textinput.Model
 }
 
 func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
@@ -331,6 +336,27 @@ func (s *Settings) setFocusedField(field settingsField) {
 
 func (s *Settings) clearSaveError() {
 	s.saveError = ""
+	s.saveBlockedByAIFormat = false
+}
+
+func (s *Settings) clearAITestFeedback() {
+	s.aiTestError = ""
+	s.aiTestOk = false
+}
+
+// draftAIConfig returns the AI section as it would be written by ApplyTo, for
+// network validation before save.
+func (s Settings) draftAIConfig() config.AIConfig {
+	return config.AIConfig{
+		Provider:            aiProviderIDs[s.providerIdx],
+		OpenAIKey:           strings.TrimSpace(s.openaiInput.Value()),
+		ClaudeKey:           strings.TrimSpace(s.claudeInput.Value()),
+		GeminiKey:           strings.TrimSpace(s.geminiInput.Value()),
+		OllamaURL:           strings.TrimSpace(s.ollamaURLInput.Value()),
+		OllamaModel:         strings.TrimSpace(s.ollamaModelInput.Value()),
+		SavePath:            strings.TrimSpace(s.savePathInput.Value()),
+		MarkReadOnSummarize: s.markReadOnSummarize,
+	}
 }
 
 func (s *Settings) setFocusedPane(pane settingsPaneFocus) {
@@ -486,7 +512,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		case 1, 2, 3:
 			fields = append(fields, sfAPIKey)
 		}
-		fields = append(fields, sfSavePath, sfMarkReadOnSummarize)
+		fields = append(fields, sfTestAIConnection, sfSavePath, sfMarkReadOnSummarize)
 		return fields
 	case ssAbout:
 		return []settingsField{sfBackToSections, sfAboutRepo, sfAboutIssues}
@@ -565,6 +591,7 @@ func (s Settings) isTextInput() bool {
 
 func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) {
 	s.clearSaveError()
+	s.clearAITestFeedback()
 	if key, ok := msg.(tea.KeyMsg); ok {
 		s.prepareSecretFieldForEdit(key)
 	}
@@ -751,6 +778,18 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		return s, settingsAboutPulseCmd(), false
 	}
 
+	if res, ok := msg.(AIValidateDoneMsg); ok {
+		s.aiValidatePending = false
+		if res.Err != nil {
+			s.aiTestError = res.Err.Error()
+			s.aiTestOk = false
+		} else {
+			s.aiTestError = ""
+			s.aiTestOk = true
+		}
+		return s, nil, false
+	}
+
 	// Route cursor-blink ticks to the active text input.
 	if _, ok := msg.(tea.KeyMsg); !ok {
 		if s.isTextInput() {
@@ -774,6 +813,12 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		if s.focusedPane == settingsPaneDetail {
 			s.setFocusedPane(settingsPaneSidebar)
 			return s, nil, false
+		}
+		if s.saveBlockedByAIFormat && s.saveError != "" {
+			s.shouldSave = false
+			s.shouldExit = true
+			s.clearSaveError()
+			return s, nil, true
 		}
 		return s.saveAndExit()
 	case "q":
@@ -1008,15 +1053,45 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
+	case sfTestAIConnection:
+		switch {
+		case key.String() == " " || keyMatches(key, keys.Enter):
+			if s.aiValidatePending {
+				return s, nil, false
+			}
+			if s.providerIdx == 0 {
+				s.aiTestError = "choose an AI provider first"
+				s.aiTestOk = false
+				return s, nil, false
+			}
+			if msg, ok := s.selectedAIKeyValidation(); !ok {
+				s.aiTestError = msg
+				s.aiTestOk = false
+				return s, nil, false
+			}
+			s.aiValidatePending = true
+			s.aiTestError = ""
+			s.aiTestOk = false
+			cfg := s.draftAIConfig()
+			return s, validateAICredentialsCmd(cfg), false
+		case keyMatches(key, keys.Down):
+			s.setFocusedField(s.nextField())
+		case keyMatches(key, keys.Up):
+			s.setFocusedField(s.prevField())
+		}
+		return s, nil, false
+
 	case sfProvider:
 		switch {
 		case keyMatches(key, keys.Left):
 			s.clearSaveError()
+			s.clearAITestFeedback()
 			s.providerIdx = (s.providerIdx + len(aiProviderLabels) - 1) % len(aiProviderLabels)
 			s.ensureSectionFieldVisible(ssAI)
 			s.setFocusedField(sfProvider)
 		case key.String() == " " || keyMatches(key, keys.Enter) || keyMatches(key, keys.Right):
 			s.clearSaveError()
+			s.clearAITestFeedback()
 			s.providerIdx = (s.providerIdx + 1) % len(aiProviderLabels)
 			s.ensureSectionFieldVisible(ssAI)
 			s.setFocusedField(sfProvider)
@@ -1050,11 +1125,16 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 func (s Settings) saveAndExit() (Settings, tea.Cmd, bool) {
 	if msg, ok := s.selectedAIKeyValidation(); !ok {
 		s.saveError = msg
+		s.saveBlockedByAIFormat = true
 		s.setActiveSection(ssAI)
+		if s.focusedPane == settingsPaneSidebar {
+			return s, nil, false
+		}
 		s.setFocusedPane(settingsPaneDetail)
 		s.setFocusedField(sfAPIKey)
 		return s, nil, false
 	}
+	s.clearSaveError()
 	s.shouldSave = true
 	s.shouldExit = true
 	return s, nil, true
@@ -1064,13 +1144,20 @@ func (s Settings) saveAndExit() (Settings, tea.Cmd, bool) {
 
 func (s Settings) View(width, height int, chrome managerChrome) string {
 	header := renderManagerHeader("SETTINGS", width, chrome)
+	var headerBlock string
+	if s.saveBlockedByAIFormat && s.saveError != "" && s.focusedPane == settingsPaneSidebar {
+		line := "! " + s.saveError + " — esc exit without saving · → edit"
+		banner := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted).Width(width).Render(line)
+		headerBlock = lipgloss.JoinVertical(lipgloss.Left, header, banner)
+	} else {
+		headerBlock = header
+	}
 	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	hints := s.viewHints(width, chrome)
-
-	bodyH := max(1, height-lipgloss.Height(header)-lipgloss.Height(gap)-lipgloss.Height(hints))
+	bodyH := max(1, height-lipgloss.Height(headerBlock)-lipgloss.Height(gap)-lipgloss.Height(hints))
 	body := s.viewSplit(width, bodyH, chrome)
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, gap, body, hints)
+	return lipgloss.JoinVertical(lipgloss.Left, headerBlock, gap, body, hints)
 }
 
 func (s Settings) viewSplit(width, height int, chrome managerChrome) string {
@@ -1335,6 +1422,13 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 			addInput("Ollama URL", s.ollamaURLInput, sfOllamaURL)
 			addInput("Model", s.ollamaModelInput, sfOllamaModel)
 		}
+		markAnchor(sfTestAIConnection)
+		addLine(ind.Render(s.renderActionRow("Test connection", "live API check", s.focusedField == sfTestAIConnection, width-2, chrome)))
+		if hint := s.fieldHint(sfTestAIConnection); hint != "" {
+			addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
+		}
+		addLine(blank)
+
 		addInput("Save summaries to", s.savePathInput, sfSavePath)
 		addToggle("Mark read on summarize", s.markReadOnSummarize, sfMarkReadOnSummarize)
 
@@ -1380,6 +1474,14 @@ const labelColW = 22
 
 func (s Settings) viewHints(width int, chrome managerChrome) string {
 	if s.focusedPane == settingsPaneSidebar {
+		if s.saveBlockedByAIFormat && s.saveError != "" {
+			return renderManagerActions(width, chrome,
+				"↑/↓", "section",
+				"→", "edit",
+				"esc", "exit without saving",
+				"q", "discard",
+			)
+		}
 		return renderManagerActions(width, chrome,
 			"↑/↓", "section",
 			"→", "edit",
@@ -1814,6 +1916,18 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "leave blank to use the system default browser"
 	case sfFeedMaxBody:
 		return "larger feeds need more memory; default is 10 MiB"
+	case sfTestAIConnection:
+		if s.aiValidatePending {
+			return "contacting provider…"
+		}
+		if s.aiTestError != "" {
+			return s.aiTestError
+		}
+		if s.aiTestOk {
+			return "connection OK"
+		}
+		return "checks your key or endpoint against the live provider"
+
 	case sfAPIKey:
 		if s.saveError != "" {
 			return s.saveError

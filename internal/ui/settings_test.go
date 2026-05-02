@@ -428,11 +428,48 @@ func TestSettingsEscFromSidebarSaveBlockedByInvalidSelectedProviderKey(t *testin
 	if next.activeSection != ssAI {
 		t.Fatalf("expected validation failure to keep AI section active, got %v", next.activeSection)
 	}
-	if next.focusedField != sfAPIKey {
-		t.Fatalf("expected validation failure to focus API key field, got %v", next.focusedField)
+	if next.focusedPane != settingsPaneSidebar {
+		t.Fatalf("expected validation failure to keep categories focused, got %v", next.focusedPane)
+	}
+	if next.focusedField != sfSavePath {
+		t.Fatalf("expected focused field unchanged on sidebar, got %v", next.focusedField)
+	}
+	if !next.saveBlockedByAIFormat {
+		t.Fatal("expected saveBlockedByAIFormat after failed save")
 	}
 	if !strings.Contains(next.saveError, "looks like OpenAI, but Claude is selected") {
 		t.Fatalf("expected save error to explain mismatch, got %q", next.saveError)
+	}
+
+	next2, _, done2 := next.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+	if !done2 {
+		t.Fatal("expected second esc to exit settings")
+	}
+	if next2.shouldSave {
+		t.Fatal("expected discard (not save)")
+	}
+}
+
+func TestSettingsEscFromSidebarSecondEscDiscardsAfterInvalidKey(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+	cfg.AI.OpenAIKey = "bad"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedPane(settingsPaneSidebar)
+
+	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+	if next.saveError == "" || !next.saveBlockedByAIFormat {
+		t.Fatalf("expected blocked save state, saveError=%q blocked=%v", next.saveError, next.saveBlockedByAIFormat)
+	}
+
+	next2, _, done := next.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
+	if !done {
+		t.Fatal("expected second esc to exit")
+	}
+	if next2.shouldSave {
+		t.Fatal("expected exit without saving")
 	}
 }
 
