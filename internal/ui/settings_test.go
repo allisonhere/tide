@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -269,7 +270,7 @@ func TestSettingsAPIKeyLeftArrowMovesToSidebarAtCursorStart(t *testing.T) {
 	}
 }
 
-func TestSettingsSavedAPIKeyTypingReplacesExistingValue(t *testing.T) {
+func TestSettingsSavedAPIKeyTypingEditsExistingValue(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AI.Provider = "openai"
 	cfg.AI.OpenAIKey = "sk-old"
@@ -281,12 +282,12 @@ func TestSettingsSavedAPIKeyTypingReplacesExistingValue(t *testing.T) {
 
 	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}, DefaultKeys)
 
-	if got := next.openaiInput.Value(); got != "n" {
-		t.Fatalf("expected first typed rune to replace saved key, got %q", got)
+	if got := next.openaiInput.Value(); got != "sk-oldn" {
+		t.Fatalf("expected typed rune to edit saved key normally, got %q", got)
 	}
 }
 
-func TestSettingsSavedAPIKeyPasteReplacesExistingValue(t *testing.T) {
+func TestSettingsSavedAPIKeyPasteEditsExistingValue(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AI.Provider = "openai"
 	cfg.AI.OpenAIKey = "sk-old"
@@ -298,8 +299,8 @@ func TestSettingsSavedAPIKeyPasteReplacesExistingValue(t *testing.T) {
 
 	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("sk-new"), Paste: true}, DefaultKeys)
 
-	if got := next.openaiInput.Value(); got != "sk-new" {
-		t.Fatalf("expected pasted key to replace saved key, got %q", got)
+	if got := next.openaiInput.Value(); got != "sk-oldsk-new" {
+		t.Fatalf("expected pasted key to edit saved key normally, got %q", got)
 	}
 }
 
@@ -361,7 +362,7 @@ func TestSettingsAPIKeyHintFlagsProviderMismatch(t *testing.T) {
 
 	s := newSettings(cfg, settingsUpdateState{})
 
-	if got := s.fieldHint(sfAPIKey); !strings.Contains(got, "looks like OpenAI, but Claude is selected") {
+	if got := s.fieldHint(sfAPIKey); !strings.Contains(got, "Looks like OpenAI, but Claude is selected") {
 		t.Fatalf("expected mismatch hint, got %q", got)
 	}
 }
@@ -373,12 +374,12 @@ func TestSettingsAPIKeyHintConfirmsMatchingFormat(t *testing.T) {
 
 	s := newSettings(cfg, settingsUpdateState{})
 
-	if got := s.fieldHint(sfAPIKey); !strings.Contains(got, "format looks like Gemini") {
+	if got := s.fieldHint(sfAPIKey); !strings.Contains(got, "Format looks like Gemini") {
 		t.Fatalf("expected matching format hint, got %q", got)
 	}
 }
 
-func TestSettingsCtrlSSaveBlockedByInvalidSelectedProviderKey(t *testing.T) {
+func TestSettingsCtrlSSavesWithSuspiciousSelectedProviderKey(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AI.Provider = "claude"
 	cfg.AI.ClaudeKey = "sk-proj-test123"
@@ -390,24 +391,15 @@ func TestSettingsCtrlSSaveBlockedByInvalidSelectedProviderKey(t *testing.T) {
 
 	next, _, done := s.Update(tea.KeyMsg{Type: tea.KeyCtrlS}, DefaultKeys)
 
-	if done {
-		t.Fatal("expected invalid provider/key pair to block save")
+	if !done {
+		t.Fatal("expected ctrl+s to finish settings")
 	}
-	if next.shouldSave {
-		t.Fatal("expected invalid provider/key pair not to mark settings for save")
-	}
-	if next.activeSection != ssAI {
-		t.Fatalf("expected validation failure to keep AI section active, got %v", next.activeSection)
-	}
-	if next.focusedField != sfAPIKey {
-		t.Fatalf("expected validation failure to focus API key field, got %v", next.focusedField)
-	}
-	if !strings.Contains(next.saveError, "looks like OpenAI, but Claude is selected") {
-		t.Fatalf("expected save error to explain mismatch, got %q", next.saveError)
+	if !next.shouldSave {
+		t.Fatal("expected suspicious key format not to block save")
 	}
 }
 
-func TestSettingsEscFromSidebarSaveBlockedByInvalidSelectedProviderKey(t *testing.T) {
+func TestSettingsEscFromSidebarSavesWithSuspiciousSelectedProviderKey(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AI.Provider = "claude"
 	cfg.AI.ClaudeKey = "sk-proj-test123"
@@ -419,38 +411,15 @@ func TestSettingsEscFromSidebarSaveBlockedByInvalidSelectedProviderKey(t *testin
 
 	next, _, done := s.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
 
-	if done {
-		t.Fatal("expected invalid provider/key pair to block esc save")
+	if !done {
+		t.Fatal("expected esc from sidebar to finish settings")
 	}
-	if next.shouldSave {
-		t.Fatal("expected invalid provider/key pair not to mark settings for save")
-	}
-	if next.activeSection != ssAI {
-		t.Fatalf("expected validation failure to keep AI section active, got %v", next.activeSection)
-	}
-	if next.focusedPane != settingsPaneSidebar {
-		t.Fatalf("expected validation failure to keep categories focused, got %v", next.focusedPane)
-	}
-	if next.focusedField != sfSavePath {
-		t.Fatalf("expected focused field unchanged on sidebar, got %v", next.focusedField)
-	}
-	if !next.saveBlockedByAIFormat {
-		t.Fatal("expected saveBlockedByAIFormat after failed save")
-	}
-	if !strings.Contains(next.saveError, "looks like OpenAI, but Claude is selected") {
-		t.Fatalf("expected save error to explain mismatch, got %q", next.saveError)
-	}
-
-	next2, _, done2 := next.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
-	if !done2 {
-		t.Fatal("expected second esc to exit settings")
-	}
-	if next2.shouldSave {
-		t.Fatal("expected discard (not save)")
+	if !next.shouldSave {
+		t.Fatal("expected suspicious key format not to block esc save")
 	}
 }
 
-func TestSettingsEscFromSidebarSecondEscDiscardsAfterInvalidKey(t *testing.T) {
+func TestSettingsQDiscardsWithSuspiciousSelectedProviderKey(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AI.Provider = "openai"
 	cfg.AI.OpenAIKey = "bad"
@@ -459,17 +428,88 @@ func TestSettingsEscFromSidebarSecondEscDiscardsAfterInvalidKey(t *testing.T) {
 	s.setActiveSection(ssAI)
 	s.setFocusedPane(settingsPaneSidebar)
 
-	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
-	if next.saveError == "" || !next.saveBlockedByAIFormat {
-		t.Fatalf("expected blocked save state, saveError=%q blocked=%v", next.saveError, next.saveBlockedByAIFormat)
+	next, _, done := s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}, DefaultKeys)
+	if !done {
+		t.Fatal("expected q to exit settings")
+	}
+	if next.shouldSave {
+		t.Fatal("expected q to discard without saving")
+	}
+}
+
+func TestSettingsTestConnectionEmptyActiveProviderShowsInlineFeedback(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfTestAIConnection)
+
+	next, cmd, done := s.Update(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+
+	if done {
+		t.Fatal("expected test connection to keep settings open")
+	}
+	if cmd != nil {
+		t.Fatal("expected empty key to avoid live validation command")
+	}
+	if next.aiValidatePending {
+		t.Fatal("expected empty key not to enter pending validation state")
+	}
+	if !strings.Contains(next.aiTestError, "OpenAI key is empty") {
+		t.Fatalf("expected inline empty-key feedback, got %q", next.aiTestError)
+	}
+}
+
+func TestSettingsTestConnectionDispatchesValidationForDraftConfig(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+	cfg.AI.OpenAIKey = "sk-test"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfTestAIConnection)
+
+	next, cmd, done := s.Update(tea.KeyMsg{Type: tea.KeyEnter}, DefaultKeys)
+
+	if done {
+		t.Fatal("expected test connection to keep settings open")
+	}
+	if cmd == nil {
+		t.Fatal("expected valid-looking key to dispatch validation command")
+	}
+	if !next.aiValidatePending {
+		t.Fatal("expected validation to enter pending state")
+	}
+}
+
+func TestSettingsAIValidateDoneUpdatesFeedbackWithoutClosing(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.aiValidatePending = true
+
+	next, cmd, done := s.Update(AIValidateDoneMsg{Err: nil}, DefaultKeys)
+	if done {
+		t.Fatal("expected validation success to keep settings open")
+	}
+	if cmd != nil {
+		t.Fatal("expected validation result not to dispatch another command")
+	}
+	if next.aiValidatePending || !next.aiTestOk || next.aiTestError != "" {
+		t.Fatalf("expected success feedback, pending=%v ok=%v err=%q", next.aiValidatePending, next.aiTestOk, next.aiTestError)
 	}
 
-	next2, _, done := next.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys)
-	if !done {
-		t.Fatal("expected second esc to exit")
+	next.aiValidatePending = true
+	next, cmd, done = next.Update(AIValidateDoneMsg{Err: errors.New("openai: HTTP 401: bad key")}, DefaultKeys)
+	if done {
+		t.Fatal("expected validation error to keep settings open")
 	}
-	if next2.shouldSave {
-		t.Fatal("expected exit without saving")
+	if cmd != nil {
+		t.Fatal("expected validation error not to dispatch another command")
+	}
+	if next.aiValidatePending || next.aiTestOk || !strings.Contains(next.aiTestError, "bad key") {
+		t.Fatalf("expected error feedback, pending=%v ok=%v err=%q", next.aiValidatePending, next.aiTestOk, next.aiTestError)
 	}
 }
 
@@ -696,7 +736,7 @@ func TestSettingsRightPaneScrollsToFocusedFieldOnShortView(t *testing.T) {
 	}
 }
 
-func TestSettingsAPIKeySummaryUsesCompactSecretState(t *testing.T) {
+func TestSettingsAPIKeyInputAlwaysVisibleAndMasked(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AI.Provider = "openai"
 	cfg.AI.OpenAIKey = "sk-abcdefghijklmnopqrstuvwxyz123456"
@@ -708,14 +748,14 @@ func TestSettingsAPIKeySummaryUsesCompactSecretState(t *testing.T) {
 	view := ansi.Strip(s.View(84, 22, newManagerChrome(84, CatppuccinMocha, false)))
 
 	if strings.Contains(view, "abcdefghijklmnopqrstuvwxyz") {
-		t.Fatalf("expected API key summary to hide the raw key, got %q", view)
+		t.Fatalf("expected API key input to hide the raw key, got %q", view)
 	}
-	if !strings.Contains(view, "saved") || !strings.Contains(view, "chars") {
-		t.Fatalf("expected compact API key summary, got %q", view)
+	if !strings.Contains(view, "OpenAI key") || !strings.Contains(view, "> ●") {
+		t.Fatalf("expected always-visible masked API key input, got %q", view)
 	}
 }
 
-func TestSettingsAPIKeyFocusShowsExpandedInlineEditor(t *testing.T) {
+func TestSettingsAPIKeyFocusKeepsStableMaskedInput(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AI.Provider = "openai"
 
@@ -725,28 +765,35 @@ func TestSettingsAPIKeyFocusShowsExpandedInlineEditor(t *testing.T) {
 
 	view := ansi.Strip(s.View(84, 22, newManagerChrome(84, CatppuccinMocha, false)))
 
-	if !strings.Contains(view, "masked while typing") {
-		t.Fatalf("expected focused API key editor header, got %q", view)
+	if !strings.Contains(view, "OpenAI key") || !strings.Contains(strings.ToLower(view), "empty") {
+		t.Fatalf("expected focused API key header with compact status, got %q", view)
 	}
 	if !strings.Contains(view, "sk-...") {
-		t.Fatalf("expected expanded editor to show placeholder, got %q", view)
+		t.Fatalf("expected stable key input to show placeholder, got %q", view)
 	}
 }
 
-func TestSettingsAPIKeySummaryDoesNotWrapAcrossLines(t *testing.T) {
+func TestSettingsAPIKeyInputHeightStaysStableAcrossFocus(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AI.Provider = "openai"
 	cfg.AI.OpenAIKey = "sk-abcdefghijklmnopqrstuvwxyz123456"
 
-	s := newSettings(cfg, settingsUpdateState{})
-	s.setActiveSection(ssAI)
-	s.setFocusedField(sfSavePath)
+	unfocused := newSettings(cfg, settingsUpdateState{})
+	unfocused.setActiveSection(ssAI)
+	unfocused.setFocusedField(sfSavePath)
 
-	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha, false))
-	stripped := ansi.Strip(strings.Join(body.lines, "\n"))
+	focused := newSettings(cfg, settingsUpdateState{})
+	focused.setActiveSection(ssAI)
+	focused.setFocusedField(sfAPIKey)
 
-	if strings.Count(stripped, "saved") != 1 {
-		t.Fatalf("expected API key summary to stay on one line, got %q", stripped)
+	unfocusedBody := unfocused.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha, false))
+	focusedBody := focused.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha, false))
+
+	if len(unfocusedBody.lines) != len(focusedBody.lines) {
+		t.Fatalf("expected AI section line count to stay stable, unfocused=%d focused=%d", len(unfocusedBody.lines), len(focusedBody.lines))
+	}
+	if strings.Count(ansi.Strip(strings.Join(focusedBody.lines, "\n")), "OpenAI key") != 1 {
+		t.Fatalf("expected one API key header in focused body")
 	}
 }
 
@@ -765,8 +812,8 @@ func TestSettingsProviderSelectorStaysSingleLineInNarrowPane(t *testing.T) {
 	if !strings.Contains(stripped, "◀") || !strings.Contains(stripped, "▶") {
 		t.Fatalf("expected provider selector to render side arrows, got %q", stripped)
 	}
-	if got := lipgloss.Width(row); got >= 42 {
-		t.Fatalf("expected provider selector to fit content instead of filling width 42, got width %d", got)
+	if got := lipgloss.Width(row); got != 42 {
+		t.Fatalf("expected provider selector to fill the stable form row width 42, got width %d", got)
 	}
 }
 
@@ -790,6 +837,33 @@ func TestSettingsFocusedAPIKeyHeaderStaysSingleLine(t *testing.T) {
 	t.Fatal("expected focused API key header to be present")
 }
 
+func TestSettingsAITestConnectionRowStaysCompactInNarrowPane(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+
+	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha, false))
+	stripped := ansi.Strip(strings.Join(body.lines, "\n"))
+
+	if strings.Contains(stripped, "Checks the current draft") {
+		t.Fatalf("expected compact test connection status, got %q", stripped)
+	}
+	if !strings.Contains(stripped, "Test connection") || !strings.Contains(strings.ToLower(stripped), "ready") {
+		t.Fatalf("expected compact test connection row, got %q", stripped)
+	}
+	for _, line := range body.lines {
+		if strings.Contains(ansi.Strip(line), "Test connection") {
+			if got := lipgloss.Height(line); got != 1 {
+				t.Fatalf("expected test connection row to stay on one line, got height %d in %q", got, ansi.Strip(line))
+			}
+			return
+		}
+	}
+	t.Fatal("expected test connection row to be present")
+}
+
 func TestSettingsSavePathRowStaysSingleLineInNarrowPane(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AI.Provider = "openai"
@@ -809,6 +883,30 @@ func TestSettingsSavePathRowStaysSingleLineInNarrowPane(t *testing.T) {
 		}
 	}
 	t.Fatal("expected save path row to be present")
+}
+
+func TestSettingsAIMarkReadRowStaysSingleLineInNarrowPane(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.setFocusedField(sfMarkReadOnSummarize)
+
+	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha, false))
+	stripped := ansi.Strip(strings.Join(body.lines, "\n"))
+	if strings.Contains(stripped, "Mark read on\n") || strings.Contains(stripped, "\nsummarize") {
+		t.Fatalf("expected mark-read label not to split across lines, got %q", stripped)
+	}
+	for _, line := range body.lines {
+		if strings.Contains(ansi.Strip(line), "Mark read on summarize") {
+			if got := lipgloss.Height(line); got != 1 {
+				t.Fatalf("expected mark-read row to stay on one line, got height %d in %q", got, ansi.Strip(line))
+			}
+			return
+		}
+	}
+	t.Fatal("expected mark-read row to be present")
 }
 
 func TestSettingsFeedsSectionShowsFeedMaxSizeFieldOnly(t *testing.T) {
@@ -840,6 +938,30 @@ func TestSettingsApplyToPreservesSourceConfig(t *testing.T) {
 
 	if got.Source != cfg.Source {
 		t.Fatalf("expected settings save to preserve hidden source config, got %#v want %#v", got.Source, cfg.Source)
+	}
+}
+
+func TestSettingsApplyToPreservesSavedAIKeysWhenDraftsAreEmpty(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.OpenAIKey = "sk-old-openai"
+	cfg.AI.ClaudeKey = "sk-ant-old"
+	cfg.AI.GeminiKey = "AIzaOld"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.openaiInput.SetValue("")
+	s.claudeInput.SetValue("")
+	s.geminiInput.SetValue("")
+
+	got := s.ApplyTo(cfg)
+
+	if got.AI.OpenAIKey != cfg.AI.OpenAIKey {
+		t.Fatalf("expected empty OpenAI draft to preserve saved key, got %q", got.AI.OpenAIKey)
+	}
+	if got.AI.ClaudeKey != cfg.AI.ClaudeKey {
+		t.Fatalf("expected empty Claude draft to preserve saved key, got %q", got.AI.ClaudeKey)
+	}
+	if got.AI.GeminiKey != cfg.AI.GeminiKey {
+		t.Fatalf("expected empty Gemini draft to preserve saved key, got %q", got.AI.GeminiKey)
 	}
 }
 

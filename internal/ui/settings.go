@@ -166,31 +166,26 @@ type Settings struct {
 	openaiInput         textinput.Model
 	claudeInput         textinput.Model
 	geminiInput         textinput.Model
-	openaiKeyEdited     bool
-	claudeKeyEdited     bool
-	geminiKeyEdited     bool
 	ollamaURLInput      textinput.Model
 	ollamaModelInput    textinput.Model
 	savePathInput       textinput.Model
 	markReadOnSummarize bool
 
-	activeSection         settingsSection
-	focusedPane           settingsPaneFocus
-	sectionField          [settingsSectionCount]settingsField
-	focusedField          settingsField
-	aboutGradientFrame    int
-	saveError             string
-	saveBlockedByAIFormat bool
-	aiValidatePending     bool
-	aiTestError           string
-	aiTestOk              bool
-	shouldSave            bool
-	shouldExit            bool
-	themeName             string // current picker selection (drives retro color fields)
-	themeIdx              int    // index into BuiltinThemes
-	retroBgInput          textinput.Model
-	retroFgInput          textinput.Model
-	retroAccentInput      textinput.Model
+	activeSection      settingsSection
+	focusedPane        settingsPaneFocus
+	sectionField       [settingsSectionCount]settingsField
+	focusedField       settingsField
+	aboutGradientFrame int
+	aiValidatePending  bool
+	aiTestError        string
+	aiTestOk           bool
+	shouldSave         bool
+	shouldExit         bool
+	themeName          string // current picker selection (drives retro color fields)
+	themeIdx           int    // index into BuiltinThemes
+	retroBgInput       textinput.Model
+	retroFgInput       textinput.Model
+	retroAccentInput   textinput.Model
 }
 
 func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
@@ -307,9 +302,15 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	cfg.Updates.CheckOnStartup = s.updateCheckOnStartup
 
 	cfg.AI.Provider = aiProviderIDs[s.providerIdx]
-	cfg.AI.OpenAIKey = strings.TrimSpace(s.openaiInput.Value())
-	cfg.AI.ClaudeKey = strings.TrimSpace(s.claudeInput.Value())
-	cfg.AI.GeminiKey = strings.TrimSpace(s.geminiInput.Value())
+	if value := strings.TrimSpace(s.openaiInput.Value()); value != "" {
+		cfg.AI.OpenAIKey = value
+	}
+	if value := strings.TrimSpace(s.claudeInput.Value()); value != "" {
+		cfg.AI.ClaudeKey = value
+	}
+	if value := strings.TrimSpace(s.geminiInput.Value()); value != "" {
+		cfg.AI.GeminiKey = value
+	}
 	cfg.AI.OllamaURL = strings.TrimSpace(s.ollamaURLInput.Value())
 	cfg.AI.OllamaModel = strings.TrimSpace(s.ollamaModelInput.Value())
 	cfg.AI.SavePath = strings.TrimSpace(s.savePathInput.Value())
@@ -332,11 +333,6 @@ func (s *Settings) setFocusedField(field settingsField) {
 	s.focusedField = field
 	s.sectionField[s.activeSection] = field
 	s.applyFocus()
-}
-
-func (s *Settings) clearSaveError() {
-	s.saveError = ""
-	s.saveBlockedByAIFormat = false
 }
 
 func (s *Settings) clearAITestFeedback() {
@@ -590,11 +586,7 @@ func (s Settings) isTextInput() bool {
 }
 
 func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) {
-	s.clearSaveError()
 	s.clearAITestFeedback()
-	if key, ok := msg.(tea.KeyMsg); ok {
-		s.prepareSecretFieldForEdit(key)
-	}
 	var cmd tea.Cmd
 	switch s.focusedField {
 	case sfBrowser:
@@ -624,43 +616,6 @@ func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) 
 		s.retroAccentInput, cmd = s.retroAccentInput.Update(msg)
 	}
 	return s, cmd, false
-}
-
-func (s *Settings) prepareSecretFieldForEdit(key tea.KeyMsg) {
-	if s.focusedField != sfAPIKey || !textInputKeyEditsValue(key) {
-		return
-	}
-
-	switch s.providerIdx {
-	case 1:
-		if !s.openaiKeyEdited {
-			s.openaiInput.SetValue("")
-			s.openaiKeyEdited = true
-		}
-	case 2:
-		if !s.claudeKeyEdited {
-			s.claudeInput.SetValue("")
-			s.claudeKeyEdited = true
-		}
-	case 3:
-		if !s.geminiKeyEdited {
-			s.geminiInput.SetValue("")
-			s.geminiKeyEdited = true
-		}
-	}
-}
-
-func textInputKeyEditsValue(key tea.KeyMsg) bool {
-	if key.Type == tea.KeyRunes {
-		return true
-	}
-	switch key.String() {
-	case "backspace", "ctrl+h", "delete", "ctrl+d", "ctrl+u", "ctrl+k", "ctrl+w",
-		"alt+backspace", "alt+delete", "alt+d", "ctrl+v":
-		return true
-	default:
-		return false
-	}
 }
 
 func selectedAIKeyFormat(value string) string {
@@ -711,7 +666,7 @@ func (s Settings) selectedAIKeyValidation() (string, bool) {
 
 	value := s.selectedAIKeyValue()
 	if value == "" {
-		return fmt.Sprintf("%s key is empty; expected prefix %s", providerName, expectedPrefix), false
+		return fmt.Sprintf("%s key is empty; expected %s", providerName, expectedPrefix), false
 	}
 
 	format := selectedAIKeyFormat(value)
@@ -719,9 +674,9 @@ func (s Settings) selectedAIKeyValidation() (string, bool) {
 		return fmt.Sprintf("%s keys usually start with %s", providerName, expectedPrefix), false
 	}
 	if format != providerName {
-		return fmt.Sprintf("looks like %s, but %s is selected", format, providerName), false
+		return fmt.Sprintf("Looks like %s, but %s is selected.", format, providerName), false
 	}
-	return fmt.Sprintf("format looks like %s", providerName), true
+	return fmt.Sprintf("Format looks like %s", providerName), true
 }
 
 func (s Settings) focusedTextInputCursorPosition() int {
@@ -805,7 +760,6 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 
 	// Global: ctrl+s saves immediately. Esc from detail keeps edits in the
 	// settings model and moves back to categories; esc from categories saves.
-	// Invalid AI key format keeps the user in settings when saving.
 	switch key.String() {
 	case "ctrl+s":
 		return s.saveAndExit()
@@ -813,12 +767,6 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		if s.focusedPane == settingsPaneDetail {
 			s.setFocusedPane(settingsPaneSidebar)
 			return s, nil, false
-		}
-		if s.saveBlockedByAIFormat && s.saveError != "" {
-			s.shouldSave = false
-			s.shouldExit = true
-			s.clearSaveError()
-			return s, nil, true
 		}
 		return s.saveAndExit()
 	case "q":
@@ -1084,13 +1032,11 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 	case sfProvider:
 		switch {
 		case keyMatches(key, keys.Left):
-			s.clearSaveError()
 			s.clearAITestFeedback()
 			s.providerIdx = (s.providerIdx + len(aiProviderLabels) - 1) % len(aiProviderLabels)
 			s.ensureSectionFieldVisible(ssAI)
 			s.setFocusedField(sfProvider)
 		case key.String() == " " || keyMatches(key, keys.Enter) || keyMatches(key, keys.Right):
-			s.clearSaveError()
 			s.clearAITestFeedback()
 			s.providerIdx = (s.providerIdx + 1) % len(aiProviderLabels)
 			s.ensureSectionFieldVisible(ssAI)
@@ -1123,18 +1069,6 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 }
 
 func (s Settings) saveAndExit() (Settings, tea.Cmd, bool) {
-	if msg, ok := s.selectedAIKeyValidation(); !ok {
-		s.saveError = msg
-		s.saveBlockedByAIFormat = true
-		s.setActiveSection(ssAI)
-		if s.focusedPane == settingsPaneSidebar {
-			return s, nil, false
-		}
-		s.setFocusedPane(settingsPaneDetail)
-		s.setFocusedField(sfAPIKey)
-		return s, nil, false
-	}
-	s.clearSaveError()
 	s.shouldSave = true
 	s.shouldExit = true
 	return s, nil, true
@@ -1144,68 +1078,12 @@ func (s Settings) saveAndExit() (Settings, tea.Cmd, bool) {
 
 func (s Settings) View(width, height int, chrome managerChrome) string {
 	header := renderManagerHeader("SETTINGS", width, chrome)
-	alert := s.renderSaveBlockedAlert(width, chrome)
-	headerBlock := header
-	if alert != "" {
-		headerBlock = lipgloss.JoinVertical(lipgloss.Left, header, alert)
-	}
 	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	hints := s.viewHints(width, chrome)
-	bodyH := max(1, height-lipgloss.Height(headerBlock)-lipgloss.Height(gap)-lipgloss.Height(hints))
+	bodyH := max(1, height-lipgloss.Height(header)-lipgloss.Height(gap)-lipgloss.Height(hints))
 	body := s.viewSplit(width, bodyH, chrome)
 
-	return lipgloss.JoinVertical(lipgloss.Left, headerBlock, gap, body, hints)
-}
-
-// renderSaveBlockedAlert draws a full-width panel when AI key validation blocked save.
-func (s Settings) renderSaveBlockedAlert(width int, chrome managerChrome) string {
-	if !s.saveBlockedByAIFormat || strings.TrimSpace(s.saveError) == "" {
-		return ""
-	}
-	// Inner text width: panel border + horizontal padding.
-	innerW := max(1, width-6)
-	detail := wrapWords(strings.TrimSpace(s.saveError), innerW)
-
-	title := lipgloss.NewStyle().
-		Foreground(chrome.errorFg).
-		Bold(true).
-		Render("Cannot save settings")
-
-	body := lipgloss.NewStyle().
-		Foreground(chrome.text).
-		Render(detail)
-
-	var footer string
-	if s.focusedPane == settingsPaneSidebar {
-		footer = wrapWords("esc  exit without saving   ·   →   edit section   ·   ↑/↓   categories", innerW)
-	} else {
-		footer = wrapWords("correct the API key below, or esc to categories (second esc exits without saving)", innerW)
-	}
-	footerStyled := lipgloss.NewStyle().
-		Foreground(chrome.muted).
-		Render(footer)
-
-	stack := lipgloss.JoinVertical(lipgloss.Left,
-		title,
-		"",
-		body,
-		"",
-		footerStyled,
-	)
-
-	return lipgloss.NewStyle().
-		Width(width).
-		Background(chrome.baseBg).
-		Render(
-			lipgloss.NewStyle().
-				Width(width).
-				Background(chrome.surfaceBg).
-				Border(lipPaneBorder(chrome.plainUI)).
-				BorderForeground(chrome.errorFg).
-				BorderBackground(chrome.surfaceBg).
-				Padding(0, 1).
-				Render(stack),
-		)
+	return lipgloss.JoinVertical(lipgloss.Left, header, gap, body, hints)
 }
 
 func (s Settings) viewSplit(width, height int, chrome managerChrome) string {
@@ -1224,13 +1102,6 @@ func (s Settings) viewSectionsPane(width, height int, chrome managerChrome) stri
 	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	rows := make([]string, 0, settingsSectionCount*2)
 	for i, label := range settingsSectionLabels {
-		if settingsSection(i) == ssAI && s.saveBlockedByAIFormat && strings.TrimSpace(s.saveError) != "" {
-			if chrome.plainUI {
-				label = "! " + label
-			} else {
-				label = "⚠ " + label
-			}
-		}
 		selected := settingsSection(i) == s.activeSection
 		subtitle := ""
 		if settingsSection(i) == ssAI && s.providerIdx > 0 {
@@ -1310,7 +1181,9 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 	addLine(ind.Render(s.renderBackLinkRow(s.focusedField == sfBackToSections, width-2, chrome)))
 	addLine(blank)
 
-	hintIndent := strings.Repeat(" ", labelColW)
+	rowContentW := max(1, width-2)
+	labelW := formLabelWidth(rowContentW)
+	hintIndent := strings.Repeat(" ", labelW)
 
 	addToggle := func(label string, on bool, field settingsField) {
 		focused := s.focusedField == field
@@ -1318,48 +1191,20 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		markAnchor(field)
 		addLine(ind.Render(row))
 		if hint := s.fieldHint(field); hint != "" {
-			addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
+			addLine(ind.Render(renderFormHint(hintIndent+hint, rowContentW, chrome)))
 		}
 		addLine(blank)
 	}
 
 	addInput := func(label string, input textinput.Model, field settingsField) {
 		focused := s.focusedField == field
-		rowFieldW := max(1, width-2-labelColW-1)
+		rowFieldW := max(1, rowContentW-labelW)
 		fieldW := min(rowFieldW, s.inputWidth(field, rowFieldW))
-		row := s.renderFieldLabel(label, focused, width-2, chrome) + renderTextInput(input, fieldW, focused, false, chrome)
+		row := renderFormRow(label, focused, renderTextInput(input, fieldW, focused, false, chrome), rowContentW, labelW, chrome)
 		markAnchor(field)
 		addLine(ind.Render(row))
 		if hint := s.fieldHint(field); hint != "" {
-			addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
-		}
-		addLine(blank)
-	}
-
-	addSecretField := func(label string, input textinput.Model, field settingsField) {
-		focused := s.focusedField == field
-		markAnchor(field)
-		if focused {
-			hintW := max(1, width-2-labelColW-7)
-			header := s.renderFieldLabel(label, true, width-2, chrome) +
-				s.renderBadge("EDIT", true, chrome) +
-				lipgloss.NewStyle().
-					Background(chrome.baseBg).
-					Foreground(chrome.muted).
-					Width(hintW).
-					Render(" "+truncate("masked while typing", max(1, hintW-1)))
-			addLine(ind.Render(header))
-			addLine(ind.Render(renderSecretEditor(input, width-2, chrome)))
-			if hint := s.fieldHint(field); hint != "" {
-				addLine(ind.Render(s.renderInlineHint(hint, width-2, chrome)))
-			}
-		} else {
-			row := s.renderFieldLabel(label, false, width-2, chrome) +
-				renderSecretSummary(input.Value(), max(1, width-2-labelColW), chrome)
-			addLine(ind.Render(row))
-			if hint := s.fieldHint(field); hint != "" {
-				addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
-			}
+			addLine(ind.Render(renderFormHint(hintIndent+hint, rowContentW, chrome)))
 		}
 		addLine(blank)
 	}
@@ -1392,25 +1237,13 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		markAnchor(sfDisplayDensity)
 		addLine(ind.Render(s.renderDensitySelector(width-2, chrome)))
 		if hint := s.fieldHint(sfDisplayDensity); hint != "" {
-			addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
+			addLine(ind.Render(renderFormHint(hintIndent+hint, rowContentW, chrome)))
 		}
 		addLine(blank)
 		if config.IsRetroTerminalTheme(s.themeName) {
 			addInput("VT background (#rrggbb)", s.retroBgInput, sfRetroBg)
-			if hint := s.fieldHint(sfRetroBg); hint != "" {
-				addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
-			}
-			addLine(blank)
 			addInput("VT foreground (#rrggbb)", s.retroFgInput, sfRetroFg)
-			if hint := s.fieldHint(sfRetroFg); hint != "" {
-				addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
-			}
-			addLine(blank)
 			addInput("VT accent (#rrggbb)", s.retroAccentInput, sfRetroAccent)
-			if hint := s.fieldHint(sfRetroAccent); hint != "" {
-				addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
-			}
-			addLine(blank)
 		}
 		addToggle("Actionable article links", s.actionableLinks, sfActionableLinks)
 		addInput("Browser command", s.browserInput, sfBrowser)
@@ -1433,11 +1266,11 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		}
 		addValue("Status", s.update.statusLabel(), false)
 		if s.update.summary != "" {
-			sumW := max(1, width-2-labelColW)
+			sumW := max(1, rowContentW-labelW)
 			sumLines := wrapShellCommand(s.update.summary, sumW)
 			hintStyle := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted)
 			for _, sl := range sumLines {
-				addLine(ind.Render(hintStyle.Render(hintIndent + sl)))
+				addLine(ind.Render(hintStyle.Width(rowContentW).Render(truncate(hintIndent+sl, rowContentW))))
 			}
 			addLine(blank)
 		}
@@ -1454,7 +1287,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 				addLine(ind.Render(line))
 			}
 			if hint := s.fieldHint(sfUpdateManualCommand); hint != "" {
-				addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
+				addLine(ind.Render(renderFormHint(hintIndent+hint, rowContentW, chrome)))
 			}
 			addLine(blank)
 		}
@@ -1463,29 +1296,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		}
 
 	case ssAI:
-		markAnchor(sfProvider)
-		addLine(ind.Render(s.renderProviderSelector(width-2, chrome)))
-		addLine(blank)
-		switch s.providerIdx {
-		case 1:
-			addSecretField("OpenAI key", s.openaiInput, sfAPIKey)
-		case 2:
-			addSecretField("Claude key", s.claudeInput, sfAPIKey)
-		case 3:
-			addSecretField("Gemini key", s.geminiInput, sfAPIKey)
-		case 4:
-			addInput("Ollama URL", s.ollamaURLInput, sfOllamaURL)
-			addInput("Model", s.ollamaModelInput, sfOllamaModel)
-		}
-		markAnchor(sfTestAIConnection)
-		addLine(ind.Render(s.renderActionRow("Test connection", "live API check", s.focusedField == sfTestAIConnection, width-2, chrome)))
-		if hint := s.fieldHint(sfTestAIConnection); hint != "" {
-			addLine(ind.Render(s.renderInlineHint(hintIndent+hint, width-2, chrome)))
-		}
-		addLine(blank)
-
-		addInput("Save summaries to", s.savePathInput, sfSavePath)
-		addToggle("Mark read on summarize", s.markReadOnSummarize, sfMarkReadOnSummarize)
+		body = s.appendAISectionBody(body, width, chrome)
 
 	}
 
@@ -1494,6 +1305,113 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 	}
 
 	return body
+}
+
+func (s Settings) appendAISectionBody(body settingsSectionBody, width int, chrome managerChrome) settingsSectionBody {
+	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2)
+	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
+	contentW := max(1, width-2)
+	labelW := formLabelWidth(contentW)
+
+	addLine := func(line string) {
+		body.lines = append(body.lines, ind.Render(line))
+	}
+	addBlank := func() {
+		body.lines = append(body.lines, blank)
+	}
+	markAnchor := func(field settingsField) {
+		body.anchors[field] = len(body.lines)
+	}
+
+	addGroup := func(label string) {
+		addLine(renderFormGroupTitle(label, contentW, chrome))
+	}
+	addControl := func(label string, field settingsField, control string) {
+		markAnchor(field)
+		addLine(renderFormRow(label, s.focusedField == field, control, contentW, labelW, chrome))
+		addBlank()
+	}
+	addField := func(label string, input textinput.Model, field settingsField, fullWidth bool) {
+		focused := s.focusedField == field
+		markAnchor(field)
+		status := ""
+		if field == sfAPIKey {
+			status = s.aiKeyStateLabel()
+		}
+		addLine(renderFormFieldHeader(label, focused, status, contentW, chrome))
+		inputW := contentW
+		if !fullWidth {
+			inputW = min(contentW, s.inputWidth(field, contentW))
+		}
+		addLine(renderTextInput(input, inputW, focused, false, chrome))
+		addLine(renderFormHint(s.fieldHint(field), contentW, chrome))
+		addBlank()
+	}
+	addAction := func(label string, field settingsField) {
+		focused := s.focusedField == field
+		markAnchor(field)
+		badge := s.renderBadge("ENTER", focused, chrome)
+		status := renderFormInlineStatus(s.aiConnectionStatusLabel(), max(1, contentW-labelW-9), chrome)
+		gap := lipgloss.NewStyle().Background(chrome.baseBg).Render(" ")
+		addLine(renderFormRow(label, focused, badge+gap+status, contentW, labelW, chrome))
+		addBlank()
+	}
+
+	addGroup("Provider credentials")
+	addControl("Provider", sfProvider, renderSettingsPicker(min(max(12, contentW-labelW), 18), aiProviderLabels[s.providerIdx], s.focusedField == sfProvider, chrome))
+
+	switch s.providerIdx {
+	case 1:
+		addField("OpenAI key", s.openaiInput, sfAPIKey, true)
+	case 2:
+		addField("Claude key", s.claudeInput, sfAPIKey, true)
+	case 3:
+		addField("Gemini key", s.geminiInput, sfAPIKey, true)
+	case 4:
+		addField("Ollama URL", s.ollamaURLInput, sfOllamaURL, false)
+		addField("Model", s.ollamaModelInput, sfOllamaModel, false)
+	}
+
+	addAction("Test connection", sfTestAIConnection)
+
+	addGroup("Summary output")
+	addField("Save summaries to", s.savePathInput, sfSavePath, true)
+
+	toggleLabel := "OFF"
+	if s.markReadOnSummarize {
+		toggleLabel = "ON"
+	}
+	addControl("Mark read on summarize", sfMarkReadOnSummarize, s.renderBadge(toggleLabel, s.focusedField == sfMarkReadOnSummarize, chrome))
+
+	return body
+}
+
+func (s Settings) aiKeyStateLabel() string {
+	if s.providerIdx < 1 || s.providerIdx > 3 {
+		return ""
+	}
+
+	value := strings.TrimSpace(s.selectedAIKeyValue())
+	if value == "" {
+		return "empty"
+	}
+	if _, ok := s.selectedAIKeyValidation(); ok {
+		return "stored"
+	}
+	return "check"
+}
+
+func (s Settings) aiConnectionStatusLabel() string {
+	if s.aiValidatePending {
+		return "Contacting..."
+	}
+	if s.aiTestError != "" {
+		return s.aiTestError
+	}
+	if s.aiTestOk {
+		return "Connection OK"
+	}
+	return "Ready"
 }
 
 func (s Settings) inputWidth(field settingsField, maxWidth int) int {
@@ -1529,14 +1447,6 @@ const labelColW = 22
 
 func (s Settings) viewHints(width int, chrome managerChrome) string {
 	if s.focusedPane == settingsPaneSidebar {
-		if s.saveBlockedByAIFormat && s.saveError != "" {
-			return renderManagerActions(width, chrome,
-				"↑/↓", "section",
-				"→", "edit",
-				"esc", "exit without saving",
-				"q", "discard",
-			)
-		}
 		return renderManagerActions(width, chrome,
 			"↑/↓", "section",
 			"→", "edit",
@@ -1612,24 +1522,23 @@ func (s Settings) renderFieldLabel(label string, focused bool, _ int, chrome man
 }
 
 func (s Settings) renderValueRow(label, value string, focused bool, width int, chrome managerChrome) string {
-	labelCell := s.renderFieldLabel(label, focused, width, chrome)
-	valueW := max(1, width-labelColW)
+	labelW := formLabelWidth(width)
+	valueW := max(1, width-labelW)
 	trimmed := strings.TrimSpace(value)
 	lines := wrapShellCommand(trimmed, valueW)
 	valueStyle := chrome.body.Foreground(chrome.text)
-	if len(lines) == 1 && lines[0] == "" {
-		return labelCell + valueStyle.Width(valueW).Render(trimmed)
+	if len(lines) == 1 {
+		return renderFormRow(label, focused, valueStyle.Width(valueW).Render(lines[0]), width, labelW, chrome)
 	}
-	padCont := lipgloss.NewStyle().Background(chrome.baseBg).Width(labelColW).Render("")
+	padCont := lipgloss.NewStyle().Background(chrome.baseBg).Width(labelW).Render("")
 	var b strings.Builder
 	for i, line := range lines {
-		if i > 0 {
-			b.WriteString("\n")
-			b.WriteString(padCont)
-		}
 		if i == 0 {
-			b.WriteString(labelCell)
+			b.WriteString(renderFormRow(label, focused, valueStyle.Render(line), width, labelW, chrome))
+			continue
 		}
+		b.WriteString("\n")
+		b.WriteString(padCont)
 		b.WriteString(valueStyle.Render(line))
 	}
 	return b.String()
@@ -1840,26 +1749,24 @@ func (s Settings) prependBackLink(body settingsSectionBody, width int, chrome ma
 }
 
 func (s Settings) renderActionRow(label, hint string, focused bool, width int, chrome managerChrome) string {
-	label = s.renderFieldLabel(label, focused, width, chrome)
-
+	labelW := formLabelWidth(width)
 	badge := s.renderBadge("ENTER", focused, chrome)
-
 	hintText := ""
 	if hint != "" {
 		hintText = "  " + hint
 	}
-	return label + badge + s.renderInlineHint(hintText, max(1, width-labelColW-8), chrome)
+	control := badge + renderFormInlineStatus(hintText, max(1, width-labelW-lipgloss.Width(badge)), chrome)
+	return renderFormRow(label, focused, control, width, labelW, chrome)
 }
 
 func (s Settings) renderToggle(label string, on bool, focused bool, width int, chrome managerChrome) string {
-	label = s.renderFieldLabel(label, focused, width, chrome)
-
 	val := "OFF"
 	if on {
 		val = "ON"
 	}
 	badge := s.renderBadge(val, focused, chrome)
-	return label + badge + s.renderToggleHint(on, "enabled", "disabled", focused, chrome)
+	control := badge + s.renderToggleHint(on, "enabled", "disabled", focused, chrome)
+	return renderFormRow(label, focused, control, width, formLabelWidth(width), chrome)
 }
 
 func (u settingsUpdateState) statusLabel() string {
@@ -1896,17 +1803,7 @@ func (u settingsUpdateState) statusLabel() string {
 }
 
 func (s Settings) renderBadge(text string, focused bool, chrome managerChrome) string {
-	text = strings.ToUpper(strings.TrimSpace(text))
-	badgeW := 7
-	if focused {
-		return chrome.key.UnsetPadding().Width(badgeW).Align(lipgloss.Center).Render(text)
-	}
-	return lipgloss.NewStyle().
-		Background(chrome.surfaceBg).
-		Foreground(chrome.muted).
-		Width(badgeW).
-		Align(lipgloss.Center).
-		Render(strings.ToLower(text))
+	return renderFormBadge(text, focused, chrome)
 }
 
 // renderToggleHint appends a small hint showing the current value label.
@@ -1923,28 +1820,27 @@ func (s Settings) renderToggleHint(active bool, trueLabel, falseLabel string, fo
 }
 
 func (s Settings) renderProviderSelector(width int, chrome managerChrome) string {
-	label := s.renderFieldLabel("Provider", s.focusedField == sfProvider, width, chrome)
-
 	focused := s.focusedField == sfProvider
 	providerName := aiProviderLabels[s.providerIdx]
-	pickerW := max(1, width-labelColW)
-	return label + renderSettingsPicker(pickerW, providerName, focused, chrome)
+	labelW := formLabelWidth(width)
+	pickerW := max(1, width-labelW)
+	return renderFormRow("Provider", focused, renderSettingsPicker(pickerW, providerName, focused, chrome), width, labelW, chrome)
 }
 
 func (s Settings) renderDensitySelector(width int, chrome managerChrome) string {
-	label := s.renderFieldLabel("Layout density", s.focusedField == sfDisplayDensity, width, chrome)
 	focused := s.focusedField == sfDisplayDensity
 	name := layoutDensityLabels[s.layoutDensityIdx]
-	pickerW := max(1, width-labelColW)
-	return label + renderSettingsPicker(pickerW, name, focused, chrome)
+	labelW := formLabelWidth(width)
+	pickerW := max(1, width-labelW)
+	return renderFormRow("Layout density", focused, renderSettingsPicker(pickerW, name, focused, chrome), width, labelW, chrome)
 }
 
 func (s Settings) renderThemeSelector(width int, chrome managerChrome) string {
-	label := s.renderFieldLabel("Theme", s.focusedField == sfTheme, width, chrome)
 	focused := s.focusedField == sfTheme
 	name := BuiltinThemes[s.themeIdx].Name
-	pickerW := max(1, width-labelColW)
-	return label + renderSettingsPicker(pickerW, name, focused, chrome)
+	labelW := formLabelWidth(width)
+	pickerW := max(1, width-labelW)
+	return renderFormRow("Theme", focused, renderSettingsPicker(pickerW, name, focused, chrome), width, labelW, chrome)
 }
 
 func renderSettingsPicker(width int, value string, focused bool, chrome managerChrome) string {
@@ -1973,34 +1869,28 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "larger feeds need more memory; default is 10 MiB"
 	case sfTestAIConnection:
 		if s.aiValidatePending {
-			return "contacting provider…"
+			return "Contacting provider..."
 		}
 		if s.aiTestError != "" {
 			return s.aiTestError
 		}
 		if s.aiTestOk {
-			return "connection OK"
+			return "Connection OK."
 		}
-		return "checks your key or endpoint against the live provider"
+		return "Checks the current draft with the live provider."
 
 	case sfAPIKey:
-		if s.saveError != "" && s.saveBlockedByAIFormat {
-			return ""
-		}
-		if s.saveError != "" {
-			return s.saveError
-		}
 		if msg, ok := s.selectedAIKeyValidation(); msg != "" {
 			if ok {
-				return msg + "; only the active provider key is used"
+				return msg + "."
 			}
 			return msg
 		}
-		return "only the active provider key is used; press enter or tab when done"
+		return "Only the active provider key is used."
 	case sfOllamaURL:
-		return "local Ollama endpoint"
+		return "Local Ollama endpoint."
 	case sfSavePath:
-		return "directory for exported markdown summaries"
+		return "Directory for exported markdown summaries."
 	case sfRetroBg, sfRetroFg, sfRetroAccent:
 		return "leave blank to use the built-in palette for this theme"
 	case sfDisplayDensity:
