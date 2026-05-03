@@ -22,11 +22,13 @@ type KeyMap struct {
 	Search      key.Binding
 	UnreadOnly  key.Binding
 
-	FeedManager key.Binding
-	ThemePicker key.Binding
-	Settings    key.Binding
-	Help        key.Binding
-	Quit        key.Binding
+	FeedManager   key.Binding
+	ThemePicker   key.Binding
+	Settings      key.Binding
+	UpdateInstall key.Binding
+	UpdateIgnore  key.Binding
+	Help          key.Binding
+	Quit          key.Binding
 
 	Summary  key.Binding // fetch/show AI summary (articles or content pane)
 	CopyText key.Binding // copy summary to clipboard
@@ -44,6 +46,9 @@ type KeyMap struct {
 	// Overlay / input
 	Confirm   key.Binding
 	Cancel    key.Binding
+	Space     key.Binding
+	Yes       key.Binding
+	No        key.Binding
 	Tab       key.Binding
 	Backspace key.Binding
 }
@@ -68,11 +73,13 @@ var DefaultKeys = KeyMap{
 	Search:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 	UnreadOnly:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle unread only")),
 
-	FeedManager: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "feed manager")),
-	ThemePicker: key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "theme picker")),
-	Settings:    key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "settings")),
-	Help:        key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-	Quit:        key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
+	FeedManager:   key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "feed manager")),
+	ThemePicker:   key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "theme picker")),
+	Settings:      key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "settings")),
+	UpdateInstall: key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "install update")),
+	UpdateIgnore:  key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "ignore update")),
+	Help:          key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+	Quit:          key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 
 	Summary:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "AI summary")),
 	CopyText: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
@@ -88,6 +95,9 @@ var DefaultKeys = KeyMap{
 
 	Confirm:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
 	Cancel:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	Space:     key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
+	Yes:       key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "yes")),
+	No:        key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "no")),
 	Tab:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next field")),
 	Backspace: key.NewBinding(key.WithKeys("backspace")),
 }

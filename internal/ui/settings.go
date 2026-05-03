@@ -358,11 +358,13 @@ func (s Settings) draftAIConfig() config.AIConfig {
 func (s *Settings) setFocusedPane(pane settingsPaneFocus) {
 	prev := s.focusedPane
 	s.focusedPane = pane
-	// Entering the detail pane always lands on the back-link so text inputs
-	// are never auto-focused — users must explicitly Tab or arrow-down onto a field.
 	if pane == settingsPaneDetail && prev != settingsPaneDetail {
-		s.focusedField = sfBackToSections
-		s.sectionField[s.activeSection] = sfBackToSections
+		field := sfBackToSections
+		if s.activeSection == ssAI && s.providerIdx >= 1 && s.providerIdx <= 3 {
+			field = sfAPIKey
+		}
+		s.focusedField = field
+		s.sectionField[s.activeSection] = field
 	}
 	s.applyFocus()
 }
@@ -822,7 +824,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 	switch s.focusedField {
 	case sfBackToSections:
 		switch {
-		case key.String() == " " || keyMatches(key, keys.Enter), keyMatches(key, keys.Left):
+		case keyMatches(key, keys.Space) || keyMatches(key, keys.Enter), keyMatches(key, keys.Left):
 			s.setFocusedPane(settingsPaneSidebar)
 			return s, nil, false
 		case keyMatches(key, keys.Down):
@@ -835,7 +837,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		return s, nil, false
 
 	case sfIcons:
-		if key.String() == " " || keyMatches(key, keys.Enter) {
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.icons = !s.icons
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
@@ -844,7 +846,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		}
 
 	case sfDateFormat:
-		if key.String() == " " || keyMatches(key, keys.Enter) {
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.dateAbsolute = !s.dateAbsolute
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
@@ -857,7 +859,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		case keyMatches(key, keys.Left):
 			s.layoutDensityIdx = (s.layoutDensityIdx + len(layoutDensityLabels) - 1) % len(layoutDensityLabels)
 			s.setFocusedField(sfDisplayDensity)
-		case key.String() == " " || keyMatches(key, keys.Enter) || keyMatches(key, keys.Right):
+		case keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) || keyMatches(key, keys.Right):
 			s.layoutDensityIdx = (s.layoutDensityIdx + 1) % len(layoutDensityLabels)
 			s.setFocusedField(sfDisplayDensity)
 		case keyMatches(key, keys.Down):
@@ -874,7 +876,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.syncMaskedEchoChars()
 			s.ensureSectionFieldVisible(ssDisplay)
 			s.setFocusedField(sfTheme)
-		case key.String() == " " || keyMatches(key, keys.Enter) || keyMatches(key, keys.Right):
+		case keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) || keyMatches(key, keys.Right):
 			s.themeIdx = (s.themeIdx + 1) % len(BuiltinThemes)
 			s.themeName = BuiltinThemes[s.themeIdx].Name
 			s.syncMaskedEchoChars()
@@ -887,7 +889,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		}
 
 	case sfMarkReadOnOpen:
-		if key.String() == " " || keyMatches(key, keys.Enter) {
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.markReadOnOpen = !s.markReadOnOpen
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
@@ -896,7 +898,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		}
 
 	case sfDefaultUnreadOnly:
-		if key.String() == " " || keyMatches(key, keys.Enter) {
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.defaultUnreadOnly = !s.defaultUnreadOnly
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
@@ -905,7 +907,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		}
 
 	case sfActionableLinks:
-		if key.String() == " " || keyMatches(key, keys.Enter) {
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.actionableLinks = !s.actionableLinks
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
@@ -914,7 +916,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		}
 
 	case sfMarkReadOnSummarize:
-		if key.String() == " " || keyMatches(key, keys.Enter) {
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.markReadOnSummarize = !s.markReadOnSummarize
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
@@ -923,7 +925,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		}
 
 	case sfUpdateCheckOnStartup:
-		if key.String() == " " || keyMatches(key, keys.Enter) {
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.updateCheckOnStartup = !s.updateCheckOnStartup
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
@@ -933,7 +935,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 
 	case sfUpdateCheckNow:
 		switch {
-		case key.String() == " " || keyMatches(key, keys.Enter):
+		case keyMatches(key, keys.Space) || keyMatches(key, keys.Enter):
 			s.action = settingsActionCheckUpdates
 		case keyMatches(key, keys.Down):
 			s.setFocusedField(s.nextField())
@@ -943,7 +945,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 
 	case sfUpdateInstallNow:
 		switch {
-		case key.String() == " " || keyMatches(key, keys.Enter):
+		case keyMatches(key, keys.Space) || keyMatches(key, keys.Enter):
 			s.action = settingsActionInstallUpdate
 		case keyMatches(key, keys.Down):
 			s.setFocusedField(s.nextField())
@@ -953,7 +955,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 
 	case sfUpdateDismissVersion:
 		switch {
-		case key.String() == " " || keyMatches(key, keys.Enter):
+		case keyMatches(key, keys.Space) || keyMatches(key, keys.Enter):
 			s.action = settingsActionDismissVersion
 		case keyMatches(key, keys.Down):
 			s.setFocusedField(s.nextField())
@@ -963,7 +965,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 
 	case sfUpdateManualCommand:
 		switch {
-		case key.String() == " " || keyMatches(key, keys.Enter) || keyMatches(key, keys.CopyText):
+		case keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) || keyMatches(key, keys.CopyText):
 			s.action = settingsActionCopyManualInstall
 		case keyMatches(key, keys.Down):
 			s.setFocusedField(s.nextField())
@@ -973,7 +975,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 
 	case sfUpdateRestartNow:
 		switch {
-		case key.String() == " " || keyMatches(key, keys.Enter):
+		case keyMatches(key, keys.Space) || keyMatches(key, keys.Enter):
 			s.action = settingsActionRestartAfterUpdate
 		case keyMatches(key, keys.Down):
 			s.setFocusedField(s.nextField())
@@ -983,7 +985,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 
 	case sfAboutRepo:
 		switch {
-		case key.String() == " " || keyMatches(key, keys.Enter):
+		case keyMatches(key, keys.Space) || keyMatches(key, keys.Enter):
 			s.action = settingsActionOpenRepo
 		case keyMatches(key, keys.Down):
 			s.setFocusedField(s.nextField())
@@ -993,7 +995,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 
 	case sfAboutIssues:
 		switch {
-		case key.String() == " " || keyMatches(key, keys.Enter):
+		case keyMatches(key, keys.Space) || keyMatches(key, keys.Enter):
 			s.action = settingsActionOpenIssues
 		case keyMatches(key, keys.Down):
 			s.setFocusedField(s.nextField())
@@ -1003,7 +1005,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 
 	case sfTestAIConnection:
 		switch {
-		case key.String() == " " || keyMatches(key, keys.Enter):
+		case keyMatches(key, keys.Space) || keyMatches(key, keys.Enter):
 			if s.aiValidatePending {
 				return s, nil, false
 			}
@@ -1036,7 +1038,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.providerIdx = (s.providerIdx + len(aiProviderLabels) - 1) % len(aiProviderLabels)
 			s.ensureSectionFieldVisible(ssAI)
 			s.setFocusedField(sfProvider)
-		case key.String() == " " || keyMatches(key, keys.Enter) || keyMatches(key, keys.Right):
+		case keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) || keyMatches(key, keys.Right):
 			s.clearAITestFeedback()
 			s.providerIdx = (s.providerIdx + 1) % len(aiProviderLabels)
 			s.ensureSectionFieldVisible(ssAI)
@@ -1166,224 +1168,241 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		return body
 	}
 
-	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2)
-	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
-	body := settingsSectionBody{anchors: make(map[settingsField]int)}
-	addLine := func(line string) {
-		body.lines = append(body.lines, line)
-	}
-	markAnchor := func(field settingsField) {
-		body.anchors[field] = len(body.lines)
-	}
-
-	// Back-to-sections link is the first focusable row in every section.
-	markAnchor(sfBackToSections)
-	addLine(ind.Render(s.renderBackLinkRow(s.focusedField == sfBackToSections, width-2, chrome)))
-	addLine(blank)
-
-	rowContentW := max(1, width-2)
-	labelW := formLabelWidth(rowContentW)
-	hintIndent := strings.Repeat(" ", labelW)
-
-	addToggle := func(label string, on bool, field settingsField) {
-		focused := s.focusedField == field
-		row := s.renderToggle(label, on, focused, width-2, chrome)
-		markAnchor(field)
-		addLine(ind.Render(row))
-		if hint := s.fieldHint(field); hint != "" {
-			addLine(ind.Render(renderFormHint(hintIndent+hint, rowContentW, chrome)))
-		}
-		addLine(blank)
-	}
-
-	addInput := func(label string, input textinput.Model, field settingsField) {
-		focused := s.focusedField == field
-		rowFieldW := max(1, rowContentW-labelW)
-		fieldW := min(rowFieldW, s.inputWidth(field, rowFieldW))
-		row := renderFormRow(label, focused, renderTextInput(input, fieldW, focused, false, chrome), rowContentW, labelW, chrome)
-		markAnchor(field)
-		addLine(ind.Render(row))
-		if hint := s.fieldHint(field); hint != "" {
-			addLine(ind.Render(renderFormHint(hintIndent+hint, rowContentW, chrome)))
-		}
-		addLine(blank)
-	}
-
-	addValue := func(label, value string, focused bool) {
-		if value == "" {
-			return
-		}
-		row := s.renderValueRow(label, value, focused, width-2, chrome)
-		addLine(ind.Render(row))
-		addLine(blank)
-	}
-
-	addAction := func(label, hint string, field settingsField) {
-		focused := s.focusedField == field
-		row := s.renderActionRow(label, hint, focused, width-2, chrome)
-		markAnchor(field)
-		addLine(ind.Render(row))
-		addLine(blank)
-	}
+	b := newSettingsFormBuilder(s, width, chrome)
+	b.addBackLink()
 	switch s.activeSection {
 	case ssDisplay:
-		addToggle("Icons", s.icons, sfIcons)
-		addToggle("Use relative dates", !s.dateAbsolute, sfDateFormat)
-		addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
-		addToggle("Default to unread only", s.defaultUnreadOnly, sfDefaultUnreadOnly)
-		markAnchor(sfTheme)
-		addLine(ind.Render(s.renderThemeSelector(width-2, chrome)))
-		addLine(blank)
-		markAnchor(sfDisplayDensity)
-		addLine(ind.Render(s.renderDensitySelector(width-2, chrome)))
-		if hint := s.fieldHint(sfDisplayDensity); hint != "" {
-			addLine(ind.Render(renderFormHint(hintIndent+hint, rowContentW, chrome)))
-		}
-		addLine(blank)
+		b.addGroup("Display")
+		b.addToggle("Icons", s.icons, sfIcons)
+		b.addToggle("Use relative dates", !s.dateAbsolute, sfDateFormat)
+		b.addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
+		b.addToggle("Default to unread only", s.defaultUnreadOnly, sfDefaultUnreadOnly)
+		b.addThemeSelector()
+		b.addDensitySelector()
 		if config.IsRetroTerminalTheme(s.themeName) {
-			addInput("VT background (#rrggbb)", s.retroBgInput, sfRetroBg)
-			addInput("VT foreground (#rrggbb)", s.retroFgInput, sfRetroFg)
-			addInput("VT accent (#rrggbb)", s.retroAccentInput, sfRetroAccent)
+			b.addGroup("Terminal colors")
+			b.addInput("VT background (#rrggbb)", s.retroBgInput, sfRetroBg)
+			b.addInput("VT foreground (#rrggbb)", s.retroFgInput, sfRetroFg)
+			b.addInput("VT accent (#rrggbb)", s.retroAccentInput, sfRetroAccent)
 		}
-		addToggle("Actionable article links", s.actionableLinks, sfActionableLinks)
-		addInput("Browser command", s.browserInput, sfBrowser)
+		b.addToggle("Actionable article links", s.actionableLinks, sfActionableLinks)
+		b.addInput("Browser command", s.browserInput, sfBrowser)
 
 	case ssFeeds:
-		addInput("Feed max size (MiB)", s.feedMaxBodyInput, sfFeedMaxBody)
+		b.addGroup("Feeds")
+		b.addInput("Feed max size (MiB)", s.feedMaxBodyInput, sfFeedMaxBody)
 
 	case ssUpdates:
-		addValue("Current version", s.update.currentVersion, false)
-		addToggle("Check on startup", s.updateCheckOnStartup, sfUpdateCheckOnStartup)
+		b.addGroup("Updates")
+		b.addValue("Current version", s.update.currentVersion, false)
+		b.addToggle("Check on startup", s.updateCheckOnStartup, sfUpdateCheckOnStartup)
 		if !s.update.lastChecked.IsZero() {
-			addValue("Last checked", relativeTime(s.update.lastChecked), false)
+			b.addValue("Last checked", relativeTime(s.update.lastChecked), false)
 		}
-		addAction("Check now", "", sfUpdateCheckNow)
+		b.addAction("Check now", "", sfUpdateCheckNow)
 		if s.update.latestVersion != "" {
-			addValue("Latest version", s.update.latestVersion, false)
+			b.addValue("Latest version", s.update.latestVersion, false)
 		}
 		if !s.update.publishedAt.IsZero() {
-			addValue("Published", s.update.publishedAt.Format("Jan 2, 2006"), false)
+			b.addValue("Published", s.update.publishedAt.Format("Jan 2, 2006"), false)
 		}
-		addValue("Status", s.update.statusLabel(), false)
+		b.addValue("Status", s.update.statusLabel(), false)
 		if s.update.summary != "" {
-			sumW := max(1, rowContentW-labelW)
+			sumW := max(1, b.contentW-b.labelW)
 			sumLines := wrapShellCommand(s.update.summary, sumW)
 			hintStyle := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted)
 			for _, sl := range sumLines {
-				addLine(ind.Render(hintStyle.Width(rowContentW).Render(truncate(hintIndent+sl, rowContentW))))
+				b.addLine(hintStyle.Width(b.contentW).Render(truncate(b.hintIndent+sl, b.contentW)))
 			}
-			addLine(blank)
+			b.addBlank()
 		}
 		if s.updateNowActionVisible() {
-			addAction("Update now", "Update now", sfUpdateInstallNow)
+			b.addAction("Update now", "Update now", sfUpdateInstallNow)
 		}
 		if s.updateInstallActionsVisible() {
-			addAction("Ignore", "", sfUpdateDismissVersion)
+			b.addAction("Ignore", "", sfUpdateDismissVersion)
 		}
 		if s.update.manualCommand != "" {
 			focused := s.focusedField == sfUpdateManualCommand
-			markAnchor(sfUpdateManualCommand)
-			for _, line := range s.manualInstallCommandLines(width-2, s.update.manualCommand, focused, chrome) {
-				addLine(ind.Render(line))
+			b.markAnchor(sfUpdateManualCommand)
+			for _, line := range s.manualInstallCommandLines(b.width, s.update.manualCommand, focused, chrome) {
+				b.addLine(line)
 			}
 			if hint := s.fieldHint(sfUpdateManualCommand); hint != "" {
-				addLine(ind.Render(renderFormHint(hintIndent+hint, rowContentW, chrome)))
+				b.addLine(renderFormHint(b.hintIndent+hint, b.contentW, chrome))
 			}
-			addLine(blank)
+			b.addBlank()
 		}
 		if s.update.restartable {
-			addAction("Restart now", "launch updated Tide", sfUpdateRestartNow)
+			b.addAction("Restart now", "launch updated Tide", sfUpdateRestartNow)
 		}
 
 	case ssAI:
-		body = s.appendAISectionBody(body, width, chrome)
+		b.addAISection()
 
 	}
 
-	if len(body.lines) == 0 {
-		body.lines = append(body.lines, blank)
+	if len(b.body.lines) == 0 {
+		b.body.lines = append(b.body.lines, b.blank)
 	}
 
-	return body
+	return b.body
 }
 
-func (s Settings) appendAISectionBody(body settingsSectionBody, width int, chrome managerChrome) settingsSectionBody {
-	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2)
-	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
-	contentW := max(1, width-2)
+type settingsFormBuilder struct {
+	s          Settings
+	width      int
+	contentW   int
+	labelW     int
+	hintIndent string
+	chrome     managerChrome
+	ind        lipgloss.Style
+	blank      string
+	body       settingsSectionBody
+}
+
+func newSettingsFormBuilder(s Settings, width int, chrome managerChrome) settingsFormBuilder {
+	contentW := max(1, width)
 	labelW := formLabelWidth(contentW)
+	return settingsFormBuilder{
+		s:          s,
+		width:      width,
+		contentW:   contentW,
+		labelW:     labelW,
+		hintIndent: strings.Repeat(" ", labelW),
+		chrome:     chrome,
+		ind:        lipgloss.NewStyle().Background(chrome.baseBg).Width(width),
+		blank:      lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render(""),
+		body:       settingsSectionBody{anchors: make(map[settingsField]int)},
+	}
+}
 
-	addLine := func(line string) {
-		body.lines = append(body.lines, ind.Render(line))
-	}
-	addBlank := func() {
-		body.lines = append(body.lines, blank)
-	}
-	markAnchor := func(field settingsField) {
-		body.anchors[field] = len(body.lines)
-	}
+func (b *settingsFormBuilder) addLine(line string) {
+	b.body.lines = append(b.body.lines, b.ind.Render(line))
+}
 
-	addGroup := func(label string) {
-		addLine(renderFormGroupTitle(label, contentW, chrome))
-	}
-	addControl := func(label string, field settingsField, control string) {
-		markAnchor(field)
-		addLine(renderFormRow(label, s.focusedField == field, control, contentW, labelW, chrome))
-		addBlank()
-	}
-	addField := func(label string, input textinput.Model, field settingsField, fullWidth bool) {
-		focused := s.focusedField == field
-		markAnchor(field)
-		status := ""
-		if field == sfAPIKey {
-			status = s.aiKeyStateLabel()
-		}
-		addLine(renderFormFieldHeader(label, focused, status, contentW, chrome))
-		inputW := contentW
-		if !fullWidth {
-			inputW = min(contentW, s.inputWidth(field, contentW))
-		}
-		addLine(renderTextInput(input, inputW, focused, false, chrome))
-		addLine(renderFormHint(s.fieldHint(field), contentW, chrome))
-		addBlank()
-	}
-	addAction := func(label string, field settingsField) {
-		focused := s.focusedField == field
-		markAnchor(field)
-		badge := s.renderBadge("ENTER", focused, chrome)
-		status := renderFormInlineStatus(s.aiConnectionStatusLabel(), max(1, contentW-labelW-9), chrome)
-		gap := lipgloss.NewStyle().Background(chrome.baseBg).Render(" ")
-		addLine(renderFormRow(label, focused, badge+gap+status, contentW, labelW, chrome))
-		addBlank()
-	}
+func (b *settingsFormBuilder) addBlank() {
+	b.body.lines = append(b.body.lines, b.blank)
+}
 
-	addGroup("Provider credentials")
-	addControl("Provider", sfProvider, renderSettingsPicker(min(max(12, contentW-labelW), 18), aiProviderLabels[s.providerIdx], s.focusedField == sfProvider, chrome))
+func (b *settingsFormBuilder) markAnchor(field settingsField) {
+	b.body.anchors[field] = len(b.body.lines)
+}
 
-	switch s.providerIdx {
+func (b *settingsFormBuilder) addBackLink() {
+	b.markAnchor(sfBackToSections)
+	b.addLine(b.s.renderBackLinkRow(b.s.focusedField == sfBackToSections, b.width, b.chrome))
+	b.addBlank()
+}
+
+func (b *settingsFormBuilder) addGroup(label string) {
+	b.addLine(renderFormGroupTitle(label, b.contentW, b.chrome))
+	b.addBlank()
+}
+
+func (b *settingsFormBuilder) addControl(label string, field settingsField, control string) {
+	b.markAnchor(field)
+	b.addLine(renderFormRow(label, b.s.focusedField == field, control, b.contentW, b.labelW, b.chrome))
+	b.addBlank()
+}
+
+func (b *settingsFormBuilder) addToggle(label string, on bool, field settingsField) {
+	focused := b.s.focusedField == field
+	b.markAnchor(field)
+	b.addLine(b.s.renderToggle(label, on, focused, b.width, b.chrome))
+	if hint := b.s.fieldHint(field); hint != "" {
+		b.addLine(renderFormHint(b.hintIndent+hint, b.contentW, b.chrome))
+	}
+	b.addBlank()
+}
+
+func (b *settingsFormBuilder) addInput(label string, input textinput.Model, field settingsField) {
+	focused := b.s.focusedField == field
+	rowFieldW := max(1, b.contentW-b.labelW)
+	controlW := max(1, rowFieldW-4)
+	fieldW := min(controlW, b.s.inputWidth(field, controlW))
+	control := renderInsetControl(renderTextInput(input, fieldW, focused, false, b.chrome), rowFieldW, 2, b.chrome)
+	b.markAnchor(field)
+	b.addLine(renderFormRow(label, focused, control, b.contentW, b.labelW, b.chrome))
+	if hint := b.s.fieldHint(field); hint != "" {
+		b.addLine(renderFormHint(b.hintIndent+hint, b.contentW, b.chrome))
+	}
+	b.addBlank()
+}
+
+func (b *settingsFormBuilder) addBareInput(input textinput.Model, field settingsField) {
+	focused := b.s.focusedField == field
+	inputW := max(1, b.contentW-4)
+	b.markAnchor(field)
+	b.addLine(renderInsetControl(renderTextInput(input, inputW, focused, false, b.chrome), b.contentW, 2, b.chrome))
+	b.addBlank()
+}
+
+func (b *settingsFormBuilder) addValue(label, value string, focused bool) {
+	if value == "" {
+		return
+	}
+	b.addLine(b.s.renderValueRow(label, value, focused, b.width, b.chrome))
+	b.addBlank()
+}
+
+func (b *settingsFormBuilder) addAction(label, hint string, field settingsField) {
+	focused := b.s.focusedField == field
+	b.markAnchor(field)
+	b.addLine(b.s.renderActionRow(label, hint, focused, b.width, b.chrome))
+	b.addBlank()
+}
+
+func (b *settingsFormBuilder) addThemeSelector() {
+	b.markAnchor(sfTheme)
+	b.addLine(b.s.renderThemeSelector(b.width, b.chrome))
+	b.addBlank()
+}
+
+func (b *settingsFormBuilder) addDensitySelector() {
+	b.markAnchor(sfDisplayDensity)
+	b.addLine(b.s.renderDensitySelector(b.width, b.chrome))
+	if hint := b.s.fieldHint(sfDisplayDensity); hint != "" {
+		b.addLine(renderFormHint(b.hintIndent+hint, b.contentW, b.chrome))
+	}
+	b.addBlank()
+}
+
+func (b *settingsFormBuilder) addAISection() {
+	b.addGroup("Provider credentials")
+	b.addControl("Provider", sfProvider, renderSettingsPicker(min(max(12, b.contentW-b.labelW), 18), aiProviderLabels[b.s.providerIdx], b.s.focusedField == sfProvider, b.chrome))
+
+	switch b.s.providerIdx {
 	case 1:
-		addField("OpenAI key", s.openaiInput, sfAPIKey, true)
+		b.addBareInput(b.s.openaiInput, sfAPIKey)
 	case 2:
-		addField("Claude key", s.claudeInput, sfAPIKey, true)
+		b.addBareInput(b.s.claudeInput, sfAPIKey)
 	case 3:
-		addField("Gemini key", s.geminiInput, sfAPIKey, true)
+		b.addBareInput(b.s.geminiInput, sfAPIKey)
 	case 4:
-		addField("Ollama URL", s.ollamaURLInput, sfOllamaURL, false)
-		addField("Model", s.ollamaModelInput, sfOllamaModel, false)
+		b.addInput("Ollama URL", b.s.ollamaURLInput, sfOllamaURL)
+		b.addInput("Model", b.s.ollamaModelInput, sfOllamaModel)
 	}
 
-	addAction("Test connection", sfTestAIConnection)
-
-	addGroup("Summary output")
-	addField("Save summaries to", s.savePathInput, sfSavePath, true)
+	b.addAITestConnection()
+	b.addGroup("Summary output")
+	b.addBareInput(b.s.savePathInput, sfSavePath)
 
 	toggleLabel := "OFF"
-	if s.markReadOnSummarize {
+	if b.s.markReadOnSummarize {
 		toggleLabel = "ON"
 	}
-	addControl("Mark read on summarize", sfMarkReadOnSummarize, s.renderBadge(toggleLabel, s.focusedField == sfMarkReadOnSummarize, chrome))
+	b.addControl("Mark read on summarize", sfMarkReadOnSummarize, b.s.renderBadge(toggleLabel, b.s.focusedField == sfMarkReadOnSummarize, b.chrome))
+}
 
-	return body
+func (b *settingsFormBuilder) addAITestConnection() {
+	focused := b.s.focusedField == sfTestAIConnection
+	b.markAnchor(sfTestAIConnection)
+	badge := b.s.renderBadge("TEST", focused, b.chrome)
+	status := b.s.renderAIConnectionStatus(max(1, b.contentW-b.labelW-lipgloss.Width(badge)-1), focused, b.chrome)
+	gap := lipgloss.NewStyle().Background(b.chrome.baseBg).Render(" ")
+	b.addLine(renderFormControlRow(badge+gap+status, b.contentW, b.chrome))
+	b.addBlank()
 }
 
 func (s Settings) aiKeyStateLabel() string {
@@ -1401,17 +1420,39 @@ func (s Settings) aiKeyStateLabel() string {
 	return "check"
 }
 
+type aiConnectionState int
+
+const (
+	aiConnectionIdle aiConnectionState = iota
+	aiConnectionPending
+	aiConnectionSuccess
+	aiConnectionError
+)
+
+func (s Settings) aiConnectionState() aiConnectionState {
+	switch {
+	case s.aiValidatePending:
+		return aiConnectionPending
+	case s.aiTestError != "":
+		return aiConnectionError
+	case s.aiTestOk:
+		return aiConnectionSuccess
+	default:
+		return aiConnectionIdle
+	}
+}
+
 func (s Settings) aiConnectionStatusLabel() string {
-	if s.aiValidatePending {
-		return "Contacting..."
+	switch s.aiConnectionState() {
+	case aiConnectionPending:
+		return "checking"
+	case aiConnectionError:
+		return "failed"
+	case aiConnectionSuccess:
+		return "ok"
+	default:
+		return "ready"
 	}
-	if s.aiTestError != "" {
-		return s.aiTestError
-	}
-	if s.aiTestOk {
-		return "Connection OK"
-	}
-	return "Ready"
 }
 
 func (s Settings) inputWidth(field settingsField, maxWidth int) int {
@@ -1730,10 +1771,10 @@ func (s Settings) renderBackLinkRow(focused bool, width int, chrome managerChrom
 // prependBackLink inserts the back-link row and a blank separator at the top of an
 // already-rendered section body, bumping existing anchors by the insertion count.
 func (s Settings) prependBackLink(body settingsSectionBody, width int, chrome managerChrome) settingsSectionBody {
-	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2)
+	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width)
 	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	prefix := []string{
-		ind.Render(s.renderBackLinkRow(s.focusedField == sfBackToSections, width-2, chrome)),
+		ind.Render(s.renderBackLinkRow(s.focusedField == sfBackToSections, width, chrome)),
 		blank,
 	}
 	shift := len(prefix)
@@ -1804,6 +1845,48 @@ func (u settingsUpdateState) statusLabel() string {
 
 func (s Settings) renderBadge(text string, focused bool, chrome managerChrome) string {
 	return renderFormBadge(text, focused, chrome)
+}
+
+func (s Settings) renderAIConnectionStatus(width int, focused bool, chrome managerChrome) string {
+	state := s.aiConnectionState()
+	if width <= 0 {
+		return ""
+	}
+
+	glyph := aiConnectionStatusGlyph(chrome.plainUI, state)
+	indicatorFg := chrome.muted
+	labelFg := chrome.muted
+	switch state {
+	case aiConnectionPending:
+		indicatorFg = chrome.pendingFg
+	case aiConnectionSuccess:
+		indicatorFg = chrome.successFg
+		labelFg = chrome.text
+	case aiConnectionError:
+		indicatorFg = chrome.errorFg
+		labelFg = chrome.errorFg
+	}
+	if focused && state == aiConnectionIdle {
+		indicatorFg = chrome.text
+		labelFg = chrome.text
+	}
+
+	indicator := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Foreground(indicatorFg).
+		Bold(state != aiConnectionIdle).
+		Render(glyph)
+	if width <= lipgloss.Width(indicator) {
+		return indicator
+	}
+
+	labelWidth := max(1, width-lipgloss.Width(indicator)-1)
+	label := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Foreground(labelFg).
+		Render(truncate(s.aiConnectionStatusLabel(), labelWidth))
+	gap := lipgloss.NewStyle().Background(chrome.baseBg).Render(" ")
+	return indicator + gap + label
 }
 
 // renderToggleHint appends a small hint showing the current value label.
@@ -1913,9 +1996,9 @@ func (s Settings) renderInlineHint(text string, width int, chrome managerChrome)
 }
 
 func (s Settings) renderAboutSection(width int, chrome managerChrome) settingsSectionBody {
-	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).PaddingLeft(2)
+	ind := lipgloss.NewStyle().Background(chrome.baseBg).Width(width)
 	blank := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
-	bodyW := max(1, width-2)
+	bodyW := max(1, width)
 	lines := []string{}
 	addBlock := func(block string) int {
 		start := len(lines)

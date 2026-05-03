@@ -23,7 +23,7 @@ func formatArticleBody(content string, width int, plainUI bool) string {
 	return strings.Join(out, "\n\n")
 }
 
-func formatSummaryBody(content string, width int) string {
+func formatSummaryBody(content string, width int, plainUI bool) string {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	paras := splitArticleParagraphs(content)
 	if len(paras) == 1 {
@@ -34,7 +34,7 @@ func formatSummaryBody(content string, width int) string {
 		if p == "" {
 			continue
 		}
-		out = append(out, formatSummaryParagraph(p, width))
+		out = append(out, formatSummaryParagraph(p, width, plainUI))
 	}
 	if len(out) == 0 {
 		return ""
@@ -79,7 +79,7 @@ func formatArticleParagraph(p string, width int, plainUI bool) string {
 			if line == "" {
 				continue
 			}
-			items = append(items, wrapBullet(line, width))
+			items = append(items, wrapBullet(line, width, plainUI))
 		}
 		return strings.Join(items, "\n")
 	default:
@@ -87,7 +87,7 @@ func formatArticleParagraph(p string, width int, plainUI bool) string {
 	}
 }
 
-func formatSummaryParagraph(p string, width int) string {
+func formatSummaryParagraph(p string, width int, plainUI bool) string {
 	lines := strings.Split(strings.TrimSpace(p), "\n")
 	if len(lines) == 0 {
 		return ""
@@ -102,7 +102,7 @@ func formatSummaryParagraph(p string, width int) string {
 			if line == "" {
 				continue
 			}
-			items = append(items, wrapBullet(line, width))
+			items = append(items, wrapBullet(line, width, plainUI))
 		}
 		return strings.Join(items, "\n")
 	case isNumberedListItem(trimmed):
@@ -147,17 +147,23 @@ func splitDenseSummaryParagraph(p string) []string {
 	return paras
 }
 
-func wrapBullet(text string, width int) string {
+func wrapBullet(text string, width int, plainUI bool) string {
+	prefix := "• "
+	indent := "  "
+	if plainUI {
+		prefix = "* "
+		indent = "  "
+	}
 	if width <= 2 {
-		return "• " + text
+		return prefix + text
 	}
 	wrapped := wrapWords(text, width-2)
 	lines := strings.Split(wrapped, "\n")
 	for i := range lines {
 		if i == 0 {
-			lines[i] = "• " + lines[i]
+			lines[i] = prefix + lines[i]
 		} else {
-			lines[i] = "  " + lines[i]
+			lines[i] = indent + lines[i]
 		}
 	}
 	return strings.Join(lines, "\n")

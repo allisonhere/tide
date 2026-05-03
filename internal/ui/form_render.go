@@ -24,7 +24,7 @@ func renderFormGroupTitle(label string, width int, chrome managerChrome) string 
 	titleText := strings.ToUpper(strings.TrimSpace(label))
 	title := lipgloss.NewStyle().
 		Background(chrome.baseBg).
-		Foreground(chrome.text).
+		Foreground(chrome.muted).
 		Bold(true).
 		Render(marker + " " + truncate(titleText, max(1, width-2)))
 	row := title
@@ -45,32 +45,18 @@ func renderFormGroupTitle(label string, width int, chrome managerChrome) string 
 func renderFormRow(label string, focused bool, control string, width, labelW int, chrome managerChrome) string {
 	rowBg := chrome.baseBg
 	labelFg := chrome.muted
-	markerFg := chrome.muted
 	if focused {
-		rowBg = chrome.surfaceBg
-		labelFg = chrome.highlightFg
-		markerFg = chrome.accent
-	}
-
-	marker := " "
-	if focused {
-		if chrome.plainUI {
-			marker = ">"
-		} else {
-			marker = "▌"
-		}
+		labelFg = chrome.text
 	}
 	markerCell := lipgloss.NewStyle().
 		Background(rowBg).
-		Foreground(markerFg).
 		Width(2).
-		Render(marker)
+		Render(" ")
 	labelW = min(labelW, max(1, width-lipgloss.Width(markerCell)-1))
 	controlW := max(1, width-lipgloss.Width(markerCell)-labelW)
 	labelCell := lipgloss.NewStyle().
 		Background(rowBg).
 		Foreground(labelFg).
-		Bold(focused).
 		Width(labelW).
 		Render(truncate(label, max(1, labelW-1)))
 	control = truncateStyled(control, controlW, chrome.baseBg)
@@ -78,34 +64,54 @@ func renderFormRow(label string, focused bool, control string, width, labelW int
 	return markerCell + labelCell + controlCell
 }
 
+func renderFormControlRow(control string, width int, chrome managerChrome) string {
+	markerCell := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Width(2).
+		Render(" ")
+	controlW := max(1, width-lipgloss.Width(markerCell))
+	control = truncateStyled(control, controlW, chrome.baseBg)
+	controlCell := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Width(controlW).
+		Render(control)
+	return markerCell + controlCell
+}
+
+func renderInsetControl(control string, width, inset int, chrome managerChrome) string {
+	if width <= 0 {
+		return ""
+	}
+	if inset < 0 {
+		inset = 0
+	}
+	maxInset := max(0, (width-1)/2)
+	if inset > maxInset {
+		inset = maxInset
+	}
+	left := lipgloss.NewStyle().Background(chrome.baseBg).Render(strings.Repeat(" ", inset))
+	rightW := inset
+	innerW := max(1, width-inset-rightW)
+	control = truncateStyled(control, innerW, chrome.baseBg)
+	controlCell := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Width(innerW).
+		Render(control)
+	right := lipgloss.NewStyle().Background(chrome.baseBg).Render(strings.Repeat(" ", rightW))
+	return left + controlCell + right
+}
+
 func renderFormFieldHeader(label string, focused bool, status string, width int, chrome managerChrome) string {
 	rowBg := chrome.baseBg
 	labelFg := chrome.muted
-	markerFg := chrome.muted
-	if focused {
-		rowBg = chrome.surfaceBg
-		labelFg = chrome.highlightFg
-		markerFg = chrome.accent
-	}
-
-	marker := " "
-	if focused {
-		if chrome.plainUI {
-			marker = ">"
-		} else {
-			marker = "▌"
-		}
-	}
 	markerCell := lipgloss.NewStyle().
 		Background(rowBg).
-		Foreground(markerFg).
 		Width(2).
-		Render(marker)
+		Render(" ")
 	labelW := max(1, width-lipgloss.Width(markerCell))
 	row := markerCell + lipgloss.NewStyle().
 		Background(rowBg).
 		Foreground(labelFg).
-		Bold(focused).
 		Render(truncate(label, labelW))
 	if status != "" {
 		badge := renderFormBadge(status, focused, chrome)
@@ -152,14 +158,20 @@ func renderFormBadge(text string, focused bool, chrome managerChrome) string {
 	text = strings.ToUpper(strings.TrimSpace(text))
 	badgeW := max(7, lipgloss.Width(text)+2)
 	if focused {
-		return chrome.key.UnsetPadding().Width(badgeW).Align(lipgloss.Center).Render(text)
+		return lipgloss.NewStyle().
+			Background(chrome.highlight).
+			Foreground(chrome.highlightFg).
+			Bold(true).
+			Width(badgeW).
+			Align(lipgloss.Center).
+			Render(text)
 	}
 	return lipgloss.NewStyle().
-		Background(chrome.surfaceBg).
-		Foreground(chrome.muted).
+		Background(chrome.accent).
+		Foreground(chrome.accentFg).
 		Width(badgeW).
 		Align(lipgloss.Center).
-		Render(strings.ToLower(text))
+		Render(text)
 }
 
 func truncateStyled(s string, width int, bg lipgloss.Color) string {

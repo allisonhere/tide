@@ -22,3 +22,28 @@ func (s Styles) InlineMidDot() string {
 	}
 	return " · "
 }
+
+func aiConnectionStatusGlyph(plain bool, state aiConnectionState) string {
+	if plain {
+		switch state {
+		case aiConnectionPending:
+			return "..."
+		case aiConnectionSuccess:
+			return "OK"
+		case aiConnectionError:
+			return "ERR"
+		default:
+			return "o"
+		}
+	}
+	switch state {
+	case aiConnectionPending:
+		return "◔"
+	case aiConnectionSuccess:
+		return "●"
+	case aiConnectionError:
+		return "●"
+	default:
+		return "○"
+	}
+}

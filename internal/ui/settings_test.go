@@ -167,6 +167,23 @@ func TestSettingsSidebarRightEntersDetail(t *testing.T) {
 	}
 }
 
+func TestSettingsAISidebarRightEntersDetailOnAPIKey(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setFocusedPane(settingsPaneSidebar)
+	s.setActiveSection(ssAI)
+
+	next, _, _ := s.Update(tea.KeyMsg{Type: tea.KeyRight}, DefaultKeys)
+
+	if next.focusedPane != settingsPaneDetail {
+		t.Fatalf("expected right key to enter detail pane, got %v", next.focusedPane)
+	}
+	if next.focusedField != sfAPIKey {
+		t.Fatalf("expected AI detail pane to land on API key, got %v", next.focusedField)
+	}
+}
+
 func TestSettingsEscMovesToSidebarThenSavesAndExits(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setFocusedPane(settingsPaneDetail)
@@ -728,11 +745,36 @@ func TestSettingsRightPaneScrollsToFocusedFieldOnShortView(t *testing.T) {
 	chrome := newManagerChrome(62, CatppuccinMocha, false)
 	view := ansi.Strip(s.View(62, 12, chrome))
 
-	if !strings.Contains(view, "Save summaries to") {
+	if !strings.Contains(view, "~/") {
 		t.Fatalf("expected short settings view to scroll save path into view, got %q", view)
 	}
 	if strings.Contains(view, "Provider") {
 		t.Fatalf("expected provider row to scroll out of the short detail pane, got %q", view)
+	}
+}
+
+func TestSettingsSectionsUseSharedRightPaneGroupHeaders(t *testing.T) {
+	tests := []struct {
+		section settingsSection
+		want    string
+	}{
+		{section: ssDisplay, want: "━ DISPLAY"},
+		{section: ssFeeds, want: "━ FEEDS"},
+		{section: ssUpdates, want: "━ UPDATES"},
+		{section: ssAI, want: "━ PROVIDER CREDENTIALS"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+			s.setActiveSection(tt.section)
+
+			body := s.viewSectionBody(60, newManagerChrome(72, CatppuccinMocha, false))
+			text := ansi.Strip(strings.Join(body.lines, "\n"))
+			if !strings.Contains(text, tt.want) {
+				t.Fatalf("expected shared group header %q, got %q", tt.want, text)
+			}
+		})
 	}
 }
 
@@ -750,7 +792,7 @@ func TestSettingsAPIKeyInputAlwaysVisibleAndMasked(t *testing.T) {
 	if strings.Contains(view, "abcdefghijklmnopqrstuvwxyz") {
 		t.Fatalf("expected API key input to hide the raw key, got %q", view)
 	}
-	if !strings.Contains(view, "OpenAI key") || !strings.Contains(view, "> ●") {
+	if !strings.Contains(view, "> ●") {
 		t.Fatalf("expected always-visible masked API key input, got %q", view)
 	}
 }
@@ -765,8 +807,8 @@ func TestSettingsAPIKeyFocusKeepsStableMaskedInput(t *testing.T) {
 
 	view := ansi.Strip(s.View(84, 22, newManagerChrome(84, CatppuccinMocha, false)))
 
-	if !strings.Contains(view, "OpenAI key") || !strings.Contains(strings.ToLower(view), "empty") {
-		t.Fatalf("expected focused API key header with compact status, got %q", view)
+	if strings.Contains(view, "OpenAI key") || strings.Contains(strings.ToLower(view), "empty") {
+		t.Fatalf("expected focused API key row to omit header/status text, got %q", view)
 	}
 	if !strings.Contains(view, "sk-...") {
 		t.Fatalf("expected stable key input to show placeholder, got %q", view)
@@ -792,8 +834,8 @@ func TestSettingsAPIKeyInputHeightStaysStableAcrossFocus(t *testing.T) {
 	if len(unfocusedBody.lines) != len(focusedBody.lines) {
 		t.Fatalf("expected AI section line count to stay stable, unfocused=%d focused=%d", len(unfocusedBody.lines), len(focusedBody.lines))
 	}
-	if strings.Count(ansi.Strip(strings.Join(focusedBody.lines, "\n")), "OpenAI key") != 1 {
-		t.Fatalf("expected one API key header in focused body")
+	if strings.Contains(ansi.Strip(strings.Join(focusedBody.lines, "\n")), "OpenAI key") {
+		t.Fatalf("expected focused body to omit API key header")
 	}
 }
 
@@ -817,7 +859,7 @@ func TestSettingsProviderSelectorStaysSingleLineInNarrowPane(t *testing.T) {
 	}
 }
 
-func TestSettingsFocusedAPIKeyHeaderStaysSingleLine(t *testing.T) {
+func TestSettingsFocusedAPIKeyInputStaysSingleLine(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AI.Provider = "openai"
 
@@ -827,14 +869,14 @@ func TestSettingsFocusedAPIKeyHeaderStaysSingleLine(t *testing.T) {
 
 	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha, false))
 	for _, line := range body.lines {
-		if strings.Contains(ansi.Strip(line), "OpenAI key") {
+		if strings.Contains(ansi.Strip(line), "sk-...") {
 			if got := lipgloss.Height(line); got != 1 {
-				t.Fatalf("expected API key header to stay on one line, got height %d in %q", got, ansi.Strip(line))
+				t.Fatalf("expected API key input to stay on one line, got height %d in %q", got, ansi.Strip(line))
 			}
 			return
 		}
 	}
-	t.Fatal("expected focused API key header to be present")
+	t.Fatal("expected focused API key input to be present")
 }
 
 func TestSettingsAITestConnectionRowStaysCompactInNarrowPane(t *testing.T) {
@@ -850,11 +892,11 @@ func TestSettingsAITestConnectionRowStaysCompactInNarrowPane(t *testing.T) {
 	if strings.Contains(stripped, "Checks the current draft") {
 		t.Fatalf("expected compact test connection status, got %q", stripped)
 	}
-	if !strings.Contains(stripped, "Test connection") || !strings.Contains(strings.ToLower(stripped), "ready") {
+	if strings.Contains(stripped, "Test connection") || !strings.Contains(strings.ToLower(stripped), "ready") || !strings.Contains(strings.ToLower(stripped), "test") {
 		t.Fatalf("expected compact test connection row, got %q", stripped)
 	}
 	for _, line := range body.lines {
-		if strings.Contains(ansi.Strip(line), "Test connection") {
+		if strings.Contains(strings.ToLower(ansi.Strip(line)), "ready") && strings.Contains(strings.ToLower(ansi.Strip(line)), "test") {
 			if got := lipgloss.Height(line); got != 1 {
 				t.Fatalf("expected test connection row to stay on one line, got height %d in %q", got, ansi.Strip(line))
 			}
@@ -862,6 +904,75 @@ func TestSettingsAITestConnectionRowStaysCompactInNarrowPane(t *testing.T) {
 		}
 	}
 	t.Fatal("expected test connection row to be present")
+}
+
+func TestSettingsAITestConnectionStatusStatesRender(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+
+	tests := []struct {
+		name      string
+		configure func(*Settings)
+		want      string
+	}{
+		{
+			name:      "idle",
+			configure: func(s *Settings) {},
+			want:      "○ ready",
+		},
+		{
+			name:      "pending",
+			configure: func(s *Settings) { s.aiValidatePending = true },
+			want:      "◔ checking",
+		},
+		{
+			name:      "success",
+			configure: func(s *Settings) { s.aiTestOk = true },
+			want:      "● ok",
+		},
+		{
+			name:      "error",
+			configure: func(s *Settings) { s.aiTestError = "bad key" },
+			want:      "● failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newSettings(cfg, settingsUpdateState{})
+			s.setActiveSection(ssAI)
+			tt.configure(&s)
+
+			body := s.viewSectionBody(56, newManagerChrome(72, CatppuccinMocha, false))
+			text := ansi.Strip(strings.Join(body.lines, "\n"))
+			if !strings.Contains(text, tt.want) {
+				t.Fatalf("expected status %q, got %q", tt.want, text)
+			}
+		})
+	}
+}
+
+func TestSettingsAITestConnectionStatusUsesASCIIFallbacks(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setActiveSection(ssAI)
+	s.aiValidatePending = true
+
+	body := s.viewSectionBody(56, newManagerChrome(72, CatppuccinMocha, true))
+	text := ansi.Strip(strings.Join(body.lines, "\n"))
+	if !strings.Contains(text, "... checking") {
+		t.Fatalf("expected ASCII pending indicator, got %q", text)
+	}
+
+	s.aiValidatePending = false
+	s.aiTestOk = true
+	body = s.viewSectionBody(56, newManagerChrome(72, CatppuccinMocha, true))
+	text = ansi.Strip(strings.Join(body.lines, "\n"))
+	if !strings.Contains(text, "OK ok") {
+		t.Fatalf("expected ASCII success indicator, got %q", text)
+	}
 }
 
 func TestSettingsSavePathRowStaysSingleLineInNarrowPane(t *testing.T) {
@@ -875,7 +986,7 @@ func TestSettingsSavePathRowStaysSingleLineInNarrowPane(t *testing.T) {
 
 	body := s.viewSectionBody(48, newManagerChrome(64, CatppuccinMocha, false))
 	for _, line := range body.lines {
-		if strings.Contains(ansi.Strip(line), "Save summaries to") {
+		if strings.Contains(ansi.Strip(line), "~/summaries/export") {
 			if got := lipgloss.Height(line); got != 1 {
 				t.Fatalf("expected save path row to stay on one line, got height %d in %q", got, ansi.Strip(line))
 			}

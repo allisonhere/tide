@@ -1146,10 +1146,10 @@ func (fm FeedManager) updateEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		fm.focusedField = order[0]
 		fm.focusCurrentEditField()
 
-	case fm.focusedField == fmFieldBack && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Enter) || msg.String() == " "):
+	case fm.focusedField == fmFieldBack && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Enter) || keyMatches(msg, keys.Space)):
 		fm.leaveEditDetail()
 
-	case fm.focusedField == fmFieldAddSource && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Right) || keyMatches(msg, keys.Enter) || msg.String() == " "):
+	case fm.focusedField == fmFieldAddSource && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Right) || keyMatches(msg, keys.Enter) || keyMatches(msg, keys.Space)):
 		fm.addSourceIdx = (fm.addSourceIdx + 1) % len(fmAddSourceLabels)
 		fm.folderCursor = 0
 		fm.showNewFolder = false
@@ -1244,7 +1244,7 @@ func (fm FeedManager) updateFolderEdit(msg tea.KeyMsg, keys KeyMap) (FeedManager
 	case keyMatches(msg, keys.Up):
 		fm = fm.retreatFieldInOrder(fm.folderEditFieldOrder())
 
-	case fm.focusedField == fmFieldBack && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Enter) || msg.String() == " "):
+	case fm.focusedField == fmFieldBack && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Enter) || keyMatches(msg, keys.Space)):
 		fm.returnToListPane()
 
 	case fm.focusedField == 4 && keyMatches(msg, keys.Left):
@@ -1303,7 +1303,7 @@ func (fm FeedManager) updateImport(msg tea.KeyMsg, keys KeyMap) (FeedManager, te
 	case keyMatches(msg, keys.Up):
 		fm = fm.retreatFieldInOrder([]int{fmFieldBack, fmFieldImportPath})
 
-	case fm.focusedField == fmFieldBack && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Enter) || msg.String() == " "):
+	case fm.focusedField == fmFieldBack && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Enter) || keyMatches(msg, keys.Space)):
 		fm.paneFocus = fmPaneList
 		fm.blurEditInputs()
 
@@ -1338,7 +1338,7 @@ func (fm FeedManager) updateMove(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		fm.blurEditInputs()
 	case keyMatches(msg, keys.Tab):
 		fm = fm.advanceFieldInOrder([]int{fmFieldBack, fmFieldMoveFolder})
-	case fm.focusedField == fmFieldBack && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Enter) || msg.String() == " "):
+	case fm.focusedField == fmFieldBack && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Enter) || keyMatches(msg, keys.Space)):
 		fm.paneFocus = fmPaneList
 		fm.blurEditInputs()
 	case fm.focusedField == fmFieldBack && keyMatches(msg, keys.Down):
@@ -1378,12 +1378,12 @@ func (fm FeedManager) updateMove(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 	return fm, nil
 }
 
-func (fm FeedManager) updateConfirmDelete(msg tea.KeyMsg, _ KeyMap) (FeedManager, tea.Cmd) {
+func (fm FeedManager) updateConfirmDelete(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.Cmd) {
 	if fm.busy {
 		return fm, nil
 	}
-	switch msg.String() {
-	case "y":
+	switch {
+	case keyMatches(msg, keys.Yes):
 		fm.mode = fmList
 		if row := fm.selectedRow(); row != nil {
 			if row.kind == fmRowFolder {
@@ -1397,7 +1397,7 @@ func (fm FeedManager) updateConfirmDelete(msg tea.KeyMsg, _ KeyMap) (FeedManager
 			fm.busy = true
 			return fm, fm.deleteCmd(row.feedID)
 		}
-	case "n", "esc":
+	case keyMatches(msg, keys.No), keyMatches(msg, keys.Cancel):
 		fm.mode = fmList
 	}
 	return fm, nil
@@ -2077,7 +2077,7 @@ func (fm FeedManager) viewConfirmDelete(width, height int, chrome managerChrome)
 	fieldW := max(1, width-2)
 	warningBlock := lipgloss.JoinVertical(
 		lipgloss.Left,
-		lipgloss.NewStyle().Background(chrome.baseBg).Foreground(lipgloss.Color("#f7768e")).Bold(true).Width(max(12, fieldW)).Render("WARNING"),
+		lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.errorFg).Bold(true).Width(max(12, fieldW)).Render("WARNING"),
 		chrome.body.Width(max(12, fieldW)).Render(warning),
 	)
 	return renderManagerDetailColumn(width, []string{
@@ -2245,6 +2245,8 @@ type managerChrome struct {
 	text               lipgloss.Color
 	muted              lipgloss.Color
 	errorFg            lipgloss.Color
+	successFg          lipgloss.Color
+	pendingFg          lipgloss.Color
 	header             lipgloss.Style
 	sectionLabel       lipgloss.Style
 	sectionLabelActive lipgloss.Style
@@ -2310,6 +2312,14 @@ func newManagerChrome(width int, t Theme, plainUI bool) managerChrome {
 	if errorFg == "" {
 		errorFg = accent
 	}
+	successFg := t.Unread
+	if successFg == "" {
+		successFg = accent
+	}
+	pendingFg := t.BorderFocus
+	if pendingFg == "" {
+		pendingFg = accent
+	}
 
 	return managerChrome{
 		baseBg:      baseBg,
@@ -2324,6 +2334,8 @@ func newManagerChrome(width int, t Theme, plainUI bool) managerChrome {
 		text:        text,
 		muted:       muted,
 		errorFg:     errorFg,
+		successFg:   successFg,
+		pendingFg:   pendingFg,
 		header: lipgloss.NewStyle().
 			Width(width).
 			Background(accent).
@@ -2483,6 +2495,9 @@ func renderTextInput(input textinput.Model, width int, focused bool, compactSecr
 	// Layout: border(1) | pad(1) | content(contentW) | pad(1)  →  total = width
 	// bubbles input.Width is the text-only area (prompt "> " = 2 chars excluded).
 	fieldBg := chrome.fieldBg
+	if focused {
+		fieldBg = adjustLightness(chrome.baseBg, -0.06)
+	}
 	contentW := max(1, width-3)
 
 	input.Width = max(1, contentW-2)
@@ -2505,6 +2520,7 @@ func renderTextInput(input textinput.Model, width int, focused bool, compactSecr
 		// Those spaces carry no ANSI bg code, so they show terminal bg.
 		// Strip them, then re-pad to contentW with explicit fieldBg-coloured spaces.
 		rendered = strings.TrimRight(input.View(), " ")
+		rendered = ansi.Truncate(rendered, contentW, "")
 	}
 	if gap := contentW - lipgloss.Width(rendered); gap > 0 {
 		rendered += lipgloss.NewStyle().Background(fieldBg).Render(strings.Repeat(" ", gap))

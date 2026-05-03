@@ -1025,7 +1025,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case msg.String() == " ":
+	case keyMatches(msg, m.keys.Space):
 		if m.focused == paneFeeds && m.toggleSelectedFolder() {
 			return m, nil
 		}
@@ -1102,10 +1102,10 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.overlay {
 	case overlayQuitConfirm:
-		switch msg.String() {
-		case "y", "enter":
+		switch {
+		case keyMatches(msg, m.keys.Yes), keyMatches(msg, m.keys.Confirm):
 			return m, tea.Quit
-		case "n", "esc":
+		case keyMatches(msg, m.keys.No), keyMatches(msg, m.keys.Cancel):
 			m.overlay = overlayNone
 		}
 		return m, nil
@@ -1186,8 +1186,8 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case overlayFetchError:
-		switch msg.String() {
-		case "esc", "q", "enter":
+		switch {
+		case keyMatches(msg, m.keys.Cancel), keyMatches(msg, m.keys.Quit), keyMatches(msg, m.keys.Confirm):
 			m.overlay = overlayNone
 			m.lastFetchError = nil
 			return m, m.clearStatusCmd()
@@ -1844,7 +1844,7 @@ func (m Model) renderOverlay(base string) string {
 			Foreground(chrome.text).
 			Width(quitW).
 			Padding(1, 2).
-			Render("QUIT TIDE?")
+			Render("Exit Tide now?")
 		actions := renderManagerActions(quitW, chrome,
 			"y", "quit",
 			"esc", "cancel",
@@ -1976,7 +1976,7 @@ func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) str
 	case m.summaryErr != "":
 		bodyText = "Error: " + m.summaryErr
 	default:
-		bodyText = formatSummaryBody(m.summaryArticle.Summary, width-4)
+		bodyText = formatSummaryBody(m.summaryArticle.Summary, width-4, m.styles.PlainUI)
 	}
 
 	body := lipgloss.NewStyle().

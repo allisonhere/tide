@@ -88,8 +88,8 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 			entries: []entry{
 				bind(keys.ThemePicker),
 				bind(keys.Settings),
-				{"U", "install available Tide update"},
-				{"i", "ignore available Tide update"},
+				bind(keys.UpdateInstall),
+				bind(keys.UpdateIgnore),
 				bind(keys.Help),
 				bind(keys.Quit),
 			},

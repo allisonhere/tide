@@ -2469,7 +2469,7 @@ func TestSummaryUnavailableFromFeedsPane(t *testing.T) {
 func TestFormatSummaryBodyPreservesParagraphsAndLists(t *testing.T) {
 	body := "First paragraph with extra   spacing.\n\n- first bullet item\n- second bullet item\n\n1. first numbered item\n2. second numbered item"
 
-	got := formatSummaryBody(body, 24)
+	got := formatSummaryBody(body, 24, false)
 
 	if !strings.Contains(got, "First paragraph with") {
 		t.Fatalf("expected formatted paragraph, got %q", got)
@@ -2488,10 +2488,23 @@ func TestFormatSummaryBodyPreservesParagraphsAndLists(t *testing.T) {
 func TestFormatSummaryBodySplitsDenseSingleParagraph(t *testing.T) {
 	body := "Sentence one explains the setup. Sentence two adds context. Sentence three gives the key point. Sentence four closes it out."
 
-	got := formatSummaryBody(body, 48)
+	got := formatSummaryBody(body, 48, false)
 
 	if !strings.Contains(got, "\n\nSentence three gives the key point.") {
 		t.Fatalf("expected dense summary to split into short paragraphs, got %q", got)
+	}
+}
+
+func TestFormatSummaryBodyUsesASCIIBulletsInPlainUI(t *testing.T) {
+	body := "- first bullet item\n- second bullet item"
+
+	got := formatSummaryBody(body, 24, true)
+
+	if !strings.Contains(got, "* first bullet item") {
+		t.Fatalf("expected ASCII bullet formatting, got %q", got)
+	}
+	if strings.Contains(got, "• first bullet item") {
+		t.Fatalf("expected plain UI to avoid Unicode bullets, got %q", got)
 	}
 }
 
