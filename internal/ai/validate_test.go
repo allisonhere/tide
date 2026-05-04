@@ -3,8 +3,10 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"tide/internal/config"
@@ -46,6 +48,25 @@ func TestValidateOpenAI_AuthError(t *testing.T) {
 	err := validateOpenAI(context.Background(), "sk-bad")
 	if err == nil || err.Error() != `openai: HTTP 401: bad key` {
 		t.Fatalf("expected HTTP 401 error, got %v", err)
+	}
+}
+
+func TestProviderRequestErrorDNS(t *testing.T) {
+	err := providerRequestError("openai", &net.DNSError{
+		Err:    "server misbehaving",
+		Name:   "api.openai.com",
+		Server: "127.0.0.53:53",
+	})
+	got := err.Error()
+	for _, want := range []string{
+		"openai: DNS lookup failed for api.openai.com",
+		"via 127.0.0.53:53",
+		"server misbehaving",
+		"check your DNS/network connection",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected %q in %q", want, got)
+		}
 	}
 }
 

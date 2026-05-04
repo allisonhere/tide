@@ -2548,6 +2548,134 @@ func TestArticleCursorMoveKeepsFrameStable(t *testing.T) {
 	}
 }
 
+func newArticleFocusTestModel(t *testing.T, cfg config.Config, articles []db.Article) (Model, *db.DB) {
+	t.Helper()
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+
+	m := NewModel(database, cfg, "v1.0.0", false)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+
+	feed := db.Feed{ID: 1, Title: "Feed One", URL: "https://example.com/feed", UnreadCount: int64(len(articles))}
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
+	m = m2.(Model)
+	m.sidebarCursor = 0
+	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: articles})
+	m = m2.(Model)
+	m.focused = paneArticles
+	return m, database
+}
+
+func articleFocusContent() string {
+	return strings.Repeat("body line\n", 80)
+}
+
+func TestArticleFocusMarksUnreadArticleReadWhenEnabled(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Display.MarkReadOnFocus = true
+	m, database := newArticleFocusTestModel(t, cfg, []db.Article{
+		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: articleFocusContent(), PublishedAt: unixTestTime(1710000200), Read: false},
+		{ID: 2, FeedID: 1, Title: "Article Two", Link: "https://example.com/b", Content: articleFocusContent(), PublishedAt: unixTestTime(1710000100), Read: false},
+	})
+	defer database.Close()
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("expected read-on-focus to return a mark-read command")
+	}
+	if m.articleCursor != 1 {
+		t.Fatalf("expected focus to move to second article, got cursor %d", m.articleCursor)
+	}
+
+	msg, ok := cmd().(ArticleReadUpdatedMsg)
+	if !ok {
+		t.Fatalf("expected ArticleReadUpdatedMsg, got %T", msg)
+	}
+	if msg.ArticleID != 2 {
+		t.Fatalf("expected focused article 2 to be marked read, got article %d", msg.ArticleID)
+	}
+	if !msg.Read {
+		t.Fatal("expected read-on-focus command to mark article read")
+	}
+	if msg.Advance {
+		t.Fatal("expected read-on-focus command not to request cursor advance")
+	}
+}
+
+func TestArticleFocusDoesNotMarkReadWhenDisabled(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Display.MarkReadOnFocus = false
+	m, database := newArticleFocusTestModel(t, cfg, []db.Article{
+		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: articleFocusContent(), PublishedAt: unixTestTime(1710000200), Read: false},
+		{ID: 2, FeedID: 1, Title: "Article Two", Link: "https://example.com/b", Content: articleFocusContent(), PublishedAt: unixTestTime(1710000100), Read: false},
+	})
+	defer database.Close()
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(Model)
+	if cmd != nil {
+		t.Fatal("expected disabled read-on-focus not to return a mark-read command")
+	}
+	if m.articleCursor != 1 {
+		t.Fatalf("expected focus to still move to second article, got cursor %d", m.articleCursor)
+	}
+}
+
+func TestArticleFocusDoesNotMarkAlreadyReadArticle(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Display.MarkReadOnFocus = true
+	m, database := newArticleFocusTestModel(t, cfg, []db.Article{
+		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: articleFocusContent(), PublishedAt: unixTestTime(1710000200), Read: false},
+		{ID: 2, FeedID: 1, Title: "Article Two", Link: "https://example.com/b", Content: articleFocusContent(), PublishedAt: unixTestTime(1710000100), Read: true},
+	})
+	defer database.Close()
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if cmd != nil {
+		t.Fatal("expected already-read focused article not to dispatch mark-read")
+	}
+}
+
+func TestArticleFocusReadInUnreadOnlySettlesOnNextArticle(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Display.MarkReadOnFocus = true
+	cfg.Display.DefaultUnreadOnly = true
+	m, database := newArticleFocusTestModel(t, cfg, []db.Article{
+		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: articleFocusContent(), PublishedAt: unixTestTime(1710000300), Read: false},
+		{ID: 2, FeedID: 1, Title: "Article Two", Link: "https://example.com/b", Content: articleFocusContent(), PublishedAt: unixTestTime(1710000200), Read: false},
+		{ID: 3, FeedID: 1, Title: "Article Three", Link: "https://example.com/c", Content: articleFocusContent(), PublishedAt: unixTestTime(1710000100), Read: false},
+	})
+	defer database.Close()
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("expected read-on-focus to mark focused article")
+	}
+	msg, ok := cmd().(ArticleReadUpdatedMsg)
+	if !ok {
+		t.Fatalf("expected ArticleReadUpdatedMsg, got %T", msg)
+	}
+	next, _ = m.Update(msg)
+	m = next.(Model)
+
+	if len(m.filteredArticles) != 2 {
+		t.Fatalf("expected unread-only filter to remove focused read article, got %d articles", len(m.filteredArticles))
+	}
+	if m.articleCursor != 1 {
+		t.Fatalf("expected cursor to settle at same list index, got %d", m.articleCursor)
+	}
+	if got := m.filteredArticles[m.articleCursor].ID; got != 3 {
+		t.Fatalf("expected next unread article to be focused, got article %d", got)
+	}
+}
+
 func TestArticleReadUpdatedAdvancesToNextArticleInArticlesPane(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	database, err := db.Open()

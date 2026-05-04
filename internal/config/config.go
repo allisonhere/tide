@@ -28,6 +28,7 @@ type DisplayConfig struct {
 	Icons             bool               `toml:"icons"`
 	DateFormat        string             `toml:"date_format"` // "relative" | "absolute"
 	MarkReadOnOpen    bool               `toml:"mark_read_on_open"`
+	MarkReadOnFocus   bool               `toml:"mark_read_on_focus"`
 	DefaultUnreadOnly bool               `toml:"default_unread_only"`
 	ActionableLinks   bool               `toml:"actionable_links"`
 	Browser           string             `toml:"browser"`

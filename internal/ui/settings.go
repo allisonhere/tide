@@ -32,6 +32,7 @@ const (
 	sfIcons settingsField = iota
 	sfDateFormat
 	sfMarkReadOnOpen
+	sfMarkReadOnFocus
 	sfDefaultUnreadOnly
 	sfActionableLinks
 	sfDisplayDensity
@@ -152,6 +153,7 @@ type Settings struct {
 	icons                bool
 	dateAbsolute         bool // false = relative, true = absolute
 	markReadOnOpen       bool
+	markReadOnFocus      bool
 	defaultUnreadOnly    bool
 	actionableLinks      bool
 	layoutDensityIdx     int // 0 = comfortable, 1 = compact
@@ -226,6 +228,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		retroAccentInput:     mkInput(retroTweak.Accent, "optional #rrggbb", false),
 		dateAbsolute:         cfg.Display.DateFormat == "absolute",
 		markReadOnOpen:       cfg.Display.MarkReadOnOpen,
+		markReadOnFocus:      cfg.Display.MarkReadOnFocus,
 		defaultUnreadOnly:    cfg.Display.DefaultUnreadOnly,
 		actionableLinks:      cfg.Display.ActionableLinks,
 		layoutDensityIdx:     layoutIdx,
@@ -279,6 +282,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 		cfg.Display.DateFormat = "relative"
 	}
 	cfg.Display.MarkReadOnOpen = s.markReadOnOpen
+	cfg.Display.MarkReadOnFocus = s.markReadOnFocus
 	cfg.Display.DefaultUnreadOnly = s.defaultUnreadOnly
 	cfg.Display.ActionableLinks = s.actionableLinks
 	if s.layoutDensityIdx == 1 {
@@ -480,7 +484,7 @@ func (s Settings) updateNowActionVisible() bool {
 func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
-		fields := []settingsField{sfBackToSections, sfIcons, sfDateFormat, sfMarkReadOnOpen, sfDefaultUnreadOnly, sfTheme, sfDisplayDensity}
+		fields := []settingsField{sfBackToSections, sfIcons, sfDateFormat, sfMarkReadOnOpen, sfMarkReadOnFocus, sfDefaultUnreadOnly, sfTheme, sfDisplayDensity}
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
@@ -897,6 +901,15 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
+	case sfMarkReadOnFocus:
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.markReadOnFocus = !s.markReadOnFocus
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
 	case sfDefaultUnreadOnly:
 		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.defaultUnreadOnly = !s.defaultUnreadOnly
@@ -1176,6 +1189,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		b.addToggle("Icons", s.icons, sfIcons)
 		b.addToggle("Use relative dates", !s.dateAbsolute, sfDateFormat)
 		b.addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
+		b.addToggle("Mark read on focus", s.markReadOnFocus, sfMarkReadOnFocus)
 		b.addToggle("Default to unread only", s.defaultUnreadOnly, sfDefaultUnreadOnly)
 		b.addThemeSelector()
 		b.addDensitySelector()
@@ -1208,11 +1222,12 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		}
 		b.addValue("Status", s.update.statusLabel(), false)
 		if s.update.summary != "" {
-			sumW := max(1, b.contentW-b.labelW)
+			summaryIndent := "  "
+			sumW := max(1, b.contentW-lipgloss.Width(summaryIndent))
 			sumLines := wrapShellCommand(s.update.summary, sumW)
 			hintStyle := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted)
 			for _, sl := range sumLines {
-				b.addLine(hintStyle.Width(b.contentW).Render(truncate(b.hintIndent+sl, b.contentW)))
+				b.addLine(hintStyle.Width(b.contentW).Render(summaryIndent + sl))
 			}
 			b.addBlank()
 		}
@@ -1229,7 +1244,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 				b.addLine(line)
 			}
 			if hint := s.fieldHint(sfUpdateManualCommand); hint != "" {
-				b.addLine(renderFormHint(b.hintIndent+hint, b.contentW, chrome))
+				b.addHint(hint)
 			}
 			b.addBlank()
 		}
@@ -1269,7 +1284,7 @@ func newSettingsFormBuilder(s Settings, width int, chrome managerChrome) setting
 		width:      width,
 		contentW:   contentW,
 		labelW:     labelW,
-		hintIndent: strings.Repeat(" ", labelW),
+		hintIndent: "",
 		chrome:     chrome,
 		ind:        lipgloss.NewStyle().Background(chrome.baseBg).Width(width),
 		blank:      lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render(""),
@@ -1279,6 +1294,12 @@ func newSettingsFormBuilder(s Settings, width int, chrome managerChrome) setting
 
 func (b *settingsFormBuilder) addLine(line string) {
 	b.body.lines = append(b.body.lines, b.ind.Render(line))
+}
+
+func (b *settingsFormBuilder) addHint(text string) {
+	for _, line := range renderFormHintLines(b.hintIndent+text, b.contentW, b.chrome) {
+		b.addLine(line)
+	}
 }
 
 func (b *settingsFormBuilder) addBlank() {
@@ -1311,7 +1332,7 @@ func (b *settingsFormBuilder) addToggle(label string, on bool, field settingsFie
 	b.markAnchor(field)
 	b.addLine(b.s.renderToggle(label, on, focused, b.width, b.chrome))
 	if hint := b.s.fieldHint(field); hint != "" {
-		b.addLine(renderFormHint(b.hintIndent+hint, b.contentW, b.chrome))
+		b.addHint(hint)
 	}
 	b.addBlank()
 }
@@ -1325,7 +1346,7 @@ func (b *settingsFormBuilder) addInput(label string, input textinput.Model, fiel
 	b.markAnchor(field)
 	b.addLine(renderFormRow(label, focused, control, b.contentW, b.labelW, b.chrome))
 	if hint := b.s.fieldHint(field); hint != "" {
-		b.addLine(renderFormHint(b.hintIndent+hint, b.contentW, b.chrome))
+		b.addHint(hint)
 	}
 	b.addBlank()
 }
@@ -1363,7 +1384,7 @@ func (b *settingsFormBuilder) addDensitySelector() {
 	b.markAnchor(sfDisplayDensity)
 	b.addLine(b.s.renderDensitySelector(b.width, b.chrome))
 	if hint := b.s.fieldHint(sfDisplayDensity); hint != "" {
-		b.addLine(renderFormHint(b.hintIndent+hint, b.contentW, b.chrome))
+		b.addHint(hint)
 	}
 	b.addBlank()
 }
@@ -1398,7 +1419,7 @@ func (b *settingsFormBuilder) addAISection() {
 func (b *settingsFormBuilder) addAITestConnection() {
 	focused := b.s.focusedField == sfTestAIConnection
 	b.markAnchor(sfTestAIConnection)
-	badge := b.s.renderBadge("TEST", focused, b.chrome)
+	badge := b.s.renderAITestBadge(focused, b.chrome)
 	status := b.s.renderAIConnectionStatus(max(1, b.contentW-b.labelW-lipgloss.Width(badge)-1), focused, b.chrome)
 	gap := lipgloss.NewStyle().Background(b.chrome.baseBg).Render(" ")
 	b.addLine(renderFormControlRow(badge+gap+status, b.contentW, b.chrome))
@@ -1845,6 +1866,28 @@ func (u settingsUpdateState) statusLabel() string {
 
 func (s Settings) renderBadge(text string, focused bool, chrome managerChrome) string {
 	return renderFormBadge(text, focused, chrome)
+}
+
+func (s Settings) aiTestBadgeColors(focused bool, chrome managerChrome) (lipgloss.Color, lipgloss.Color, bool) {
+	switch s.aiConnectionState() {
+	case aiConnectionPending:
+		return chrome.pendingFg, contrastFg(chrome.pendingFg), true
+	case aiConnectionSuccess:
+		return chrome.successFg, contrastFg(chrome.successFg), true
+	case aiConnectionError:
+		return chrome.errorFg, contrastFg(chrome.errorFg), true
+	default:
+		if focused {
+			return chrome.highlight, chrome.highlightFg, true
+		}
+		return chrome.accent, chrome.accentFg, false
+	}
+}
+
+func (s Settings) renderAITestBadge(focused bool, chrome managerChrome) string {
+	text := "TEST"
+	bg, fg, bold := s.aiTestBadgeColors(focused, chrome)
+	return renderFormBadgeStyled(text, max(7, lipgloss.Width(text)+2), bg, fg, bold)
 }
 
 func (s Settings) renderAIConnectionStatus(width int, focused bool, chrome managerChrome) string {

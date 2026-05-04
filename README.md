@@ -183,6 +183,7 @@ theme = "catppuccin-mocha"
 icons = false
 date_format = "relative"
 mark_read_on_open = true
+mark_read_on_focus = false
 actionable_links = false
 browser = ""
 density = "compact"

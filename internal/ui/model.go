@@ -1059,9 +1059,10 @@ func (m Model) handleUp() (tea.Model, tea.Cmd) {
 				m.listOffset = m.articleCursor
 			}
 			if len(m.filteredArticles) > 0 {
-				m.setViewportArticle(m.filteredArticles[m.articleCursor])
+				article := m.filteredArticles[m.articleCursor]
+				m.setViewportArticle(article)
 				m.viewport.GotoTop()
-				return m, m.maybeFetchArticleContentCmd(m.filteredArticles[m.articleCursor])
+				return m, m.focusedArticleChangedCmd(article)
 			}
 		}
 	case paneContent:
@@ -1088,9 +1089,10 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 				m.listOffset = m.articleCursor - visible + 1
 			}
 			if len(m.filteredArticles) > 0 {
-				m.setViewportArticle(m.filteredArticles[m.articleCursor])
+				article := m.filteredArticles[m.articleCursor]
+				m.setViewportArticle(article)
 				m.viewport.GotoTop()
-				return m, m.maybeFetchArticleContentCmd(m.filteredArticles[m.articleCursor])
+				return m, m.focusedArticleChangedCmd(article)
 			}
 		}
 	case paneContent:
@@ -2293,6 +2295,18 @@ func (m *Model) setArticleReadCmd(article db.Article, read, advance bool) tea.Cm
 			Advance:   advance,
 		}
 	}
+}
+
+func (m *Model) focusedArticleChangedCmd(article db.Article) tea.Cmd {
+	fetchCmd := m.maybeFetchArticleContentCmd(article)
+	if !m.cfg.Display.MarkReadOnFocus || article.Read {
+		return fetchCmd
+	}
+	readCmd := m.setArticleReadCmd(article, true, false)
+	if fetchCmd == nil {
+		return readCmd
+	}
+	return tea.Batch(fetchCmd, readCmd)
 }
 
 func (m *Model) maybeFetchArticleContentCmd(a db.Article) tea.Cmd {

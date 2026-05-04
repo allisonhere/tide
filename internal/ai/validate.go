@@ -53,7 +53,7 @@ func validateOpenAI(ctx context.Context, key string) error {
 	req.Header.Set("Authorization", "Bearer "+key)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("openai: %w", err)
+		return providerRequestError("openai", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusOK {

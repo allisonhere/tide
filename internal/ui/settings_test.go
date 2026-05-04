@@ -91,6 +91,52 @@ func TestSettingsBadgeWidthStaysStableAcrossFocus(t *testing.T) {
 	}
 }
 
+func TestSettingsAITestBadgeColorMatchesResultState(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.AI.Provider = "openai"
+	chrome := newManagerChrome(62, CatppuccinMocha, false)
+
+	tests := []struct {
+		name      string
+		configure func(*Settings)
+		wantBg    lipgloss.Color
+	}{
+		{
+			name:      "pending",
+			configure: func(s *Settings) { s.aiValidatePending = true },
+			wantBg:    chrome.pendingFg,
+		},
+		{
+			name:      "success",
+			configure: func(s *Settings) { s.aiTestOk = true },
+			wantBg:    chrome.successFg,
+		},
+		{
+			name:      "error",
+			configure: func(s *Settings) { s.aiTestError = "bad key" },
+			wantBg:    chrome.errorFg,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newSettings(cfg, settingsUpdateState{})
+			tt.configure(&s)
+
+			bg, _, bold := s.aiTestBadgeColors(false, chrome)
+			if bg != tt.wantBg {
+				t.Fatalf("expected AI test badge background %s, got %s", tt.wantBg, bg)
+			}
+			if !bold {
+				t.Fatal("expected result badge to render bold")
+			}
+			if got := lipgloss.Width(s.renderAITestBadge(false, chrome)); got != 7 {
+				t.Fatalf("expected stable TEST badge width 7, got %d", got)
+			}
+		})
+	}
+}
+
 func TestSettingsApplyToLayoutDensity(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.layoutDensityIdx = 1
@@ -102,6 +148,22 @@ func TestSettingsApplyToLayoutDensity(t *testing.T) {
 	cfg = s.ApplyTo(config.DefaultConfig())
 	if cfg.Display.Density != "comfortable" {
 		t.Fatalf("ApplyTo: expected comfortable, got %q", cfg.Display.Density)
+	}
+}
+
+func TestSettingsLoadsAndAppliesMarkReadOnFocus(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Display.MarkReadOnFocus = true
+
+	s := newSettings(cfg, settingsUpdateState{})
+	if !s.markReadOnFocus {
+		t.Fatal("expected settings to load mark-read-on-focus from config")
+	}
+
+	s.markReadOnFocus = false
+	next := s.ApplyTo(cfg)
+	if next.Display.MarkReadOnFocus {
+		t.Fatal("expected ApplyTo to save disabled mark-read-on-focus")
 	}
 }
 
@@ -904,6 +966,53 @@ func TestSettingsAITestConnectionRowStaysCompactInNarrowPane(t *testing.T) {
 		}
 	}
 	t.Fatal("expected test connection row to be present")
+}
+
+func TestSettingsHintsWrapWithoutEllipsis(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setActiveSection(ssDisplay)
+	s.setFocusedField(sfDisplayDensity)
+
+	width := 44
+	body := s.viewSectionBody(width, newManagerChrome(64, CatppuccinMocha, false))
+	var hintLines []string
+	collecting := false
+	for _, line := range body.lines {
+		stripped := ansi.Strip(line)
+		if strings.Contains(stripped, "comfortable") {
+			collecting = true
+		}
+		if collecting {
+			if strings.TrimSpace(stripped) == "" {
+				break
+			}
+			hintLines = append(hintLines, stripped)
+		}
+	}
+	text := strings.Join(hintLines, "\n")
+
+	if len(hintLines) == 0 || !strings.HasPrefix(hintLines[0], "  · ") {
+		t.Fatalf("expected hint to start at label column, got %q", text)
+	}
+	if strings.Contains(text, "...") || strings.Contains(text, "…") {
+		t.Fatalf("expected wrapped hints without ellipsis, got %q", text)
+	}
+	for _, want := range []string{
+		"comfortable",
+		"adds vertical",
+		"compact",
+		"small",
+		"terminals",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected wrapped hint to contain %q, got %q", want, text)
+		}
+	}
+	for _, line := range body.lines {
+		if got := lipgloss.Width(line); got > width {
+			t.Fatalf("expected settings line width <= %d, got %d in %q", width, got, ansi.Strip(line))
+		}
+	}
 }
 
 func TestSettingsAITestConnectionStatusStatesRender(t *testing.T) {

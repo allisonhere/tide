@@ -32,7 +32,7 @@ func (o *openAI) Summarize(ctx context.Context, title, content string) (string, 
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", providerRequestError("openai", err)
 	}
 	defer resp.Body.Close()
 

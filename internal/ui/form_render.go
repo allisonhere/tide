@@ -126,20 +126,37 @@ func renderFormFieldHeader(label string, focused bool, status string, width int,
 }
 
 func renderFormHint(text string, width int, chrome managerChrome) string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
+	return strings.Join(renderFormHintLines(text, width, chrome), "\n")
+}
+
+func renderFormHintLines(text string, width int, chrome managerChrome) []string {
+	text = strings.TrimRight(text, " \t\r\n")
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return []string{lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")}
 	}
+	indent := text[:len(text)-len(strings.TrimLeft(text, " \t"))]
 	prefix := "  "
 	if !chrome.plainUI {
 		prefix = "  · "
 	}
-	textW := max(1, width-lipgloss.Width(prefix))
-	return lipgloss.NewStyle().
+	firstPrefix := indent + prefix
+	contPrefix := strings.Repeat(" ", lipgloss.Width(firstPrefix))
+	textW := max(1, width-lipgloss.Width(firstPrefix))
+	lines := wrapShellCommand(trimmed, textW)
+	style := lipgloss.NewStyle().
 		Background(chrome.baseBg).
 		Foreground(chrome.muted).
-		Width(width).
-		Render(prefix + truncate(text, textW))
+		Width(width)
+	out := make([]string, 0, len(lines))
+	for i, line := range lines {
+		linePrefix := firstPrefix
+		if i > 0 {
+			linePrefix = contPrefix
+		}
+		out = append(out, style.Render(linePrefix+line))
+	}
+	return out
 }
 
 func renderFormInlineStatus(text string, width int, chrome managerChrome) string {
@@ -158,18 +175,17 @@ func renderFormBadge(text string, focused bool, chrome managerChrome) string {
 	text = strings.ToUpper(strings.TrimSpace(text))
 	badgeW := max(7, lipgloss.Width(text)+2)
 	if focused {
-		return lipgloss.NewStyle().
-			Background(chrome.highlight).
-			Foreground(chrome.highlightFg).
-			Bold(true).
-			Width(badgeW).
-			Align(lipgloss.Center).
-			Render(text)
+		return renderFormBadgeStyled(text, badgeW, chrome.highlight, chrome.highlightFg, true)
 	}
+	return renderFormBadgeStyled(text, badgeW, chrome.accent, chrome.accentFg, false)
+}
+
+func renderFormBadgeStyled(text string, width int, bg, fg lipgloss.Color, bold bool) string {
 	return lipgloss.NewStyle().
-		Background(chrome.accent).
-		Foreground(chrome.accentFg).
-		Width(badgeW).
+		Background(bg).
+		Foreground(fg).
+		Bold(bold).
+		Width(width).
 		Align(lipgloss.Center).
 		Render(text)
 }

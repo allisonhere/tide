@@ -11,6 +11,9 @@ func TestDefaultConfigDisplayDensityCompact(t *testing.T) {
 	if cfg.Display.Density != "compact" {
 		t.Fatalf("expected default display density compact, got %q", cfg.Display.Density)
 	}
+	if cfg.Display.MarkReadOnFocus {
+		t.Fatal("expected mark-read-on-focus to default off")
+	}
 }
 
 func TestNormalizeDisplayDensity(t *testing.T) {
@@ -56,6 +59,7 @@ theme = "catppuccin-mocha"
 icons = true
 date_format = "relative"
 mark_read_on_open = true
+mark_read_on_focus = true
 browser = ""
 density = "compact"
 
@@ -116,5 +120,8 @@ greader_password = "secret"
 	}
 	if cfg.Display.Density != "compact" {
 		t.Fatalf("expected display density compact, got %q", cfg.Display.Density)
+	}
+	if !cfg.Display.MarkReadOnFocus {
+		t.Fatal("expected mark_read_on_focus to load true")
 	}
 }
