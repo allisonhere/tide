@@ -35,9 +35,10 @@ type Styles struct {
 	UnreadDot       lipgloss.Style
 
 	// Content pane
-	ContentTitle lipgloss.Style
-	ContentMeta  lipgloss.Style
-	ContentBody  lipgloss.Style
+	ContentTitle     lipgloss.Style
+	ContentMeta      lipgloss.Style
+	ContentBody      lipgloss.Style
+	ContentFocusLine lipgloss.Style
 
 	// Status bar
 	StatusBar       lipgloss.Style
@@ -159,6 +160,7 @@ func BuildStyles(t Theme, density string) Styles {
 		}
 		return adjustLightness(t.Bg, -0.06)
 	}()
+	contentFocusBg := focusLineBg(t)
 
 	return Styles{
 		Theme:   t,
@@ -251,6 +253,9 @@ func BuildStyles(t Theme, density string) Styles {
 		ContentBody: lipgloss.NewStyle().
 			Background(t.Bg).
 			Foreground(t.Fg),
+		ContentFocusLine: lipgloss.NewStyle().
+			Background(contentFocusBg).
+			Foreground(readableText(t.Fg, contentFocusBg, 4.5)),
 
 		StatusBar: lipgloss.NewStyle().
 			Background(t.StatusBar).

@@ -123,6 +123,12 @@ var contrastChecks = []contrastCheck{
 		bg:       func(s Styles) lipgloss.Color { return styleColor(s.ContentMeta.GetBackground()) },
 		minRatio: 3.0,
 	},
+	{
+		name:     "ContentFocusLine fg/bg",
+		fg:       func(s Styles) lipgloss.Color { return styleColor(s.ContentFocusLine.GetForeground()) },
+		bg:       func(s Styles) lipgloss.Color { return styleColor(s.ContentFocusLine.GetBackground()) },
+		minRatio: 4.5,
+	},
 }
 
 func TestAllThemesPassContrastChecks(t *testing.T) {
@@ -142,6 +148,22 @@ func TestAllThemesPassContrastChecks(t *testing.T) {
 					t.Errorf("%s: contrast %.2f:1 < %.1f:1  (fg=%s bg=%s)",
 						check.name, ratio, check.minRatio, fg, bg)
 				}
+			}
+		})
+	}
+}
+
+func TestAllThemesContentFocusLineBackgroundIsVisible(t *testing.T) {
+	for _, theme := range BuiltinThemes {
+		theme := theme
+		t.Run(theme.Name, func(t *testing.T) {
+			styles := BuildStyles(theme, "comfortable")
+			focusBg := styleColor(styles.ContentFocusLine.GetBackground())
+			if focusBg == "" {
+				t.Fatal("content focus line background is unset")
+			}
+			if ratio := contrastRatio(focusBg, theme.Bg); ratio < 1.5 {
+				t.Fatalf("content focus line background contrast %.2f:1 < 1.5:1 (focus bg=%s pane bg=%s)", ratio, focusBg, theme.Bg)
 			}
 		})
 	}

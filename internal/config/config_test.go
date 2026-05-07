@@ -14,6 +14,9 @@ func TestDefaultConfigDisplayDensityCompact(t *testing.T) {
 	if cfg.Display.MarkReadOnFocus {
 		t.Fatal("expected mark-read-on-focus to default off")
 	}
+	if !cfg.Display.FocusLine {
+		t.Fatal("expected focus line to default on")
+	}
 }
 
 func TestNormalizeDisplayDensity(t *testing.T) {
@@ -60,6 +63,7 @@ icons = true
 date_format = "relative"
 mark_read_on_open = true
 mark_read_on_focus = true
+focus_line = false
 browser = ""
 density = "compact"
 
@@ -123,5 +127,8 @@ greader_password = "secret"
 	}
 	if !cfg.Display.MarkReadOnFocus {
 		t.Fatal("expected mark_read_on_focus to load true")
+	}
+	if cfg.Display.FocusLine {
+		t.Fatal("expected focus_line to load false")
 	}
 }

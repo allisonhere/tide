@@ -839,6 +839,16 @@ func TestRenderHelpRowsFitViewportWidth(t *testing.T) {
 	}
 }
 
+func TestRenderHelpDocumentsDisplayFocusLine(t *testing.T) {
+	view := ansi.Strip(renderHelp(100, BuildStyles(CatppuccinMocha, "comfortable"), DefaultKeys))
+	if !strings.Contains(view, "focus line") {
+		t.Fatalf("expected help to document Display focus line setting, got %q", view)
+	}
+	if !strings.Contains(view, "move content focus line") {
+		t.Fatalf("expected help to document content focus line navigation, got %q", view)
+	}
+}
+
 func TestResetHelpViewportUsesFullOverlayWidth(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
@@ -2929,6 +2939,165 @@ func TestContentPaneUsesFullAllocatedHeight(t *testing.T) {
 	}
 	if got := m.contentBodyHeight(); got != m.contentPaneOuterHeight()-1 {
 		t.Fatalf("expected content body height to fill pane below header, got %d want %d", got, m.contentPaneOuterHeight()-1)
+	}
+}
+
+func TestContentDownMovesFocusLineWithoutScrollingWhenVisible(t *testing.T) {
+	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", false)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 18})
+	m = m2.(Model)
+	m.focused = paneContent
+	m.setViewportArticle(db.Article{
+		Title:       "Readable article",
+		Link:        "https://example.com/a",
+		Content:     strings.Join([]string{"one", "two", "three", "four", "five", "six"}, "\n\n"),
+		PublishedAt: unixTestTime(1710000000),
+	})
+	start := m.contentFocusLine
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = next.(Model)
+
+	if m.contentFocusLine <= start {
+		t.Fatalf("expected content focus line to move down by one, got %d from start %d", m.contentFocusLine, start)
+	}
+	if m.viewport.YOffset != 0 {
+		t.Fatalf("expected viewport not to scroll while focus line is visible, got offset %d", m.viewport.YOffset)
+	}
+}
+
+func TestContentDownSkipsBlankSpacerLines(t *testing.T) {
+	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", false)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 18})
+	m = m2.(Model)
+	m.focused = paneContent
+	m.setViewportArticle(db.Article{
+		Title:       "Readable article",
+		Link:        "https://example.com/a",
+		Content:     "first body line\n\nsecond body line",
+		PublishedAt: unixTestTime(1710000000),
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = next.(Model)
+
+	lines := strings.Split(ansi.Strip(m.viewport.View()), "\n")
+	if !strings.Contains(lines[m.contentFocusLine], "second body line") {
+		t.Fatalf("expected j to move to next readable body line, got line %d: %q in %#v", m.contentFocusLine, lines[m.contentFocusLine], lines)
+	}
+}
+
+func TestContentFocusLineStartsAtFirstBodyLine(t *testing.T) {
+	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", false)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 18})
+	m = m2.(Model)
+	m.setViewportArticle(db.Article{
+		Title:       "Readable article",
+		Link:        "https://example.com/a",
+		Content:     "first body line\n\nsecond body line",
+		PublishedAt: unixTestTime(1710000000),
+	})
+
+	lines := strings.Split(ansi.Strip(m.viewport.View()), "\n")
+	if m.contentFocusLine < 0 || m.contentFocusLine >= len(lines) {
+		t.Fatalf("content focus line %d outside rendered lines %#v", m.contentFocusLine, lines)
+	}
+	if !strings.Contains(lines[m.contentFocusLine], "first body line") {
+		t.Fatalf("expected focus line to start on first body line, got line %d: %q in %#v", m.contentFocusLine, lines[m.contentFocusLine], lines)
+	}
+}
+
+func TestContentDownScrollsOneLineOnlyWhenFocusMovesPastBottom(t *testing.T) {
+	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", false)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 18})
+	m = m2.(Model)
+	m.focused = paneContent
+	m.setViewportArticle(db.Article{
+		Title:       "Readable article",
+		Link:        "https://example.com/a",
+		Content:     strings.Join([]string{"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"}, "\n\n"),
+		PublishedAt: unixTestTime(1710000000),
+	})
+	m.contentFocusLine = m.contentBodyHeight() - 1 // "four", the bottom visible readable line.
+	m.viewport.SetYOffset(0)
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = next.(Model)
+
+	lines := strings.Split(ansi.Strip(m.viewport.View()), "\n")
+	if !strings.Contains(lines[m.contentFocusLine-m.viewport.YOffset], "five") {
+		t.Fatalf("expected focus to move to next readable line, got focus=%d offset=%d lines=%#v", m.contentFocusLine, m.viewport.YOffset, lines)
+	}
+	if m.viewport.YOffset != m.contentFocusLine-m.contentBodyHeight()+1 {
+		t.Fatalf("expected viewport to scroll only enough to reveal focus, got offset %d focus %d bodyH %d", m.viewport.YOffset, m.contentFocusLine, m.contentBodyHeight())
+	}
+}
+
+func TestContentUpScrollsOneLineOnlyWhenFocusMovesPastTop(t *testing.T) {
+	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", false)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 18})
+	m = m2.(Model)
+	m.focused = paneContent
+	m.setViewportArticle(db.Article{
+		Title:       "Readable article",
+		Link:        "https://example.com/a",
+		Content:     strings.Join([]string{"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"}, "\n\n"),
+		PublishedAt: unixTestTime(1710000000),
+	})
+	m.contentFocusLine = 5 // "two", the top visible readable line.
+	m.viewport.SetYOffset(5)
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	m = next.(Model)
+
+	lines := strings.Split(ansi.Strip(m.viewport.View()), "\n")
+	if !strings.Contains(lines[m.contentFocusLine-m.viewport.YOffset], "one") {
+		t.Fatalf("expected focus to move to previous readable line, got focus=%d offset=%d lines=%#v", m.contentFocusLine, m.viewport.YOffset, lines)
+	}
+	if m.viewport.YOffset != m.contentFocusLine {
+		t.Fatalf("expected viewport to scroll only enough to reveal focus, got offset %d focus %d", m.viewport.YOffset, m.contentFocusLine)
+	}
+}
+
+func TestContentFocusLineUsesVisibleHighlightBackground(t *testing.T) {
+	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", false)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 18})
+	m = m2.(Model)
+	m.focused = paneContent
+	m.setViewportArticle(db.Article{
+		Title:       "Readable article",
+		Link:        "https://example.com/a",
+		Content:     strings.Join([]string{"one", "two", "three"}, "\n\n"),
+		PublishedAt: unixTestTime(1710000000),
+	})
+	m.contentFocusLine = 4
+	m.ensureContentFocusVisible()
+
+	got := m.renderContentPane()
+	want := m.styles.ContentFocusLine.Width(m.articlesPaneWidth()).Render(" one")
+	if !strings.Contains(got, want[:min(len(want), 12)]) {
+		t.Fatalf("expected content focus line to render with highlight style prefix from %q, got %q", want, got)
+	}
+}
+
+func TestContentFocusLineCanBeDisabled(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Display.FocusLine = false
+	m := NewModel(nil, cfg, "v1.0.0", false)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 18})
+	m = m2.(Model)
+	m.focused = paneContent
+	m.setViewportArticle(db.Article{
+		Title:       "Readable article",
+		Link:        "https://example.com/a",
+		Content:     strings.Join([]string{"one", "two", "three"}, "\n\n"),
+		PublishedAt: unixTestTime(1710000000),
+	})
+
+	body := m.viewport.View()
+	got := m.renderContentFocusLine(body, m.articlesPaneWidth(), m.contentBodyHeight(), true)
+	if got != body {
+		t.Fatalf("expected disabled focus line to leave content body unchanged, got %q want %q", got, body)
 	}
 }
 

@@ -105,6 +105,36 @@ func modalSurface(t Theme) lipgloss.Color {
 	return adjustLightness(t.Bg, -0.06)
 }
 
+func focusLineBg(t Theme) lipgloss.Color {
+	bg := t.Bg
+	if bg == "" {
+		return bg
+	}
+	const minRatio = 1.5
+	if contrastRatio(bg, t.Bg) >= minRatio {
+		return bg
+	}
+	step := 0.04
+	if !isDark(t.Bg) {
+		step = -step
+	}
+	cur := bg
+	for range 16 {
+		next := adjustLightness(cur, step)
+		if next == cur {
+			break
+		}
+		cur = next
+		if contrastRatio(cur, t.Bg) >= minRatio {
+			return cur
+		}
+	}
+	if contrastRatio(t.Selected, t.Bg) >= minRatio {
+		return t.Selected
+	}
+	return adjustLightness(t.Bg, step*16)
+}
+
 func mutedText(text, bg lipgloss.Color) lipgloss.Color {
 	if isDark(bg) {
 		candidate := adjustLightness(text, -0.20)

@@ -113,6 +113,7 @@ Display options:
 - Toggle Unicode icons for pane headers and item state markers
 - Switch between relative and absolute dates
 - Toggle mark-read-on-open
+- Toggle the content focus line
 - Toggle actionable article links (shows a `LINKS` block in content pane)
 - **Layout density:** comfortable (extra vertical spacing in lists) or **compact** (default; more rows on small terminals)
 - Set a custom browser command
@@ -184,6 +185,7 @@ icons = false
 date_format = "relative"
 mark_read_on_open = true
 mark_read_on_focus = false
+focus_line = true
 actionable_links = false
 browser = ""
 density = "compact"
@@ -241,6 +243,8 @@ Tide can check GitHub releases for a newer version and install the matching bina
 | `Ctrl+N` / `Alt+N` | Next actionable link in content pane |
 | `Ctrl+P` / `Alt+P` | Previous actionable link in content pane |
 | `/` | Search |
+
+When `Display → Focus line` is enabled, the content pane highlights the current readable line. `j/↓` and `k/↑` move the focus line and scroll only when needed.
 
 When `Display → Actionable article links` is enabled, the content pane renders a `LINKS` block at the bottom. The currently selected link is highlighted and opened with `o`.
 

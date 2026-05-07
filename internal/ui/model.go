@@ -111,9 +111,13 @@ type Model struct {
 	showUnreadOnly   bool
 
 	// Content pane
-	viewport       viewport.Model
-	contentLinks   []string
-	contentLinkIdx int
+	viewport         viewport.Model
+	contentLinks     []string
+	contentLinkIdx   int
+	contentArticleID int64
+	contentFocusLine int
+	contentLineCount int
+	contentFocusable []bool
 
 	// Help overlay
 	helpVP viewport.Model
@@ -250,6 +254,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Style = lipgloss.NewStyle()
 		if len(m.filteredArticles) > 0 {
 			m.setViewportArticle(m.filteredArticles[m.articleCursor])
+			m.ensureContentFocusVisible()
 		}
 		if m.overlay == overlayHelp {
 			m.resetHelpVP()
@@ -474,7 +479,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			if len(m.filteredArticles) > 0 {
 				m.setViewportArticle(m.filteredArticles[m.articleCursor])
-				m.viewport.GotoTop()
 				cmd = m.maybeFetchArticleContentCmd(m.filteredArticles[m.articleCursor])
 			}
 			return m, cmd
@@ -711,8 +715,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		current := m.filteredArticles[m.articleCursor]
-		m.viewport.SetContent(m.renderArticleContent(current))
-		m.viewport.GotoTop()
+		m.setViewportArticle(current)
 
 		if current.ID != msg.ArticleID || !msg.Read {
 			return m, m.maybeFetchArticleContentCmd(current)
@@ -746,8 +749,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyFilter()
 		for i := range m.filteredArticles {
 			if m.filteredArticles[i].ID == msg.ArticleID && i == m.articleCursor {
-				m.viewport.SetContent(m.renderArticleContent(m.filteredArticles[i]))
-				m.viewport.GotoTop()
+				m.setViewportArticle(m.filteredArticles[i])
 			}
 		}
 		return m, nil
@@ -1061,12 +1063,15 @@ func (m Model) handleUp() (tea.Model, tea.Cmd) {
 			if len(m.filteredArticles) > 0 {
 				article := m.filteredArticles[m.articleCursor]
 				m.setViewportArticle(article)
-				m.viewport.GotoTop()
 				return m, m.focusedArticleChangedCmd(article)
 			}
 		}
 	case paneContent:
-		m.viewport.ScrollUp(3)
+		if !m.cfg.Display.FocusLine {
+			m.viewport.ScrollUp(1)
+			return m, nil
+		}
+		m.moveContentFocusLine(-1)
 	}
 	return m, nil
 }
@@ -1091,12 +1096,15 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 			if len(m.filteredArticles) > 0 {
 				article := m.filteredArticles[m.articleCursor]
 				m.setViewportArticle(article)
-				m.viewport.GotoTop()
 				return m, m.focusedArticleChangedCmd(article)
 			}
 		}
 	case paneContent:
-		m.viewport.ScrollDown(3)
+		if !m.cfg.Display.FocusLine {
+			m.viewport.ScrollDown(1)
+			return m, nil
+		}
+		m.moveContentFocusLine(1)
 	}
 	return m, nil
 }
@@ -1516,7 +1524,8 @@ func (m Model) renderContentPane() string {
 	vp.Width = w
 	vp.Height = bodyH
 	vp.Style = lipgloss.NewStyle().Background(bg)
-	body := clampView(vp.View(), w, bodyH, bg)
+	body := m.renderContentFocusLine(vp.View(), w, bodyH, focused)
+	body = clampView(body, w, bodyH, bg)
 
 	inner := m.styles.ContentPane.
 		Width(w).
@@ -1555,7 +1564,7 @@ func (m Model) renderPaneHint(p pane) string {
 		hint = m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " move  " +
 			m.keyHint(m.keys.MarkRead) + " read  " + m.keyHint(m.keys.Search) + " search"
 	case paneContent:
-		hint = m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " scroll  " +
+		hint = m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " line  " +
 			m.keyHint(m.keys.OpenBrowser) + " open  " + m.keyHint(m.keys.Back) + " back"
 		if m.actionableLinksEnabled() && len(m.contentLinks) > 0 {
 			hint += "  " + m.keyHint(m.keys.PrevLink) + "/" + m.keyHint(m.keys.NextLink) + " links"
@@ -1667,14 +1676,115 @@ func (m Model) actionableLinksEnabled() bool {
 }
 
 func (m *Model) setViewportArticle(a db.Article) {
+	sameArticle := m.contentArticleID == a.ID && m.contentLineCount > 0
 	m.syncContentLinks(a)
-	m.viewport.SetContent(m.renderArticleContent(a))
+	content := m.renderArticleContent(a)
+	m.viewport.SetContent(content)
+	m.contentArticleID = a.ID
+	m.contentLineCount = strings.Count(content, "\n") + 1
+	m.contentFocusable = articleFocusableLines(content)
+	m.contentFocusLine = clamp(m.contentFocusLine, 0, max(0, m.contentLineCount-1))
+	if !sameArticle {
+		m.contentFocusLine = firstFocusableLine(m.contentFocusable)
+		m.viewport.GotoTop()
+	}
+	m.ensureContentFocusVisible()
 }
 
 func (m *Model) clearViewportArticle() {
 	m.viewport.SetContent("")
 	m.contentLinks = nil
 	m.contentLinkIdx = -1
+	m.contentArticleID = 0
+	m.contentFocusLine = 0
+	m.contentLineCount = 0
+	m.contentFocusable = nil
+	m.viewport.GotoTop()
+}
+
+func (m *Model) moveContentFocusLine(delta int) {
+	if m.contentLineCount <= 0 {
+		return
+	}
+	m.contentFocusLine = nextContentFocusLine(m.contentFocusLine, delta, m.contentFocusable, m.contentLineCount)
+	m.ensureContentFocusVisible()
+}
+
+func (m *Model) ensureContentFocusVisible() {
+	if m.contentLineCount <= 0 {
+		return
+	}
+	bodyH := max(1, m.contentBodyHeight())
+	top := m.viewport.YOffset
+	bottom := top + bodyH - 1
+	switch {
+	case m.contentFocusLine < top:
+		m.viewport.SetYOffset(m.contentFocusLine)
+	case m.contentFocusLine > bottom:
+		m.viewport.SetYOffset(m.contentFocusLine - bodyH + 1)
+	}
+}
+
+func (m Model) renderContentFocusLine(body string, width, height int, focused bool) string {
+	if !m.cfg.Display.FocusLine || !focused || m.contentLineCount <= 0 || width <= 0 || height <= 0 {
+		return body
+	}
+	idx := m.contentFocusLine - m.viewport.YOffset
+	if idx < 0 || idx >= height {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	if idx >= len(lines) {
+		return body
+	}
+	line := ansi.Truncate(ansi.Strip(lines[idx]), width, "")
+	if pad := width - lipgloss.Width(line); pad > 0 {
+		line += strings.Repeat(" ", pad)
+	}
+	lines[idx] = m.styles.ContentFocusLine.Width(width).Render(line)
+	return strings.Join(lines, "\n")
+}
+
+func articleFocusableLines(content string) []bool {
+	lines := strings.Split(ansi.Strip(content), "\n")
+	focusable := make([]bool, len(lines))
+	nonEmpty := 0
+	pastHeader := false
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			if nonEmpty >= 2 {
+				pastHeader = true
+			}
+			continue
+		}
+		if pastHeader {
+			focusable[i] = true
+		}
+		nonEmpty++
+	}
+	return focusable
+}
+
+func firstFocusableLine(focusable []bool) int {
+	for i, ok := range focusable {
+		if ok {
+			return i
+		}
+	}
+	return 0
+}
+
+func nextContentFocusLine(current, delta int, focusable []bool, lineCount int) int {
+	if delta == 0 || lineCount <= 0 {
+		return clamp(current, 0, max(0, lineCount-1))
+	}
+	current = clamp(current, 0, max(0, lineCount-1))
+	for next := current + delta; next >= 0 && next < lineCount; next += delta {
+		if next < len(focusable) && focusable[next] {
+			return next
+		}
+	}
+	return current
 }
 
 func (m *Model) syncContentLinks(a db.Article) {
@@ -2617,8 +2727,7 @@ func (m *Model) clearArticles() {
 	m.filteredArticles = nil
 	m.articleCursor = 0
 	m.listOffset = 0
-	m.viewport.SetContent("")
-	m.viewport.GotoTop()
+	m.clearViewportArticle()
 }
 
 // effectiveManualCommand is the command shown in Settings (real install result, or suggested script when an update is available but the install path is not writable).
@@ -2813,7 +2922,6 @@ func (m *Model) markFeedsReadInMemory(feedIDs []int64) {
 	maxOffset := max(0, len(m.filteredArticles)-1)
 	m.listOffset = clamp(m.listOffset, 0, maxOffset)
 	m.setViewportArticle(m.filteredArticles[m.articleCursor])
-	m.viewport.GotoTop()
 }
 
 func (m Model) folderName(folderID int64) string {

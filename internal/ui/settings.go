@@ -33,6 +33,7 @@ const (
 	sfDateFormat
 	sfMarkReadOnOpen
 	sfMarkReadOnFocus
+	sfFocusLine
 	sfDefaultUnreadOnly
 	sfActionableLinks
 	sfDisplayDensity
@@ -154,6 +155,7 @@ type Settings struct {
 	dateAbsolute         bool // false = relative, true = absolute
 	markReadOnOpen       bool
 	markReadOnFocus      bool
+	focusLine            bool
 	defaultUnreadOnly    bool
 	actionableLinks      bool
 	layoutDensityIdx     int // 0 = comfortable, 1 = compact
@@ -229,6 +231,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		dateAbsolute:         cfg.Display.DateFormat == "absolute",
 		markReadOnOpen:       cfg.Display.MarkReadOnOpen,
 		markReadOnFocus:      cfg.Display.MarkReadOnFocus,
+		focusLine:            cfg.Display.FocusLine,
 		defaultUnreadOnly:    cfg.Display.DefaultUnreadOnly,
 		actionableLinks:      cfg.Display.ActionableLinks,
 		layoutDensityIdx:     layoutIdx,
@@ -283,6 +286,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	}
 	cfg.Display.MarkReadOnOpen = s.markReadOnOpen
 	cfg.Display.MarkReadOnFocus = s.markReadOnFocus
+	cfg.Display.FocusLine = s.focusLine
 	cfg.Display.DefaultUnreadOnly = s.defaultUnreadOnly
 	cfg.Display.ActionableLinks = s.actionableLinks
 	if s.layoutDensityIdx == 1 {
@@ -484,7 +488,7 @@ func (s Settings) updateNowActionVisible() bool {
 func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
-		fields := []settingsField{sfBackToSections, sfIcons, sfDateFormat, sfMarkReadOnOpen, sfMarkReadOnFocus, sfDefaultUnreadOnly, sfTheme, sfDisplayDensity}
+		fields := []settingsField{sfBackToSections, sfIcons, sfDateFormat, sfMarkReadOnOpen, sfMarkReadOnFocus, sfFocusLine, sfDefaultUnreadOnly, sfTheme, sfDisplayDensity}
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
@@ -910,6 +914,15 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
+	case sfFocusLine:
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.focusLine = !s.focusLine
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
 	case sfDefaultUnreadOnly:
 		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.defaultUnreadOnly = !s.defaultUnreadOnly
@@ -1190,6 +1203,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		b.addToggle("Use relative dates", !s.dateAbsolute, sfDateFormat)
 		b.addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
 		b.addToggle("Mark read on focus", s.markReadOnFocus, sfMarkReadOnFocus)
+		b.addToggle("Focus line", s.focusLine, sfFocusLine)
 		b.addToggle("Default to unread only", s.defaultUnreadOnly, sfDefaultUnreadOnly)
 		b.addThemeSelector()
 		b.addDensitySelector()
@@ -2023,6 +2037,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "comfortable adds vertical spacing in lists; compact fits more rows on small terminals"
 	case sfActionableLinks:
 		return "enable ctrl+n / ctrl+p to select links in article content; o opens selected link"
+	case sfFocusLine:
+		return "highlight the current readable line in the content pane"
 	case sfUpdateManualCommand:
 		return "enter or c copies the command"
 	default:

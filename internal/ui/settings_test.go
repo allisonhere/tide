@@ -167,10 +167,35 @@ func TestSettingsLoadsAndAppliesMarkReadOnFocus(t *testing.T) {
 	}
 }
 
-func TestSettingsViewIncludesLayoutDensity(t *testing.T) {
+func TestSettingsLoadsAndAppliesFocusLine(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Display.FocusLine = false
+
+	s := newSettings(cfg, settingsUpdateState{})
+	if s.focusLine {
+		t.Fatal("expected settings to load disabled focus line from config")
+	}
+
+	s.focusLine = true
+	next := s.ApplyTo(cfg)
+	if !next.Display.FocusLine {
+		t.Fatal("expected ApplyTo to save enabled focus line")
+	}
+}
+
+func TestSettingsViewIncludesFocusLineToggle(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setFocusedPane(settingsPaneDetail)
 	v := s.View(62, 24, newManagerChrome(62, CatppuccinMocha, false))
+	if !strings.Contains(v, "Focus line") {
+		t.Fatal("expected settings view to contain focus line toggle")
+	}
+}
+
+func TestSettingsViewIncludesLayoutDensity(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setFocusedPane(settingsPaneDetail)
+	v := s.View(62, 30, newManagerChrome(62, CatppuccinMocha, false))
 	if !strings.Contains(v, "Layout density") {
 		t.Fatal("expected settings view to contain layout density label")
 	}
