@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"tide/internal/config"
+	"github.com/allisonhere/tide/internal/config"
 )
 
 // Summarizer generates a short summary of an article.

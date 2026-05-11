@@ -9,10 +9,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"tide/internal/config"
-	"tide/internal/db"
-	"tide/internal/feed"
-	"tide/internal/ui"
+	"github.com/allisonhere/tide/internal/config"
+	"github.com/allisonhere/tide/internal/db"
+	"github.com/allisonhere/tide/internal/feed"
+	"github.com/allisonhere/tide/internal/ui"
 )
 
 var version = "dev"

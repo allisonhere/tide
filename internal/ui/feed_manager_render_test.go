@@ -9,8 +9,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"tide/internal/config"
-	"tide/internal/db"
+	"github.com/allisonhere/tide/internal/config"
+	"github.com/allisonhere/tide/internal/db"
 )
 
 func TestFeedManagerListViewGeometry(t *testing.T) {

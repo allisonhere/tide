@@ -3,7 +3,7 @@ package ui
 import (
 	"github.com/charmbracelet/lipgloss"
 
-	"tide/internal/config"
+	"github.com/allisonhere/tide/internal/config"
 )
 
 // ThemeNameVT52 is the built-in theme that uses ASCII borders and glyphs.

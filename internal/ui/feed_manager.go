@@ -15,11 +15,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"tide/internal/config"
-	"tide/internal/db"
-	"tide/internal/feed"
-	"tide/internal/greader"
-	"tide/internal/opml"
+	"github.com/allisonhere/tide/internal/config"
+	"github.com/allisonhere/tide/internal/db"
+	"github.com/allisonhere/tide/internal/feed"
+	"github.com/allisonhere/tide/internal/greader"
+	"github.com/allisonhere/tide/internal/opml"
 )
 
 type fmMode int

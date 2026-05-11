@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"tide/internal/config"
-	"tide/internal/update"
+	"github.com/allisonhere/tide/internal/config"
+	"github.com/allisonhere/tide/internal/update"
 )
 
 // shellCommandKeywords are highlighted as commands inside the manual-install code block.

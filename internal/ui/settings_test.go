@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"tide/internal/config"
+	"github.com/allisonhere/tide/internal/config"
 )
 
 func TestSettingsFieldNavigationClampsAtEnds(t *testing.T) {

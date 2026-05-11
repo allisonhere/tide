@@ -5,8 +5,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"tide/internal/ai"
-	"tide/internal/config"
+	"github.com/allisonhere/tide/internal/ai"
+	"github.com/allisonhere/tide/internal/config"
 )
 
 func validateAICredentialsCmd(cfg config.AIConfig) tea.Cmd {

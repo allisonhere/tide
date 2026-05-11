@@ -1,6 +1,6 @@
 package ui
 
-import "tide/internal/greader"
+import "github.com/allisonhere/tide/internal/greader"
 
 // unescapeDisplayText decodes HTML entities in titles and labels shown in the TUI.
 // Feeds may come from the local DB (RSS parser), GReader JSON, or prefs — any path can

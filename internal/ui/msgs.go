@@ -1,10 +1,10 @@
 package ui
 
 import (
-	"tide/internal/config"
-	"tide/internal/db"
-	"tide/internal/feed"
-	"tide/internal/update"
+	"github.com/allisonhere/tide/internal/config"
+	"github.com/allisonhere/tide/internal/db"
+	"github.com/allisonhere/tide/internal/feed"
+	"github.com/allisonhere/tide/internal/update"
 )
 
 type FeedsLoadedMsg struct {

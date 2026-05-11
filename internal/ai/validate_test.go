@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"tide/internal/config"
+	"github.com/allisonhere/tide/internal/config"
 )
 
 func TestValidateOpenAI_OK(t *testing.T) {

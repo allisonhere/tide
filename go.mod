@@ -1,4 +1,4 @@
-module tide
+module github.com/allisonhere/tide
 
 go 1.26.1
 

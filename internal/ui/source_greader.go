@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"tide/internal/db"
-	"tide/internal/greader"
+	"github.com/allisonhere/tide/internal/db"
+	"github.com/allisonhere/tide/internal/greader"
 )
 
 func (m Model) hasGReaderConfig() bool {

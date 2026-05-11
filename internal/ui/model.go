@@ -20,12 +20,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"tide/internal/ai"
-	"tide/internal/config"
-	"tide/internal/db"
-	"tide/internal/feed"
-	"tide/internal/greader"
-	"tide/internal/update"
+	"github.com/allisonhere/tide/internal/ai"
+	"github.com/allisonhere/tide/internal/config"
+	"github.com/allisonhere/tide/internal/db"
+	"github.com/allisonhere/tide/internal/feed"
+	"github.com/allisonhere/tide/internal/greader"
+	"github.com/allisonhere/tide/internal/update"
 )
 
 // ── Enums ────────────────────────────────────────────────────────────────────

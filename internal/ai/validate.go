@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"strings"
 
-	"tide/internal/config"
+	"github.com/allisonhere/tide/internal/config"
 )
 
 // Endpoints are package-level for tests (httptest override).
