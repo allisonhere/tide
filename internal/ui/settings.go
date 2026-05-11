@@ -127,6 +127,7 @@ type settingsSectionBody struct {
 
 var (
 	layoutDensityLabels   = []string{"Comfortable", "Compact"}
+	dateFormatLabels      = []string{"Relative", "Absolute", "None"}
 	aiProviderLabels      = []string{"none", "OpenAI", "Claude", "Gemini", "Ollama"}
 	aiProviderIDs         = []string{"", "openai", "claude", "gemini", "ollama"}
 	settingsSectionLabels = [settingsSectionCount]string{
@@ -137,6 +138,15 @@ var (
 		"ABOUT",
 	}
 )
+
+func dateFormatIndex(s string) int {
+	for i, label := range dateFormatLabels {
+		if strings.EqualFold(label, s) {
+			return i
+		}
+	}
+	return 0 // default to Relative
+}
 
 func providerIndex(id string) int {
 	for i, p := range aiProviderIDs {
@@ -152,7 +162,7 @@ func providerIndex(id string) int {
 type Settings struct {
 	// Display
 	icons                bool
-	dateAbsolute         bool // false = relative, true = absolute
+	dateFormatIdx        int // 0=Relative, 1=Absolute, 2=None
 	markReadOnOpen       bool
 	markReadOnFocus      bool
 	focusLine            bool
@@ -228,7 +238,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		retroBgInput:         mkInput(retroTweak.Bg, "optional #rrggbb", false),
 		retroFgInput:         mkInput(retroTweak.Fg, "optional #rrggbb", false),
 		retroAccentInput:     mkInput(retroTweak.Accent, "optional #rrggbb", false),
-		dateAbsolute:         cfg.Display.DateFormat == "absolute",
+		dateFormatIdx:        dateFormatIndex(cfg.Display.DateFormat),
 		markReadOnOpen:       cfg.Display.MarkReadOnOpen,
 		markReadOnFocus:      cfg.Display.MarkReadOnFocus,
 		focusLine:            cfg.Display.FocusLine,
@@ -279,11 +289,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 		cfg.Theme = BuiltinThemes[s.themeIdx].Name
 	}
 	cfg.Display.Icons = s.icons
-	if s.dateAbsolute {
-		cfg.Display.DateFormat = "absolute"
-	} else {
-		cfg.Display.DateFormat = "relative"
-	}
+	cfg.Display.DateFormat = strings.ToLower(dateFormatLabels[s.dateFormatIdx])
 	cfg.Display.MarkReadOnOpen = s.markReadOnOpen
 	cfg.Display.MarkReadOnFocus = s.markReadOnFocus
 	cfg.Display.FocusLine = s.focusLine
@@ -722,7 +728,7 @@ func (s Settings) focusedTextInputCursorPosition() int {
 
 func (s Settings) isPickerField() bool {
 	switch s.focusedField {
-	case sfProvider, sfDisplayDensity, sfTheme:
+	case sfProvider, sfDisplayDensity, sfTheme, sfDateFormat:
 		return true
 	}
 	return false
@@ -854,8 +860,12 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		}
 
 	case sfDateFormat:
-		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
-			s.dateAbsolute = !s.dateAbsolute
+		if keyMatches(key, keys.Left) {
+			s.dateFormatIdx = (s.dateFormatIdx + len(dateFormatLabels) - 1) % len(dateFormatLabels)
+			s.setFocusedField(sfDateFormat)
+		} else if keyMatches(key, keys.Right) || keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.dateFormatIdx = (s.dateFormatIdx + 1) % len(dateFormatLabels)
+			s.setFocusedField(sfDateFormat)
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
 		} else if keyMatches(key, keys.Up) {
@@ -1200,7 +1210,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 	case ssDisplay:
 		b.addGroup("Display")
 		b.addToggle("Icons", s.icons, sfIcons)
-		b.addToggle("Use relative dates", !s.dateAbsolute, sfDateFormat)
+		b.addDateFormatSelector()
 		b.addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
 		b.addToggle("Mark read on focus", s.markReadOnFocus, sfMarkReadOnFocus)
 		b.addToggle("Focus line", s.focusLine, sfFocusLine)
@@ -1403,6 +1413,15 @@ func (b *settingsFormBuilder) addDensitySelector() {
 	b.addBlank()
 }
 
+func (b *settingsFormBuilder) addDateFormatSelector() {
+	b.markAnchor(sfDateFormat)
+	b.addLine(b.s.renderDateFormatSelector(b.width, b.chrome))
+	if hint := b.s.fieldHint(sfDateFormat); hint != "" {
+		b.addHint(hint)
+	}
+	b.addBlank()
+}
+
 func (b *settingsFormBuilder) addAISection() {
 	b.addGroup("Provider credentials")
 	b.addControl("Provider", sfProvider, renderSettingsPicker(min(max(12, b.contentW-b.labelW), 18), aiProviderLabels[b.s.providerIdx], b.s.focusedField == sfProvider, b.chrome))
@@ -1506,10 +1525,7 @@ func (s Settings) inputWidth(field settingsField, maxWidth int) int {
 }
 
 func (s Settings) dateLabel() string {
-	if s.dateAbsolute {
-		return "absolute"
-	}
-	return "relative"
+	return strings.ToLower(dateFormatLabels[s.dateFormatIdx])
 }
 
 func (s Settings) renderSectionLabel(label string, width int, chrome managerChrome) string {
@@ -1965,6 +1981,14 @@ func (s Settings) renderProviderSelector(width int, chrome managerChrome) string
 	labelW := formLabelWidth(width)
 	pickerW := max(1, width-labelW)
 	return renderFormRow("Provider", focused, renderSettingsPicker(pickerW, providerName, focused, chrome), width, labelW, chrome)
+}
+
+func (s Settings) renderDateFormatSelector(width int, chrome managerChrome) string {
+	focused := s.focusedField == sfDateFormat
+	name := dateFormatLabels[s.dateFormatIdx]
+	labelW := formLabelWidth(width)
+	pickerW := max(1, width-labelW)
+	return renderFormRow("Dates", focused, renderSettingsPicker(pickerW, name, focused, chrome), width, labelW, chrome)
 }
 
 func (s Settings) renderDensitySelector(width int, chrome managerChrome) string {

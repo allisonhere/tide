@@ -1457,7 +1457,7 @@ func (m Model) renderArticlesPane() string {
 	end := min(m.listOffset+m.articleRowsVisible(), len(visible))
 	for i := m.listOffset; i < end; i++ {
 		a := visible[i]
-		age := relativeTime(a.PublishedAt)
+		age := m.formatTime(a.PublishedAt)
 
 		dot := m.articleRowPrefix(a.Read)
 		style := articleRead
@@ -1878,7 +1878,7 @@ func (m Model) renderStatusBar() string {
 				parts = append(parts, m.statusBarInlineText(sb, fmt.Sprintf("%d unread", f.UnreadCount)))
 			}
 			if !f.LastFetched.IsZero() && f.LastFetched.Unix() > 0 {
-				parts = append(parts, m.statusBarInlineText(sb, "fetched "+relativeTime(f.LastFetched)))
+				parts = append(parts, m.statusBarInlineText(sb, "fetched "+m.formatTime(f.LastFetched)))
 			}
 		} else if folderID, ok := m.selectedFolderID(); ok {
 			parts = append(parts, m.statusBarInlineText(sb, m.folderName(folderID)))
@@ -3245,6 +3245,17 @@ func truncate(s string, maxW int) string {
 	return ansi.Truncate(s, maxW, "…")
 }
 
+func (m Model) formatTime(t time.Time) string {
+	switch m.cfg.Display.DateFormat {
+	case "absolute":
+		return t.Format("Jan 2, 2006")
+	case "none":
+		return ""
+	default:
+		return relativeTime(t)
+	}
+}
+
 func relativeTime(t time.Time) string {
 	d := time.Since(t)
 	switch {
@@ -3419,6 +3430,9 @@ func renderArticleRow(prefix, title, age string, width int) string {
 	prefixW := lipgloss.Width(prefix)
 	ageW := lipgloss.Width(age)
 	gapW := 2
+	if age == "" {
+		gapW = 0
+	}
 	titleW := max(0, width-prefixW-ageW-gapW)
 	row := prefix + padRight(truncate(title, titleW), titleW) + strings.Repeat(" ", gapW) + age
 	return padRight(row, width)
