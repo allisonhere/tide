@@ -32,6 +32,7 @@ type DisplayConfig struct {
 	FocusLine         bool               `toml:"focus_line"`
 	DefaultUnreadOnly bool               `toml:"default_unread_only"`
 	ActionableLinks   bool               `toml:"actionable_links"`
+	ConfirmQuit       bool               `toml:"confirm_quit"`
 	Browser           string             `toml:"browser"`
 	Density           string             `toml:"density"` // "comfortable" | "compact"
 	VT52              RetroTerminalTweak `toml:"vt52"`
@@ -78,6 +79,7 @@ func DefaultConfig() Config {
 			MarkReadOnOpen: true,
 			FocusLine:      true,
 			Density:        "compact",
+			ConfirmQuit:    true,
 		},
 		Feed: FeedConfig{
 			MaxBodyMiB: 10,

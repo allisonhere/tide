@@ -17,9 +17,9 @@ func TestSettingsFieldNavigationClampsAtEnds(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setActiveSection(ssDisplay)
 	s.setFocusedPane(settingsPaneDetail)
-	s.setFocusedField(sfBrowser)
-	if got := s.nextField(); got != sfBrowser {
-		t.Fatalf("nextField at last visible field: got %v want sfBrowser", got)
+	s.setFocusedField(sfConfirmQuit)
+	if got := s.nextField(); got != sfConfirmQuit {
+		t.Fatalf("nextField at last visible field: got %v want sfConfirmQuit", got)
 	}
 	s.setFocusedField(sfBackToSections)
 	if got := s.prevField(); got != sfBackToSections {

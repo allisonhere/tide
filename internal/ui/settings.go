@@ -58,6 +58,7 @@ const (
 	sfRetroFg
 	sfRetroAccent
 	sfTheme
+	sfConfirmQuit
 	// sfBackToSections is the first focusable target in the detail pane.
 	// Activating it restores focus to the sidebar so users never auto-land on a text input.
 	sfBackToSections
@@ -168,6 +169,7 @@ type Settings struct {
 	focusLine            bool
 	defaultUnreadOnly    bool
 	actionableLinks      bool
+	confirmQuit          bool
 	layoutDensityIdx     int // 0 = comfortable, 1 = compact
 	browserInput         textinput.Model
 	feedMaxBodyInput     textinput.Model
@@ -244,6 +246,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		focusLine:            cfg.Display.FocusLine,
 		defaultUnreadOnly:    cfg.Display.DefaultUnreadOnly,
 		actionableLinks:      cfg.Display.ActionableLinks,
+		confirmQuit:          cfg.Display.ConfirmQuit,
 		layoutDensityIdx:     layoutIdx,
 		browserInput:         mkInput(cfg.Display.Browser, "xdg-open", false),
 		feedMaxBodyInput:     mkInput(strconv.Itoa(cfg.Feed.MaxBodyMiB), "10", false),
@@ -295,6 +298,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	cfg.Display.FocusLine = s.focusLine
 	cfg.Display.DefaultUnreadOnly = s.defaultUnreadOnly
 	cfg.Display.ActionableLinks = s.actionableLinks
+	cfg.Display.ConfirmQuit = s.confirmQuit
 	if s.layoutDensityIdx == 1 {
 		cfg.Display.Density = "compact"
 	} else {
@@ -498,7 +502,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
-		return append(fields, sfActionableLinks, sfBrowser)
+		return append(fields, sfActionableLinks, sfBrowser, sfConfirmQuit)
 	case ssFeeds:
 		return []settingsField{sfBackToSections, sfFeedMaxBody}
 	case ssUpdates:
@@ -951,6 +955,15 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
+	case sfConfirmQuit:
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.confirmQuit = !s.confirmQuit
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
 	case sfMarkReadOnSummarize:
 		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.markReadOnSummarize = !s.markReadOnSummarize
@@ -1225,6 +1238,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		}
 		b.addToggle("Actionable article links", s.actionableLinks, sfActionableLinks)
 		b.addInput("Browser command", s.browserInput, sfBrowser)
+		b.addToggle("Confirm before quitting", s.confirmQuit, sfConfirmQuit)
 
 	case ssFeeds:
 		b.addGroup("Feeds")

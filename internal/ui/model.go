@@ -832,6 +832,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case keyMatches(msg, m.keys.Quit):
+		if !m.cfg.Display.ConfirmQuit {
+			return m, tea.Quit
+		}
 		m.overlay = overlayQuitConfirm
 		return m, nil
 
