@@ -130,6 +130,16 @@ func (db *DB) migrateSchema() error {
 			return err
 		}
 	}
+	if version < 6 {
+		if _, err := db.Exec(`ALTER TABLE feeds ADD COLUMN custom_title TEXT NOT NULL DEFAULT ''`); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return err
+			}
+		}
+		if _, err := db.Exec(`PRAGMA user_version = 6`); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

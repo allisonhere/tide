@@ -256,8 +256,8 @@ func TestOpenMigratesFolderSchemaToVersion5(t *testing.T) {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 5 {
-		t.Fatalf("expected schema version 5, got %d", version)
+	if version != 6 {
+		t.Fatalf("expected schema version 6, got %d", version)
 	}
 
 	rows, err := db.Query(`PRAGMA table_info(feeds)`)
@@ -267,6 +267,7 @@ func TestOpenMigratesFolderSchemaToVersion5(t *testing.T) {
 	defer rows.Close()
 
 	foundFolderID := false
+	foundCustomTitle := false
 	for rows.Next() {
 		var cid int
 		var name, typ string
@@ -277,11 +278,16 @@ func TestOpenMigratesFolderSchemaToVersion5(t *testing.T) {
 		}
 		if name == "folder_id" {
 			foundFolderID = true
-			break
+		}
+		if name == "custom_title" {
+			foundCustomTitle = true
 		}
 	}
 	if !foundFolderID {
 		t.Fatal("expected feeds.folder_id column after migration")
+	}
+	if !foundCustomTitle {
+		t.Fatal("expected feeds.custom_title column after migration")
 	}
 	rows.Close()
 

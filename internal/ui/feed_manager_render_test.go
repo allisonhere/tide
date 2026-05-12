@@ -1030,7 +1030,7 @@ func TestFeedManagerEditURLRightArrowMovesCursor(t *testing.T) {
 		mode:         fmEdit,
 		paneFocus:    fmPaneDetail,
 		editTarget:   1,
-		focusedField: 1,
+		focusedField: 2,
 		titleInput:   textinput.New(),
 		urlInput:     textinput.New(),
 	}
@@ -1049,7 +1049,7 @@ func TestFeedManagerSyncedWidthAllowsRightMovementInLongField(t *testing.T) {
 		mode:         fmEdit,
 		paneFocus:    fmPaneDetail,
 		editTarget:   1,
-		focusedField: 1,
+		focusedField: 2,
 		titleInput:   textinput.New(),
 		urlInput:     textinput.New(),
 	}

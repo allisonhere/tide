@@ -27,12 +27,12 @@ type Folder struct {
 
 func (db *DB) ListFeeds() ([]Feed, error) {
 	rows, err := db.Query(`
-		SELECT f.id, f.url, f.title, f.description, f.favicon_url, f.last_fetched, f.folder_id,
+		SELECT f.id, f.url, COALESCE(NULLIF(f.custom_title, ''), f.title), f.description, f.favicon_url, f.last_fetched, f.folder_id,
 		       COUNT(CASE WHEN a.read = 0 THEN 1 END) AS unread_count
 		FROM feeds f
 		LEFT JOIN articles a ON a.feed_id = f.id
 		GROUP BY f.id
-		ORDER BY f.title COLLATE NOCASE
+		ORDER BY COALESCE(NULLIF(f.custom_title, ''), f.title) COLLATE NOCASE
 	`)
 	if err != nil {
 		return nil, err
@@ -61,7 +61,7 @@ func (db *DB) GetFeed(id int64) (Feed, error) {
 	var lastFetched int64
 	var folderID sql.NullInt64
 	err := db.QueryRow(
-		`SELECT id, url, title, description, favicon_url, last_fetched, folder_id FROM feeds WHERE id = ?`, id,
+		`SELECT id, url, COALESCE(NULLIF(custom_title, ''), title), description, favicon_url, last_fetched, folder_id FROM feeds WHERE id = ?`, id,
 	).Scan(&f.ID, &f.URL, &f.Title, &f.Description, &f.FaviconURL, &lastFetched, &folderID)
 	if err != nil {
 		return Feed{}, err
@@ -84,8 +84,8 @@ func (db *DB) AddFeed(url, title, description string) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (db *DB) UpdateFeed(id int64, title, url string) error {
-	_, err := db.Exec(`UPDATE feeds SET title = ?, url = ? WHERE id = ?`, title, url, id)
+func (db *DB) UpdateFeed(id int64, customTitle, url string) error {
+	_, err := db.Exec(`UPDATE feeds SET custom_title = ?, url = ? WHERE id = ?`, customTitle, url, id)
 	return err
 }
 
