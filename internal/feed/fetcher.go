@@ -2,6 +2,7 @@ package feed
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,14 +11,58 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	utls "github.com/refraction-networking/utls"
 )
 
 // feedHTTPClient never follows redirects so we can track hops manually.
 var feedHTTPClient = &http.Client{
-	Timeout: 15 * time.Second,
+	Timeout:   15 * time.Second,
+	Transport: newBrowserTransport(),
 	CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	},
+}
+
+// newBrowserTransport returns a transport whose TLS ClientHello mimics Chrome,
+// bypassing bot-detection fingerprinting (e.g. Cloudflare JA3 scoring).
+// ALPN is restricted to http/1.1 so Go's transport can read the response;
+// the ALPN extension type is still present in the hello, preserving the JA3 hash.
+func newBrowserTransport() *http.Transport {
+	d := &net.Dialer{Timeout: 10 * time.Second}
+	return &http.Transport{
+		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := d.DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			host, _, _ := net.SplitHostPort(addr)
+
+			spec, err := utls.UTLSIdToSpec(utls.HelloChrome_Auto)
+			if err != nil {
+				conn.Close()
+				return nil, fmt.Errorf("utls spec: %w", err)
+			}
+			for i, ext := range spec.Extensions {
+				if alpn, ok := ext.(*utls.ALPNExtension); ok {
+					alpn.AlpnProtocols = []string{"http/1.1"}
+					spec.Extensions[i] = alpn
+					break
+				}
+			}
+
+			uconn := utls.UClient(conn, &utls.Config{ServerName: host}, utls.HelloCustom)
+			if err := uconn.ApplyPreset(&spec); err != nil {
+				conn.Close()
+				return nil, fmt.Errorf("utls preset: %w", err)
+			}
+			if err := uconn.HandshakeContext(ctx); err != nil {
+				conn.Close()
+				return nil, err
+			}
+			return uconn, nil
+		},
+	}
 }
 
 // articleHTTPClient is a plain client for article text fetching.
@@ -54,8 +99,9 @@ func fetchFeed(originalURL string, budget int, seen map[string]bool) *FetchResul
 			r.Err = fmt.Errorf("build request: %w", err)
 			return r
 		}
-		req.Header.Set("User-Agent", "tide/1.0 (+https://github.com/allisonhere/tide)")
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; tide/1.0; +https://github.com/allisonhere/tide)")
 		req.Header.Set("Accept", "application/rss+xml, application/atom+xml, application/feed+json, text/xml, application/xml;q=0.9, */*;q=0.8")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
 		resp, err := feedHTTPClient.Do(req)
 		if err != nil {
