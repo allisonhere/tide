@@ -39,6 +39,7 @@ type Styles struct {
 	ContentMeta      lipgloss.Style
 	ContentBody      lipgloss.Style
 	ContentFocusLine lipgloss.Style
+	SearchMatch      lipgloss.Style
 
 	// Status bar
 	StatusBar       lipgloss.Style
@@ -256,6 +257,9 @@ func BuildStyles(t Theme, density string) Styles {
 		ContentFocusLine: lipgloss.NewStyle().
 			Background(contentFocusBg).
 			Foreground(readableText(t.Fg, contentFocusBg, 4.5)),
+		SearchMatch: lipgloss.NewStyle().
+			Background(t.BorderFocus).
+			Foreground(readableText(t.Fg, t.BorderFocus, 4.5)),
 
 		StatusBar: lipgloss.NewStyle().
 			Background(t.StatusBar).

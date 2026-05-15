@@ -63,6 +63,7 @@ const (
 	overlayFetchError // fetch-error details for a single feed
 	overlaySettings
 	overlayUpdateConfirm
+	overlayContentSearch
 	overlaySummary
 )
 
@@ -111,13 +112,17 @@ type Model struct {
 	showUnreadOnly   bool
 
 	// Content pane
-	viewport         viewport.Model
-	contentLinks     []string
-	contentLinkIdx   int
-	contentArticleID int64
-	contentFocusLine int
-	contentLineCount int
-	contentFocusable []bool
+	viewport              viewport.Model
+	contentLinks          []string
+	contentLinkIdx        int
+	contentArticleID      int64
+	contentFocusLine      int
+	contentLineCount      int
+	contentFocusable      []bool
+	contentSearchInput    textinput.Model
+	contentSearchQuery    string
+	contentSearchMatches  []int
+	contentSearchIdx      int
 
 	// Help overlay
 	helpVP viewport.Model
@@ -187,6 +192,10 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string, preview
 	si.Placeholder = "search articles..."
 	si.CharLimit = 100
 
+	csi := textinput.New()
+	csi.Placeholder = "find in article..."
+	csi.CharLimit = 100
+
 	sp := spinner.New()
 	if ThemeUsesASCII(merged.Name) {
 		sp.Spinner = spinner.Line
@@ -222,6 +231,8 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string, preview
 		summarizer:            summarizer,
 		showUnreadOnly:        cfg.Display.DefaultUnreadOnly,
 		contentLinkIdx:        -1,
+		contentSearchInput:    csi,
+		contentSearchIdx:      -1,
 	}
 	m.resetSourceClient()
 	m.restoreCachedUpdateState()
@@ -1012,6 +1023,14 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case keyMatches(msg, m.keys.ContentSearch):
+		if m.focused == paneContent && m.contentArticleID != 0 {
+			m.overlay = overlayContentSearch
+			m.contentSearchInput.Reset()
+			m.contentSearchInput.Focus()
+		}
+		return m, nil
+
 	case keyMatches(msg, m.keys.Settings):
 		m.settings = newSettings(m.cfg, m.settingsUpdateState())
 		m.overlay = overlaySettings
@@ -1231,6 +1250,27 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case overlaySummary:
 		return m.handleSummaryKey(msg)
+
+	case overlayContentSearch:
+		switch {
+		case keyMatches(msg, m.keys.Cancel):
+			m.clearContentSearch()
+			return m, nil
+		case keyMatches(msg, m.keys.Confirm):
+			m.cycleContentSearchMatch(1)
+			return m, nil
+		case keyMatches(msg, m.keys.Up):
+			m.cycleContentSearchMatch(-1)
+			return m, nil
+		case keyMatches(msg, m.keys.Down):
+			m.cycleContentSearchMatch(1)
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.contentSearchInput, cmd = m.contentSearchInput.Update(msg)
+			m.applyContentSearch()
+			return m, cmd
+		}
 	}
 
 	return m, nil
@@ -1522,18 +1562,38 @@ func (m Model) renderContentPane() string {
 	bg := m.styles.Theme.Bg
 
 	focused := m.focused == paneContent
+	searching := m.overlay == overlayContentSearch
+
+	vpH := bodyH
+	if searching {
+		vpH = max(1, bodyH-1)
+	}
 
 	vp := m.viewport
 	vp.Width = w
-	vp.Height = bodyH
+	vp.Height = vpH
 	vp.Style = lipgloss.NewStyle().Background(bg)
-	body := m.renderContentFocusLine(vp.View(), w, bodyH, focused)
-	body = clampView(body, w, bodyH, bg)
+	body := m.renderContentFocusLine(vp.View(), w, vpH, focused)
+	body = clampView(body, w, vpH, bg)
+
+	header := m.renderPaneHeader(paneContent, "Content", focused, w)
+	content := header + "\n" + body
+
+	if searching {
+		matchInfo := ""
+		if len(m.contentSearchMatches) > 0 {
+			matchInfo = fmt.Sprintf("  [%d/%d]", m.contentSearchIdx+1, len(m.contentSearchMatches))
+		} else if m.contentSearchQuery != "" {
+			matchInfo = "  [no matches]"
+		}
+		searchBar := m.styles.ContentBody.Width(w).Render(m.contentSearchInput.View() + matchInfo)
+		content = header + "\n" + searchBar + "\n" + body
+	}
 
 	inner := m.styles.ContentPane.
 		Width(w).
 		Height(paneH).
-		Render(m.renderPaneHeader(paneContent, "Content", focused, w) + "\n" + body)
+		Render(content)
 
 	return lipgloss.NewStyle().
 		Background(bg).
@@ -1567,8 +1627,14 @@ func (m Model) renderPaneHint(p pane) string {
 		hint = m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " move  " +
 			m.keyHint(m.keys.MarkRead) + " read  " + m.keyHint(m.keys.Search) + " search"
 	case paneContent:
-		hint = m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " line  " +
-			m.keyHint(m.keys.OpenBrowser) + " open  " + m.keyHint(m.keys.Back) + " back"
+		progress := ""
+		if m.contentLineCount > 0 {
+			pct := min(100, (m.viewport.YOffset+m.viewport.Height)*100/m.contentLineCount)
+			progress = fmt.Sprintf("%d%%  ", pct)
+		}
+		hint = progress + m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " line  " +
+			m.keyHint(m.keys.OpenBrowser) + " open  " + m.keyHint(m.keys.ContentSearch) + " find  " +
+			m.keyHint(m.keys.Back) + " back"
 		if m.actionableLinksEnabled() && len(m.contentLinks) > 0 {
 			hint += "  " + m.keyHint(m.keys.PrevLink) + "/" + m.keyHint(m.keys.NextLink) + " links"
 		}
@@ -1685,6 +1751,7 @@ func (m *Model) setViewportArticle(a db.Article) {
 	sameArticle := m.contentArticleID == a.ID && m.contentLineCount > 0
 	m.syncContentLinks(a)
 	content := m.renderArticleContent(a)
+	m.contentSearchMatches = collectSearchMatches(content, m.contentSearchQuery)
 	m.viewport.SetContent(content)
 	m.contentArticleID = a.ID
 	m.contentLineCount = strings.Count(content, "\n") + 1
@@ -1705,7 +1772,59 @@ func (m *Model) clearViewportArticle() {
 	m.contentFocusLine = 0
 	m.contentLineCount = 0
 	m.contentFocusable = nil
+	m.clearContentSearch()
 	m.viewport.GotoTop()
+}
+
+func (m *Model) clearContentSearch() {
+	m.overlay = overlayNone
+	m.contentSearchQuery = ""
+	m.contentSearchMatches = nil
+	m.contentSearchIdx = -1
+	m.contentSearchInput.Blur()
+	if a := m.currentContentArticle(); a != nil {
+		m.setViewportArticle(*a)
+	}
+}
+
+func (m *Model) currentContentArticle() *db.Article {
+	for i := range m.filteredArticles {
+		if m.filteredArticles[i].ID == m.contentArticleID {
+			return &m.filteredArticles[i]
+		}
+	}
+	return nil
+}
+
+func (m *Model) applyContentSearch() {
+	q := strings.ToLower(strings.TrimSpace(m.contentSearchInput.Value()))
+	m.contentSearchQuery = q
+	if a := m.currentContentArticle(); a != nil {
+		m.setViewportArticle(*a)
+	}
+	if len(m.contentSearchMatches) > 0 {
+		m.contentSearchIdx = 0
+		m.scrollToContentMatch(0)
+	} else {
+		m.contentSearchIdx = -1
+	}
+}
+
+func (m *Model) cycleContentSearchMatch(delta int) {
+	if len(m.contentSearchMatches) == 0 {
+		return
+	}
+	n := len(m.contentSearchMatches)
+	m.contentSearchIdx = ((m.contentSearchIdx + delta) % n + n) % n
+	m.scrollToContentMatch(m.contentSearchIdx)
+}
+
+func (m *Model) scrollToContentMatch(idx int) {
+	if idx < 0 || idx >= len(m.contentSearchMatches) {
+		return
+	}
+	line := m.contentSearchMatches[idx]
+	m.viewport.SetYOffset(max(0, line-m.viewport.Height/2))
 }
 
 func (m *Model) moveContentFocusLine(delta int) {
@@ -1732,23 +1851,58 @@ func (m *Model) ensureContentFocusVisible() {
 }
 
 func (m Model) renderContentFocusLine(body string, width, height int, focused bool) string {
-	if !m.cfg.Display.FocusLine || !focused || m.contentLineCount <= 0 || width <= 0 || height <= 0 {
+	hasSearch := len(m.contentSearchMatches) > 0
+	hasFocus := m.cfg.Display.FocusLine && focused && m.contentLineCount > 0
+
+	if !hasSearch && !hasFocus {
 		return body
 	}
-	idx := m.contentFocusLine - m.viewport.YOffset
-	if idx < 0 || idx >= height {
+	if width <= 0 || height <= 0 {
 		return body
 	}
+
 	lines := strings.Split(body, "\n")
-	if idx >= len(lines) {
-		return body
+
+	styleLine := func(lineIdx int, style lipgloss.Style) {
+		viewIdx := lineIdx - m.viewport.YOffset
+		if viewIdx < 0 || viewIdx >= height || viewIdx >= len(lines) {
+			return
+		}
+		l := ansi.Truncate(ansi.Strip(lines[viewIdx]), width, "")
+		if pad := width - lipgloss.Width(l); pad > 0 {
+			l += strings.Repeat(" ", pad)
+		}
+		lines[viewIdx] = style.Width(width).Render(l)
 	}
-	line := ansi.Truncate(ansi.Strip(lines[idx]), width, "")
-	if pad := width - lipgloss.Width(line); pad > 0 {
-		line += strings.Repeat(" ", pad)
+
+	if hasSearch {
+		for _, matchLine := range m.contentSearchMatches {
+			styleLine(matchLine, m.styles.SearchMatch)
+		}
+		if m.contentSearchIdx >= 0 && m.contentSearchIdx < len(m.contentSearchMatches) {
+			styleLine(m.contentSearchMatches[m.contentSearchIdx], m.styles.ContentFocusLine)
+		}
 	}
-	lines[idx] = m.styles.ContentFocusLine.Width(width).Render(line)
+
+	if hasFocus {
+		styleLine(m.contentFocusLine, m.styles.ContentFocusLine)
+	}
+
 	return strings.Join(lines, "\n")
+}
+
+func collectSearchMatches(content, query string) []int {
+	if query == "" {
+		return nil
+	}
+	lines := strings.Split(content, "\n")
+	matches := make([]int, 0)
+	for i, line := range lines {
+		if strings.Contains(strings.ToLower(ansi.Strip(line)), query) {
+			matches = append(matches, i)
+		}
+	}
+	return matches
 }
 
 func articleFocusableLines(content string) []bool {
@@ -3625,5 +3779,9 @@ func (m Model) contentBodyHeight() int {
 	return max(1, m.contentPaneOuterHeight()-1)
 }
 func (m Model) contentBodyWidth() int {
-	return max(1, m.articlesPaneWidth()-2)
+	w := max(1, m.articlesPaneWidth()-2)
+	if cap := m.cfg.Display.ReadingWidth; cap > 0 && cap < w {
+		return cap
+	}
+	return w
 }

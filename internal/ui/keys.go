@@ -30,9 +30,10 @@ type KeyMap struct {
 	Help          key.Binding
 	Quit          key.Binding
 
-	Summary  key.Binding // fetch/show AI summary (articles or content pane)
-	CopyText key.Binding // copy summary to clipboard
-	SaveMD   key.Binding // save summary as .md file
+	Summary       key.Binding // fetch/show AI summary (articles or content pane)
+	CopyText      key.Binding // copy summary to clipboard
+	SaveMD        key.Binding // save summary as .md file
+	ContentSearch key.Binding // find text in the current article
 
 	// Feed manager specific
 	Add       key.Binding
@@ -81,9 +82,10 @@ var DefaultKeys = KeyMap{
 	Help:          key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 	Quit:          key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 
-	Summary:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "AI summary")),
-	CopyText: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
-	SaveMD:   key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "save .md")),
+	Summary:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "AI summary")),
+	CopyText:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
+	SaveMD:        key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "save .md")),
+	ContentSearch: key.NewBinding(key.WithKeys("ctrl+f"), key.WithHelp("ctrl+f", "find")),
 
 	Add:       key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 	AddFolder: key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "add folder")),

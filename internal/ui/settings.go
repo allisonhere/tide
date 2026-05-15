@@ -37,6 +37,7 @@ const (
 	sfDefaultUnreadOnly
 	sfActionableLinks
 	sfFilterLinks
+	sfReadingWidth
 	sfDisplayDensity
 	sfBrowser
 	sfFeedMaxBody
@@ -173,6 +174,7 @@ type Settings struct {
 	filterLinks          bool
 	confirmQuit          bool
 	layoutDensityIdx     int // 0 = comfortable, 1 = compact
+	readingWidthInput    textinput.Model
 	browserInput         textinput.Model
 	feedMaxBodyInput     textinput.Model
 	updateCheckOnStartup bool
@@ -251,6 +253,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		filterLinks:          cfg.Display.FilterLinks,
 		confirmQuit:          cfg.Display.ConfirmQuit,
 		layoutDensityIdx:     layoutIdx,
+		readingWidthInput:    mkInput(strconv.Itoa(cfg.Display.ReadingWidth), "0 (no limit)", false),
 		browserInput:         mkInput(cfg.Display.Browser, "xdg-open", false),
 		feedMaxBodyInput:     mkInput(strconv.Itoa(cfg.Feed.MaxBodyMiB), "10", false),
 		updateCheckOnStartup: cfg.Updates.CheckOnStartup,
@@ -303,6 +306,9 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	cfg.Display.ActionableLinks = s.actionableLinks
 	cfg.Display.FilterLinks = s.filterLinks
 	cfg.Display.ConfirmQuit = s.confirmQuit
+	if w, err := strconv.Atoi(strings.TrimSpace(s.readingWidthInput.Value())); err == nil {
+		cfg.Display.ReadingWidth = max(0, w)
+	}
 	if s.layoutDensityIdx == 1 {
 		cfg.Display.Density = "compact"
 	} else {
@@ -440,6 +446,7 @@ func (s *Settings) applyFocus() {
 	s.retroBgInput.Blur()
 	s.retroFgInput.Blur()
 	s.retroAccentInput.Blur()
+	s.readingWidthInput.Blur()
 	s.feedMaxBodyInput.Blur()
 	s.openaiInput.Blur()
 	s.claudeInput.Blur()
@@ -455,6 +462,8 @@ func (s *Settings) applyFocus() {
 	switch s.focusedField {
 	case sfBrowser:
 		s.browserInput.Focus()
+	case sfReadingWidth:
+		s.readingWidthInput.Focus()
 	case sfFeedMaxBody:
 		s.feedMaxBodyInput.Focus()
 	case sfAPIKey:
@@ -502,7 +511,7 @@ func (s Settings) updateNowActionVisible() bool {
 func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
-		fields := []settingsField{sfBackToSections, sfIcons, sfDateFormat, sfMarkReadOnOpen, sfMarkReadOnFocus, sfFocusLine, sfDefaultUnreadOnly, sfTheme, sfDisplayDensity}
+		fields := []settingsField{sfBackToSections, sfIcons, sfDateFormat, sfMarkReadOnOpen, sfMarkReadOnFocus, sfFocusLine, sfDefaultUnreadOnly, sfTheme, sfDisplayDensity, sfReadingWidth}
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
@@ -602,7 +611,7 @@ func (s Settings) isTextInput() bool {
 		return false
 	}
 	switch s.focusedField {
-	case sfBrowser, sfFeedMaxBody, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
+	case sfBrowser, sfFeedMaxBody, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
 		sfRetroBg, sfRetroFg, sfRetroAccent:
 		return true
 	}
@@ -615,6 +624,8 @@ func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) 
 	switch s.focusedField {
 	case sfBrowser:
 		s.browserInput, cmd = s.browserInput.Update(msg)
+	case sfReadingWidth:
+		s.readingWidthInput, cmd = s.readingWidthInput.Update(msg)
 	case sfFeedMaxBody:
 		s.feedMaxBodyInput, cmd = s.feedMaxBodyInput.Update(msg)
 	case sfAPIKey:
@@ -707,6 +718,8 @@ func (s Settings) focusedTextInputCursorPosition() int {
 	switch s.focusedField {
 	case sfBrowser:
 		return s.browserInput.Position()
+	case sfReadingWidth:
+		return s.readingWidthInput.Position()
 	case sfFeedMaxBody:
 		return s.feedMaxBodyInput.Position()
 	case sfAPIKey:
@@ -1111,7 +1124,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
-	case sfBrowser, sfFeedMaxBody, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
+	case sfBrowser, sfFeedMaxBody, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
 		sfRetroBg, sfRetroFg, sfRetroAccent:
 		// Enter advances to next field; everything else goes to the text input.
 		if keyMatches(key, keys.Enter) {
@@ -1243,6 +1256,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		b.addToggle("Default to unread only", s.defaultUnreadOnly, sfDefaultUnreadOnly)
 		b.addThemeSelector()
 		b.addDensitySelector()
+		b.addInput("Reading width (columns)", s.readingWidthInput, sfReadingWidth)
 		if config.IsRetroTerminalTheme(s.themeName) {
 			b.addGroup("Terminal colors")
 			b.addInput("VT background (#rrggbb)", s.retroBgInput, sfRetroBg)
@@ -1539,7 +1553,7 @@ func (s Settings) aiConnectionStatusLabel() string {
 
 func (s Settings) inputWidth(field settingsField, maxWidth int) int {
 	switch field {
-	case sfFeedMaxBody:
+	case sfFeedMaxBody, sfReadingWidth:
 		return min(maxWidth, 12)
 	case sfRetroBg, sfRetroFg, sfRetroAccent:
 		return min(maxWidth, 44)
@@ -2059,6 +2073,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "leave blank to use the system default browser"
 	case sfFeedMaxBody:
 		return "larger feeds need more memory; default is 10 MiB"
+	case sfReadingWidth:
+		return "max columns for article text; 0 = no limit (e.g. 80, 100)"
 	case sfTestAIConnection:
 		if s.aiValidatePending {
 			return "Contacting provider..."

@@ -79,6 +79,9 @@ func (db *DB) AddFeed(url, title, description string) (int64, error) {
 		url, title, description,
 	)
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed") {
+			return 0, fmt.Errorf("feed already exists: %s", url)
+		}
 		return 0, err
 	}
 	return res.LastInsertId()

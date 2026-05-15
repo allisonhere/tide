@@ -33,6 +33,7 @@ type DisplayConfig struct {
 	DefaultUnreadOnly bool               `toml:"default_unread_only"`
 	ActionableLinks   bool               `toml:"actionable_links"`
 	FilterLinks       bool               `toml:"filter_links"`
+	ReadingWidth      int                `toml:"reading_width"` // 0 = no limit
 	ConfirmQuit       bool               `toml:"confirm_quit"`
 	Browser           string             `toml:"browser"`
 	Density           string             `toml:"density"` // "comfortable" | "compact"
