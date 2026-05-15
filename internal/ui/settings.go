@@ -36,6 +36,7 @@ const (
 	sfFocusLine
 	sfDefaultUnreadOnly
 	sfActionableLinks
+	sfFilterLinks
 	sfDisplayDensity
 	sfBrowser
 	sfFeedMaxBody
@@ -169,6 +170,7 @@ type Settings struct {
 	focusLine            bool
 	defaultUnreadOnly    bool
 	actionableLinks      bool
+	filterLinks          bool
 	confirmQuit          bool
 	layoutDensityIdx     int // 0 = comfortable, 1 = compact
 	browserInput         textinput.Model
@@ -246,6 +248,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		focusLine:            cfg.Display.FocusLine,
 		defaultUnreadOnly:    cfg.Display.DefaultUnreadOnly,
 		actionableLinks:      cfg.Display.ActionableLinks,
+		filterLinks:          cfg.Display.FilterLinks,
 		confirmQuit:          cfg.Display.ConfirmQuit,
 		layoutDensityIdx:     layoutIdx,
 		browserInput:         mkInput(cfg.Display.Browser, "xdg-open", false),
@@ -298,6 +301,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	cfg.Display.FocusLine = s.focusLine
 	cfg.Display.DefaultUnreadOnly = s.defaultUnreadOnly
 	cfg.Display.ActionableLinks = s.actionableLinks
+	cfg.Display.FilterLinks = s.filterLinks
 	cfg.Display.ConfirmQuit = s.confirmQuit
 	if s.layoutDensityIdx == 1 {
 		cfg.Display.Density = "compact"
@@ -502,7 +506,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
-		return append(fields, sfActionableLinks, sfBrowser, sfConfirmQuit)
+		return append(fields, sfActionableLinks, sfFilterLinks, sfBrowser, sfConfirmQuit)
 	case ssFeeds:
 		return []settingsField{sfBackToSections, sfFeedMaxBody}
 	case ssUpdates:
@@ -955,6 +959,15 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
+	case sfFilterLinks:
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.filterLinks = !s.filterLinks
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
 	case sfConfirmQuit:
 		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.confirmQuit = !s.confirmQuit
@@ -1237,6 +1250,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 			b.addInput("VT accent (#rrggbb)", s.retroAccentInput, sfRetroAccent)
 		}
 		b.addToggle("Actionable article links", s.actionableLinks, sfActionableLinks)
+		b.addToggle("Filter links from articles", s.filterLinks, sfFilterLinks)
 		b.addInput("Browser command", s.browserInput, sfBrowser)
 		b.addToggle("Confirm before quitting", s.confirmQuit, sfConfirmQuit)
 
@@ -2075,6 +2089,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "comfortable adds vertical spacing in lists; compact fits more rows on small terminals"
 	case sfActionableLinks:
 		return "enable ctrl+n / ctrl+p to select links in article content; o opens selected link"
+	case sfFilterLinks:
+		return "strip bare URLs from the article body text"
 	case sfFocusLine:
 		return "highlight the current readable line in the content pane"
 	case sfUpdateManualCommand:

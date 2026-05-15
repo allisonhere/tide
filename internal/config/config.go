@@ -32,6 +32,7 @@ type DisplayConfig struct {
 	FocusLine         bool               `toml:"focus_line"`
 	DefaultUnreadOnly bool               `toml:"default_unread_only"`
 	ActionableLinks   bool               `toml:"actionable_links"`
+	FilterLinks       bool               `toml:"filter_links"`
 	ConfirmQuit       bool               `toml:"confirm_quit"`
 	Browser           string             `toml:"browser"`
 	Density           string             `toml:"density"` // "comfortable" | "compact"

@@ -1644,6 +1644,9 @@ func (m Model) renderArticleContent(a db.Article) string {
 	if content == "" {
 		content = "No content available. Press o to open in browser."
 	}
+	if m.cfg.Display.FilterLinks {
+		content = filterLinksFromContent(content)
+	}
 	body := indentBlock(m.styles.ContentBody.Width(bodyWidth).Render(formatArticleBody(content, bodyWidth, m.styles.PlainUI)), 1)
 
 	if m.actionableLinksEnabled() && len(m.contentLinks) > 0 {

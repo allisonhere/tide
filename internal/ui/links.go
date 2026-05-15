@@ -30,6 +30,10 @@ func extractActionableLinks(content, articleURL string) []string {
 	return links
 }
 
+func filterLinksFromContent(content string) string {
+	return httpURLPattern.ReplaceAllString(content, "")
+}
+
 func cleanDetectedURL(raw string) string {
 	clean := strings.TrimSpace(raw)
 	clean = strings.TrimRight(clean, ".,;:!?)]}\"'")
