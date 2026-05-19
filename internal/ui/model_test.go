@@ -2585,6 +2585,63 @@ func articleFocusContent() string {
 	return strings.Repeat("body line\n", 80)
 }
 
+func TestArticleFocusMarksTopArticleReadWhenEnteringArticlesPane(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Display.MarkReadOnFocus = true
+	m, database := newArticleFocusTestModel(t, cfg, []db.Article{
+		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: articleFocusContent(), PublishedAt: unixTestTime(1710000200), Read: false},
+		{ID: 2, FeedID: 1, Title: "Article Two", Link: "https://example.com/b", Content: articleFocusContent(), PublishedAt: unixTestTime(1710000100), Read: false},
+	})
+	defer database.Close()
+
+	m.focused = paneFeeds
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("expected entering articles pane to return a mark-read command")
+	}
+	if m.focused != paneArticles {
+		t.Fatalf("expected focus to move to articles pane, got %v", m.focused)
+	}
+	if m.articleCursor != 0 {
+		t.Fatalf("expected top article to stay focused, got cursor %d", m.articleCursor)
+	}
+
+	msg, ok := cmd().(ArticleReadUpdatedMsg)
+	if !ok {
+		t.Fatalf("expected ArticleReadUpdatedMsg, got %T", msg)
+	}
+	if msg.ArticleID != 1 {
+		t.Fatalf("expected top article 1 to be marked read, got article %d", msg.ArticleID)
+	}
+	if !msg.Read {
+		t.Fatal("expected entering articles pane to mark article read")
+	}
+	if msg.Advance {
+		t.Fatal("expected read-on-focus command not to request cursor advance")
+	}
+}
+
+func TestArticleLoadDoesNotMarkTopArticleReadBeforeEnteringArticlesPane(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Display.MarkReadOnFocus = true
+	m, database := newArticleFocusTestModel(t, cfg, []db.Article{
+		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: articleFocusContent(), PublishedAt: unixTestTime(1710000200), Read: false},
+		{ID: 2, FeedID: 1, Title: "Article Two", Link: "https://example.com/b", Content: articleFocusContent(), PublishedAt: unixTestTime(1710000100), Read: false},
+	})
+	defer database.Close()
+
+	m.focused = paneFeeds
+	m2, cmd := m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: m.articles})
+	m = m2.(Model)
+	if cmd != nil {
+		t.Fatal("expected article load outside articles pane not to mark read")
+	}
+	if m.filteredArticles[0].Read {
+		t.Fatal("expected top article to remain unread after passive load")
+	}
+}
+
 func TestArticleFocusMarksUnreadArticleReadWhenEnabled(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Display.MarkReadOnFocus = true

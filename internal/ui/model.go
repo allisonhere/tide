@@ -112,17 +112,17 @@ type Model struct {
 	showUnreadOnly   bool
 
 	// Content pane
-	viewport              viewport.Model
-	contentLinks          []string
-	contentLinkIdx        int
-	contentArticleID      int64
-	contentFocusLine      int
-	contentLineCount      int
-	contentFocusable      []bool
-	contentSearchInput    textinput.Model
-	contentSearchQuery    string
-	contentSearchMatches  []int
-	contentSearchIdx      int
+	viewport             viewport.Model
+	contentLinks         []string
+	contentLinkIdx       int
+	contentArticleID     int64
+	contentFocusLine     int
+	contentLineCount     int
+	contentFocusable     []bool
+	contentSearchInput   textinput.Model
+	contentSearchQuery   string
+	contentSearchMatches []int
+	contentSearchIdx     int
 
 	// Help overlay
 	helpVP viewport.Model
@@ -902,22 +902,20 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.clearStatusCmd()
 
 	case keyMatches(msg, m.keys.NextPane):
-		m.focused = pane((int(m.focused) + 1) % 3)
-		return m, nil
+		return m.focusPane(pane((int(m.focused) + 1) % 3))
 
 	case keyMatches(msg, m.keys.PrevPane):
-		m.focused = pane((int(m.focused) + 2) % 3)
-		return m, nil
+		return m.focusPane(pane((int(m.focused) + 2) % 3))
 
 	case keyMatches(msg, m.keys.Left):
 		if m.focused > paneFeeds {
-			m.focused--
+			return m.focusPane(m.focused - 1)
 		}
 		return m, nil
 
 	case keyMatches(msg, m.keys.Right):
 		if m.focused < paneContent {
-			m.focused++
+			return m.focusPane(m.focused + 1)
 		}
 		return m, nil
 
@@ -1063,6 +1061,15 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	return m, nil
+}
+
+func (m Model) focusPane(next pane) (tea.Model, tea.Cmd) {
+	wasArticles := m.focused == paneArticles
+	m.focused = next
+	if !wasArticles && next == paneArticles && len(m.filteredArticles) > 0 {
+		return m, m.focusedArticleChangedCmd(m.filteredArticles[m.articleCursor])
+	}
 	return m, nil
 }
 
@@ -1815,7 +1822,7 @@ func (m *Model) cycleContentSearchMatch(delta int) {
 		return
 	}
 	n := len(m.contentSearchMatches)
-	m.contentSearchIdx = ((m.contentSearchIdx + delta) % n + n) % n
+	m.contentSearchIdx = ((m.contentSearchIdx+delta)%n + n) % n
 	m.scrollToContentMatch(m.contentSearchIdx)
 }
 
