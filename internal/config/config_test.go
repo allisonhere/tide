@@ -11,6 +11,12 @@ func TestDefaultConfigDisplayDensityCompact(t *testing.T) {
 	if cfg.Display.Density != "compact" {
 		t.Fatalf("expected default display density compact, got %q", cfg.Display.Density)
 	}
+	if cfg.Display.FeedPaneWidthPercent != 28 {
+		t.Fatalf("expected default feed pane width 28, got %d", cfg.Display.FeedPaneWidthPercent)
+	}
+	if cfg.Display.ArticlePaneHeightPercent != 40 {
+		t.Fatalf("expected default article pane height 40, got %d", cfg.Display.ArticlePaneHeightPercent)
+	}
 	if cfg.Display.MarkReadOnFocus {
 		t.Fatal("expected mark-read-on-focus to default off")
 	}
@@ -66,6 +72,8 @@ mark_read_on_focus = true
 focus_line = false
 browser = ""
 density = "compact"
+feed_pane_width_percent = 35
+article_pane_height_percent = 55
 
 [feed]
 max_body_mib = 10
@@ -130,5 +138,40 @@ greader_password = "secret"
 	}
 	if cfg.Display.FocusLine {
 		t.Fatal("expected focus_line to load false")
+	}
+	if cfg.Display.FeedPaneWidthPercent != 35 {
+		t.Fatalf("expected feed pane width 35, got %d", cfg.Display.FeedPaneWidthPercent)
+	}
+	if cfg.Display.ArticlePaneHeightPercent != 55 {
+		t.Fatalf("expected article pane height 55, got %d", cfg.Display.ArticlePaneHeightPercent)
+	}
+}
+
+func TestLoadUsesDefaultPanePercentsWhenMissingOrInvalid(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	cfgPath := filepath.Join(dir, "rss", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	data := `
+[display]
+feed_pane_width_percent = -10
+article_pane_height_percent = 0
+`
+	if err := os.WriteFile(cfgPath, []byte(data), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Display.FeedPaneWidthPercent != 28 {
+		t.Fatalf("expected invalid feed pane width to default to 28, got %d", cfg.Display.FeedPaneWidthPercent)
+	}
+	if cfg.Display.ArticlePaneHeightPercent != 40 {
+		t.Fatalf("expected invalid article pane height to default to 40, got %d", cfg.Display.ArticlePaneHeightPercent)
 	}
 }

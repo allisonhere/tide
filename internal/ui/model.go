@@ -907,6 +907,18 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, m.keys.PrevPane):
 		return m.focusPane(pane((int(m.focused) + 2) % 3))
 
+	case keyMatches(msg, m.keys.ResizeLeft):
+		return m.resizeFeedPane(-layoutResizeStepPercent)
+
+	case keyMatches(msg, m.keys.ResizeRight):
+		return m.resizeFeedPane(layoutResizeStepPercent)
+
+	case keyMatches(msg, m.keys.ResizeUp):
+		return m.resizeArticlePane(-layoutResizeStepPercent)
+
+	case keyMatches(msg, m.keys.ResizeDown):
+		return m.resizeArticlePane(layoutResizeStepPercent)
+
 	case keyMatches(msg, m.keys.Left):
 		if m.focused > paneFeeds {
 			return m.focusPane(m.focused - 1)
@@ -1071,6 +1083,36 @@ func (m Model) focusPane(next pane) (tea.Model, tea.Cmd) {
 		return m, m.focusedArticleChangedCmd(m.filteredArticles[m.articleCursor])
 	}
 	return m, nil
+}
+
+func (m Model) resizeFeedPane(delta int) (tea.Model, tea.Cmd) {
+	m.cfg.Display.FeedPaneWidthPercent = m.clampedFeedPaneWidthPercent(m.feedPaneWidthPercent() + delta)
+	return m.afterLayoutResize()
+}
+
+func (m Model) resizeArticlePane(delta int) (tea.Model, tea.Cmd) {
+	m.cfg.Display.ArticlePaneHeightPercent = m.clampedArticlePaneHeightPercent(m.articlePaneHeightPercent() + delta)
+	return m.afterLayoutResize()
+}
+
+func (m Model) afterLayoutResize() (tea.Model, tea.Cmd) {
+	m.resetContentViewportForLayout()
+	if err := config.Save(m.cfg); err != nil {
+		m.setStatus("layout save failed: "+err.Error(), true)
+		return m, m.clearStatusCmd()
+	}
+	return m, nil
+}
+
+func (m *Model) resetContentViewportForLayout() {
+	offset := m.viewport.YOffset
+	m.viewport = viewport.New(m.contentBodyWidth(), m.contentBodyHeight())
+	m.viewport.Style = lipgloss.NewStyle()
+	if len(m.filteredArticles) > 0 {
+		m.setViewportArticle(m.filteredArticles[m.articleCursor])
+		m.viewport.YOffset = clamp(offset, 0, max(0, m.contentLineCount-m.viewport.Height))
+		m.ensureContentFocusVisible()
+	}
 }
 
 func (m Model) handleUp() (tea.Model, tea.Cmd) {
@@ -3762,11 +3804,24 @@ func (m *Model) resetHelpVP() {
 
 // ── Dimension helpers ─────────────────────────────────────────────────────────
 
-func (m Model) feedsPaneWidth() int    { return int(float64(m.width) * 0.28) }
+const (
+	layoutDefaultFeedPaneWidthPercent     = 28
+	layoutDefaultArticlePaneHeightPercent = 40
+	layoutResizeStepPercent               = 5
+	layoutMinFeedPaneWidth                = 18
+	layoutMinRightPaneWidth               = 32
+	layoutMinArticlePaneHeight            = 3
+	layoutMinContentPaneHeight            = 3
+)
+
+func (m Model) feedsPaneWidth() int {
+	return m.feedPaneWidthForPercent(m.feedPaneWidthPercent())
+}
+
 func (m Model) articlesPaneWidth() int { return m.width - m.feedsPaneWidth() }
 func (m Model) mainHeight() int        { return m.height - 1 }
 func (m Model) articlesPaneOuterHeight() int {
-	return max(3, int(float64(m.mainHeight())*0.40))
+	return m.articlePaneHeightForPercent(m.articlePaneHeightPercent())
 }
 func (m Model) articlesPaneContentHeight() int {
 	return max(2, m.articlesPaneOuterHeight()-1)
@@ -3791,4 +3846,75 @@ func (m Model) contentBodyWidth() int {
 		return cap
 	}
 	return w
+}
+
+func (m Model) feedPaneWidthPercent() int {
+	if m.cfg.Display.FeedPaneWidthPercent <= 0 {
+		return layoutDefaultFeedPaneWidthPercent
+	}
+	return m.cfg.Display.FeedPaneWidthPercent
+}
+
+func (m Model) articlePaneHeightPercent() int {
+	if m.cfg.Display.ArticlePaneHeightPercent <= 0 {
+		return layoutDefaultArticlePaneHeightPercent
+	}
+	return m.cfg.Display.ArticlePaneHeightPercent
+}
+
+func (m Model) feedPaneWidthForPercent(percent int) int {
+	if m.width <= 0 {
+		return 0
+	}
+	percent = m.clampedFeedPaneWidthPercent(percent)
+	return max(1, m.width*percent/100)
+}
+
+func (m Model) articlePaneHeightForPercent(percent int) int {
+	mainH := m.mainHeight()
+	if mainH <= 0 {
+		return 0
+	}
+	percent = m.clampedArticlePaneHeightPercent(percent)
+	return max(1, mainH*percent/100)
+}
+
+func (m Model) clampedFeedPaneWidthPercent(percent int) int {
+	if m.width <= 0 {
+		return clamp(percent, 1, 100)
+	}
+	minPct := ceilDiv(layoutMinFeedPaneWidth*100, m.width)
+	maxWidth := m.width - layoutMinRightPaneWidth
+	if maxWidth < layoutMinFeedPaneWidth {
+		maxWidth = max(1, m.width/2)
+	}
+	maxPct := max(1, maxWidth*100/m.width)
+	if maxPct < minPct {
+		minPct = maxPct
+	}
+	return clamp(percent, minPct, maxPct)
+}
+
+func (m Model) clampedArticlePaneHeightPercent(percent int) int {
+	mainH := m.mainHeight()
+	if mainH <= 0 {
+		return clamp(percent, 1, 100)
+	}
+	minPct := ceilDiv(layoutMinArticlePaneHeight*100, mainH)
+	maxHeight := mainH - layoutMinContentPaneHeight
+	if maxHeight < layoutMinArticlePaneHeight {
+		maxHeight = max(1, mainH/2)
+	}
+	maxPct := max(1, maxHeight*100/mainH)
+	if maxPct < minPct {
+		minPct = maxPct
+	}
+	return clamp(percent, minPct, maxPct)
+}
+
+func ceilDiv(n, d int) int {
+	if d <= 0 {
+		return 0
+	}
+	return (n + d - 1) / d
 }

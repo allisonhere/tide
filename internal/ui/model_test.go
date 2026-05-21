@@ -3670,6 +3670,93 @@ func TestPreviewManualUpdateOpensSettingsWithManualBlock(t *testing.T) {
 	}
 }
 
+func TestPaneDimensionsUseConfiguredPercents(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Display.FeedPaneWidthPercent = 35
+	cfg.Display.ArticlePaneHeightPercent = 55
+	m := NewModel(nil, cfg, "v1.0.0", false)
+	m.width = 120
+	m.height = 31
+
+	if got := m.feedsPaneWidth(); got != 42 {
+		t.Fatalf("expected feed pane width 42, got %d", got)
+	}
+	if got := m.articlesPaneWidth(); got != 78 {
+		t.Fatalf("expected right pane width 78, got %d", got)
+	}
+	if got := m.articlesPaneOuterHeight(); got != 16 {
+		t.Fatalf("expected article pane height 16, got %d", got)
+	}
+	if got := m.contentPaneOuterHeight(); got != 14 {
+		t.Fatalf("expected content pane height 14, got %d", got)
+	}
+}
+
+func TestShiftArrowResizesPanesAndPersistsConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := config.DefaultConfig()
+	m := NewModel(nil, cfg, "v1.0.0", false)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 31})
+	m = m2.(Model)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftRight})
+	m = m2.(Model)
+	if m.cfg.Display.FeedPaneWidthPercent != 33 {
+		t.Fatalf("expected shift+right to grow feed pane to 33, got %d", m.cfg.Display.FeedPaneWidthPercent)
+	}
+	if m.feedsPaneWidth() != 39 {
+		t.Fatalf("expected resized feed pane width 39, got %d", m.feedsPaneWidth())
+	}
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftDown})
+	m = m2.(Model)
+	if m.cfg.Display.ArticlePaneHeightPercent != 45 {
+		t.Fatalf("expected shift+down to grow article pane to 45, got %d", m.cfg.Display.ArticlePaneHeightPercent)
+	}
+	if m.articlesPaneOuterHeight() != 13 {
+		t.Fatalf("expected resized article pane height 13, got %d", m.articlesPaneOuterHeight())
+	}
+
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if loaded.Display.FeedPaneWidthPercent != 33 {
+		t.Fatalf("expected persisted feed pane width 33, got %d", loaded.Display.FeedPaneWidthPercent)
+	}
+	if loaded.Display.ArticlePaneHeightPercent != 45 {
+		t.Fatalf("expected persisted article pane height 45, got %d", loaded.Display.ArticlePaneHeightPercent)
+	}
+}
+
+func TestShiftArrowResizeClampsToUsablePaneSizes(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := config.DefaultConfig()
+	cfg.Display.FeedPaneWidthPercent = 95
+	cfg.Display.ArticlePaneHeightPercent = 95
+	m := NewModel(nil, cfg, "v1.0.0", false)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 16})
+	m = m2.(Model)
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftRight})
+	m = m2.(Model)
+	if m.feedsPaneWidth() > 48 {
+		t.Fatalf("expected feed pane clamp to leave right pane usable, got feed width %d", m.feedsPaneWidth())
+	}
+	if m.articlesPaneWidth() < 32 {
+		t.Fatalf("expected right pane width at least 32, got %d", m.articlesPaneWidth())
+	}
+
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftDown})
+	m = m2.(Model)
+	if m.articlesPaneOuterHeight() > 12 {
+		t.Fatalf("expected article pane clamp to leave content pane usable, got %d", m.articlesPaneOuterHeight())
+	}
+	if m.contentPaneOuterHeight() < 3 {
+		t.Fatalf("expected content pane height at least 3, got %d", m.contentPaneOuterHeight())
+	}
+}
+
 func containsString(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsSubstring(s, sub))
 }

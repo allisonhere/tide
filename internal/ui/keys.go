@@ -3,14 +3,18 @@ package ui
 import "github.com/charmbracelet/bubbles/key"
 
 type KeyMap struct {
-	Up       key.Binding
-	Down     key.Binding
-	Left     key.Binding
-	Right    key.Binding
-	NextPane key.Binding
-	PrevPane key.Binding
-	Enter    key.Binding
-	Back     key.Binding
+	Up          key.Binding
+	Down        key.Binding
+	Left        key.Binding
+	Right       key.Binding
+	ResizeUp    key.Binding
+	ResizeDown  key.Binding
+	ResizeLeft  key.Binding
+	ResizeRight key.Binding
+	NextPane    key.Binding
+	PrevPane    key.Binding
+	Enter       key.Binding
+	Back        key.Binding
 
 	Refresh     key.Binding
 	RefreshAll  key.Binding
@@ -55,14 +59,18 @@ type KeyMap struct {
 }
 
 var DefaultKeys = KeyMap{
-	Up:       key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
-	Down:     key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
-	Left:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "move left")),
-	Right:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "move right")),
-	NextPane: key.NewBinding(key.WithKeys("tab", "]"), key.WithHelp("tab/]", "next pane")),
-	PrevPane: key.NewBinding(key.WithKeys("shift+tab", "["), key.WithHelp("shift+tab/[", "prev pane")),
-	Enter:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
-	Back:     key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+	Up:          key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
+	Down:        key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
+	Left:        key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "move left")),
+	Right:       key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "move right")),
+	ResizeUp:    key.NewBinding(key.WithKeys("shift+up"), key.WithHelp("shift+↑", "resize up")),
+	ResizeDown:  key.NewBinding(key.WithKeys("shift+down"), key.WithHelp("shift+↓", "resize down")),
+	ResizeLeft:  key.NewBinding(key.WithKeys("shift+left"), key.WithHelp("shift+←", "resize left")),
+	ResizeRight: key.NewBinding(key.WithKeys("shift+right"), key.WithHelp("shift+→", "resize right")),
+	NextPane:    key.NewBinding(key.WithKeys("tab", "]"), key.WithHelp("tab/]", "next pane")),
+	PrevPane:    key.NewBinding(key.WithKeys("shift+tab", "["), key.WithHelp("shift+tab/[", "prev pane")),
+	Enter:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+	Back:        key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 
 	Refresh:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "refresh feed")),
 	RefreshAll:  key.NewBinding(key.WithKeys("F", "I"), key.WithHelp("F/I", "refresh all")),

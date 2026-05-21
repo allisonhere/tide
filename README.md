@@ -231,6 +231,7 @@ Tide can check GitHub releases for a newer version and install the matching bina
 | `Tab` / `Shift-Tab` | Cycle panes |
 | `h/←` `l/→` | Move between panes |
 | `j/↓` `k/↑` | Navigate within pane |
+| `Shift` + arrow keys | Resize panes |
 | `Enter` | Open article |
 | `Esc` | Back |
 

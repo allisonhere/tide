@@ -25,20 +25,22 @@ type RetroTerminalTweak struct {
 }
 
 type DisplayConfig struct {
-	Icons             bool               `toml:"icons"`
-	DateFormat        string             `toml:"date_format"` // "relative" | "absolute"
-	MarkReadOnOpen    bool               `toml:"mark_read_on_open"`
-	MarkReadOnFocus   bool               `toml:"mark_read_on_focus"`
-	FocusLine         bool               `toml:"focus_line"`
-	DefaultUnreadOnly bool               `toml:"default_unread_only"`
-	ActionableLinks   bool               `toml:"actionable_links"`
-	FilterLinks       bool               `toml:"filter_links"`
-	ReadingWidth      int                `toml:"reading_width"` // 0 = no limit
-	ConfirmQuit       bool               `toml:"confirm_quit"`
-	Browser           string             `toml:"browser"`
-	Density           string             `toml:"density"` // "comfortable" | "compact"
-	VT52              RetroTerminalTweak `toml:"vt52"`
-	VT100             RetroTerminalTweak `toml:"vt100"`
+	Icons                    bool               `toml:"icons"`
+	DateFormat               string             `toml:"date_format"` // "relative" | "absolute"
+	MarkReadOnOpen           bool               `toml:"mark_read_on_open"`
+	MarkReadOnFocus          bool               `toml:"mark_read_on_focus"`
+	FocusLine                bool               `toml:"focus_line"`
+	DefaultUnreadOnly        bool               `toml:"default_unread_only"`
+	ActionableLinks          bool               `toml:"actionable_links"`
+	FilterLinks              bool               `toml:"filter_links"`
+	ReadingWidth             int                `toml:"reading_width"` // 0 = no limit
+	FeedPaneWidthPercent     int                `toml:"feed_pane_width_percent"`
+	ArticlePaneHeightPercent int                `toml:"article_pane_height_percent"`
+	ConfirmQuit              bool               `toml:"confirm_quit"`
+	Browser                  string             `toml:"browser"`
+	Density                  string             `toml:"density"` // "comfortable" | "compact"
+	VT52                     RetroTerminalTweak `toml:"vt52"`
+	VT100                    RetroTerminalTweak `toml:"vt100"`
 }
 
 type FeedConfig struct {
@@ -76,12 +78,14 @@ func DefaultConfig() Config {
 	return Config{
 		Theme: "catppuccin-mocha",
 		Display: DisplayConfig{
-			Icons:          false,
-			DateFormat:     "relative",
-			MarkReadOnOpen: true,
-			FocusLine:      true,
-			Density:        "compact",
-			ConfirmQuit:    true,
+			Icons:                    false,
+			DateFormat:               "relative",
+			MarkReadOnOpen:           true,
+			FocusLine:                true,
+			FeedPaneWidthPercent:     28,
+			ArticlePaneHeightPercent: 40,
+			Density:                  "compact",
+			ConfirmQuit:              true,
 		},
 		Feed: FeedConfig{
 			MaxBodyMiB: 10,
@@ -125,6 +129,12 @@ func Load() (Config, error) {
 		cfg.Updates.CheckIntervalHours = DefaultConfig().Updates.CheckIntervalHours
 	}
 	cfg.Display.Density = NormalizeDisplayDensity(cfg.Display.Density)
+	if cfg.Display.FeedPaneWidthPercent <= 0 {
+		cfg.Display.FeedPaneWidthPercent = DefaultConfig().Display.FeedPaneWidthPercent
+	}
+	if cfg.Display.ArticlePaneHeightPercent <= 0 {
+		cfg.Display.ArticlePaneHeightPercent = DefaultConfig().Display.ArticlePaneHeightPercent
+	}
 	return cfg, nil
 }
 
