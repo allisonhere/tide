@@ -1889,7 +1889,8 @@ func (s Settings) renderActionRow(label, hint string, focused bool, width int, c
 	if hint != "" {
 		hintText = "  " + hint
 	}
-	control := badge + renderFormInlineStatus(hintText, max(1, width-labelW-lipgloss.Width(badge)), chrome)
+	controlW := max(1, width-2-labelW)
+	control := badge + renderFormInlineStatus(hintText, max(1, controlW-lipgloss.Width(badge)), chrome)
 	return renderFormRow(label, focused, control, width, labelW, chrome)
 }
 

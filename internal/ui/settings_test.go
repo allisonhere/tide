@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/allisonhere/tide/internal/config"
 )
@@ -88,6 +89,29 @@ func TestSettingsBadgeWidthStaysStableAcrossFocus(t *testing.T) {
 
 	if lipgloss.Width(focused) != lipgloss.Width(unfocused) {
 		t.Fatalf("expected focused and unfocused badges to have equal width, got %d and %d", lipgloss.Width(focused), lipgloss.Width(unfocused))
+	}
+}
+
+func TestSettingsUpdateActionBadgeUsesFocusedStyle(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	chrome := newManagerChrome(80, CatppuccinMocha, false)
+
+	focused := s.renderActionRow("Check now", "", true, 60, chrome)
+	unfocused := s.renderActionRow("Check now", "", false, 60, chrome)
+	focusedBadge := s.renderBadge("ENTER", true, chrome)
+	unfocusedBadge := s.renderBadge("ENTER", false, chrome)
+
+	if !strings.Contains(focused, focusedBadge) {
+		t.Fatalf("expected focused action row to include focused ENTER badge\nrow: %q\nbadge: %q", focused, focusedBadge)
+	}
+	if strings.Contains(focused, unfocusedBadge) {
+		t.Fatalf("expected focused action row not to include unfocused ENTER badge\nrow: %q\nbadge: %q", focused, unfocusedBadge)
+	}
+	if !strings.Contains(unfocused, unfocusedBadge) {
+		t.Fatalf("expected unfocused action row to include unfocused ENTER badge\nrow: %q\nbadge: %q", unfocused, unfocusedBadge)
 	}
 }
 

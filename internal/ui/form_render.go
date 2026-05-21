@@ -60,8 +60,16 @@ func renderFormRow(label string, focused bool, control string, width, labelW int
 		Width(labelW).
 		Render(truncate(label, max(1, labelW-1)))
 	control = truncateStyled(control, controlW, chrome.baseBg)
-	controlCell := lipgloss.NewStyle().Background(rowBg).Width(controlW).Render(control)
+	controlCell := padStyled(control, controlW, rowBg)
 	return markerCell + labelCell + controlCell
+}
+
+func padStyled(s string, width int, bg lipgloss.Color) string {
+	s = truncateStyled(s, width, bg)
+	if gap := width - lipgloss.Width(s); gap > 0 {
+		s += lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", gap))
+	}
+	return s
 }
 
 func renderFormControlRow(control string, width int, chrome managerChrome) string {
