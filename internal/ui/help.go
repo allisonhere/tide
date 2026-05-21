@@ -27,6 +27,8 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 				{keys.PrevPane.Help().Key, "previous pane"},
 				{keys.Left.Help().Key, "move left across panes"},
 				{keys.Right.Help().Key, "move right across panes"},
+				{keys.ResizeLeft.Help().Key + "/" + keys.ResizeRight.Help().Key, "resize feed pane"},
+				{keys.ResizeUp.Help().Key + "/" + keys.ResizeDown.Help().Key, "resize articles/content split"},
 				bind(keys.Up),
 				bind(keys.Down),
 				{keys.Enter.Help().Key, "open article / enter pane"},

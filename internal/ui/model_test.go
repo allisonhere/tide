@@ -849,6 +849,22 @@ func TestRenderHelpDocumentsDisplayFocusLine(t *testing.T) {
 	}
 }
 
+func TestRenderHelpDocumentsPaneResizeKeys(t *testing.T) {
+	view := ansi.Strip(renderHelp(100, BuildStyles(CatppuccinMocha, "comfortable"), DefaultKeys))
+	if !strings.Contains(view, "shift+←/shift+→") {
+		t.Fatalf("expected help to document horizontal pane resize keys, got %q", view)
+	}
+	if !strings.Contains(view, "resize feed pane") {
+		t.Fatalf("expected help to document feed pane resizing, got %q", view)
+	}
+	if !strings.Contains(view, "shift+↑/shift+↓") {
+		t.Fatalf("expected help to document vertical pane resize keys, got %q", view)
+	}
+	if !strings.Contains(view, "resize articles/content split") {
+		t.Fatalf("expected help to document article/content resizing, got %q", view)
+	}
+}
+
 func TestResetHelpViewportUsesFullOverlayWidth(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
