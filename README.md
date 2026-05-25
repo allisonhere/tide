@@ -4,6 +4,9 @@
 
 A terminal RSS reader built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lipgloss](https://github.com/charmbracelet/lipgloss).
 
+The reusable themed UI toolkit derived from Tide is available as
+[`tideui`](https://github.com/allisonhere/tideui).
+
 ## Features
 
 - Three-pane layout: feeds, articles, content
