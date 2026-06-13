@@ -1752,7 +1752,7 @@ func (m Model) renderArticleContent(a db.Article) string {
 	bodyWidth := m.contentBodyWidth()
 	titleWidth := max(1, contentWidth-m.styles.ContentTitle.GetHorizontalFrameSize())
 	metaWidth := max(1, contentWidth-m.styles.ContentMeta.GetHorizontalFrameSize())
-	title := m.styles.ContentTitle.Width(contentWidth + 2).Render(truncate(unescapeDisplayText(a.Title), titleWidth+2))
+	title := m.styles.ContentTitle.Width(contentWidth + 2).Render(truncate(stripEmailInvisibles(unescapeDisplayText(a.Title)), titleWidth+2))
 	meta := " " + m.styles.ContentMeta.Width(contentWidth).Render(truncate(a.PublishedAt.Format("Mon, 02 Jan 2006 15:04")+"  "+a.Link, metaWidth))
 
 	content := a.Content
@@ -3546,6 +3546,7 @@ func renderFeedRow(prefix, title, badge string, width int) string {
 	if badge != "" {
 		gapW = 1
 	}
+	title = stripEmailInvisibles(title)
 	nameW := max(0, width-prefixW-badgeW-gapW)
 	name := truncate(title, nameW)
 	row := prefix + padRight(name, nameW)
@@ -3642,6 +3643,7 @@ func renderArticleRow(prefix, title, age string, width int) string {
 	if age == "" {
 		gapW = 0
 	}
+	title = stripEmailInvisibles(title)
 	titleW := max(0, width-prefixW-ageW-gapW)
 	row := prefix + padRight(truncate(title, titleW), titleW) + strings.Repeat(" ", gapW) + age
 	return padRight(row, width)

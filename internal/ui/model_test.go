@@ -2534,6 +2534,22 @@ func TestFormatSummaryBodyUsesASCIIBulletsInPlainUI(t *testing.T) {
 	}
 }
 
+func TestFormatSummaryBodyStripsEmailInvisibles(t *testing.T) {
+	invisibles := "\u00ad\u034f\u200b\u200c\u200d\u200e\u200f\u2060\ufeff"
+	body := "Visible" + strings.Repeat(invisibles, 20) + " summary text."
+
+	got := formatSummaryBody(body, 24, false)
+
+	if containsAny(got, []string{invisibles, "\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"}) {
+		t.Fatalf("expected summary formatter to strip invisible email characters, got %q", got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if lipgloss.Width(line) > 24 {
+			t.Fatalf("expected formatted line width <= 24, got %d for %q", lipgloss.Width(line), line)
+		}
+	}
+}
+
 func TestArticleCursorMoveKeepsFrameStable(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
@@ -3259,6 +3275,51 @@ func TestRenderArticleContentKeepsHeaderSingleLineWithinMargins(t *testing.T) {
 	}
 }
 
+func TestRenderArticleContentStripsInvisibleTitleCharacters(t *testing.T) {
+	m := Model{
+		width:  70,
+		height: 30,
+		styles: BuildStyles(GruvboxLight, "comfortable"),
+	}
+
+	got := m.renderArticleContent(db.Article{
+		Title:       "Visible" + strings.Repeat("\u200b\u200c\u200d\u2060\ufeff", 30) + " title",
+		Link:        "https://example.com/a",
+		Content:     "one short line",
+		PublishedAt: unixTestTime(1710000000),
+	})
+
+	stripped := ansi.Strip(got)
+	if containsAny(stripped, []string{"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"}) {
+		t.Fatalf("expected rendered article content to strip invisible title characters, got %q", stripped)
+	}
+	var nonEmpty []string
+	for _, line := range strings.Split(stripped, "\n") {
+		if strings.TrimSpace(line) != "" {
+			nonEmpty = append(nonEmpty, line)
+		}
+	}
+	if len(nonEmpty) != 3 {
+		t.Fatalf("expected title, meta, and one body line; got %d non-empty lines: %#v", len(nonEmpty), nonEmpty)
+	}
+}
+
+func TestRenderArticleRowStripsInvisibleTitleCharacters(t *testing.T) {
+	title := "Visible" + strings.Repeat("\u200b\u200c\u200d\u2060\ufeff", 30) + " title"
+
+	got := renderArticleRow("• ", title, "now", 32)
+
+	if containsAny(got, []string{"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"}) {
+		t.Fatalf("expected article row to strip invisible title characters, got %q", got)
+	}
+	if strings.Contains(got, "\n") {
+		t.Fatalf("expected article row to stay on one line, got %q", got)
+	}
+	if lipgloss.Width(got) != 32 {
+		t.Fatalf("expected article row width 32, got %d for %q", lipgloss.Width(got), got)
+	}
+}
+
 func TestThemePickerUsesFullWidthChromeRows(t *testing.T) {
 	m := Model{
 		width:       120,
@@ -3786,6 +3847,15 @@ func containsSubstring(s, sub string) bool {
 	return false
 }
 
+func containsAny(s string, subs []string) bool {
+	for _, sub := range subs {
+		if sub != "" && strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
 func unixTestTime(ts int64) time.Time {
 	return time.Unix(ts, 0)
 }
@@ -3802,5 +3872,20 @@ func TestFormatArticleBodyWrapsParagraphsAndBullets(t *testing.T) {
 	}
 	if !containsString(got, "│ quoted line here") {
 		t.Fatalf("expected quote formatting, got %q", got)
+	}
+}
+
+func TestFormatArticleBodyStripsEmailInvisibles(t *testing.T) {
+	body := "Visible" + strings.Repeat("\u200b\u200c\u200d\u2060\ufeff", 20) + " article text."
+
+	got := formatArticleBody(body, 24, false)
+
+	if containsAny(got, []string{"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"}) {
+		t.Fatalf("expected article formatter to strip invisible email characters, got %q", got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if lipgloss.Width(line) > 24 {
+			t.Fatalf("expected formatted line width <= 24, got %d for %q", lipgloss.Width(line), line)
+		}
 	}
 }

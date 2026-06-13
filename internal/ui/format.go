@@ -8,6 +8,7 @@ import (
 )
 
 func formatArticleBody(content string, width int, plainUI bool) string {
+	content = stripEmailInvisibles(content)
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	paras := splitArticleParagraphs(content)
 	out := make([]string, 0, len(paras))
@@ -24,6 +25,7 @@ func formatArticleBody(content string, width int, plainUI bool) string {
 }
 
 func formatSummaryBody(content string, width int, plainUI bool) string {
+	content = stripEmailInvisibles(content)
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	paras := splitArticleParagraphs(content)
 	if len(paras) == 1 {
@@ -210,7 +212,30 @@ func wrapWords(text string, width int) string {
 }
 
 func normalizeInlineSpacing(s string) string {
+	s = stripEmailInvisibles(s)
 	return strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+}
+
+func stripEmailInvisibles(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '\u00ad', // soft hyphen
+			'\u034f', // combining grapheme joiner
+			'\u200b', // zero-width space
+			'\u200c', // zero-width non-joiner
+			'\u200d', // zero-width joiner
+			'\u200e', // left-to-right mark
+			'\u200f', // right-to-left mark
+			'\u2060', // word joiner
+			'\ufeff': // byte order mark / zero-width no-break space
+			return -1
+		default:
+			return r
+		}
+	}, s)
 }
 
 func splitSentences(s string) []string {
