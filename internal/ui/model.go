@@ -243,7 +243,7 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string, preview
 }
 
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.loadFeedsCmd(), m.spinner.Tick}
+	cmds := []tea.Cmd{m.loadFeedsCmd()}
 	if !m.previewManualUpdateUI {
 		if cmd := m.maybeCheckForUpdatesCmd(false); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -278,6 +278,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
+		// Drop the tick chain while no spinner is on screen so an idle Tide
+		// doesn't wake and re-render several times a second. Commands that
+		// start async work re-issue m.spinner.Tick to resume the chain. -allie
+		if !m.spinnerVisible() {
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
@@ -2509,14 +2515,20 @@ func (m *Model) maybeCheckForUpdatesCmd(manual bool) tea.Cmd {
 	return m.checkForUpdatesCmd(false)
 }
 
+// spinnerVisible reports whether any view is currently rendering the spinner;
+// the TickMsg handler stops the tick loop whenever this is false. -allie
+func (m Model) spinnerVisible() bool {
+	return len(m.refreshing) > 0 || m.summaryGenerating || m.updateState == updateStateChecking
+}
+
 func (m *Model) checkForUpdatesCmd(manual bool) tea.Cmd {
 	m.updateState = updateStateChecking
 	updater := m.updater
 	currentVersion := m.currentVersion
-	return func() tea.Msg {
+	return tea.Batch(m.spinner.Tick, func() tea.Msg {
 		result, err := updater.Check(currentVersion)
 		return UpdateCheckedMsg{Result: result, Manual: manual, Err: err}
-	}
+	})
 }
 
 func (m *Model) downloadUpdateCmd(info update.ReleaseInfo) tea.Cmd {
@@ -2539,7 +2551,7 @@ func (m *Model) installUpdateCmd(asset update.DownloadedAsset) tea.Cmd {
 func (m *Model) refreshFeedCmd(feedID int64, feedURL string, manual bool) tea.Cmd {
 	m.refreshing[feedID] = true
 	conv := m.mdConverter
-	return func() tea.Msg {
+	fetch := func() tea.Msg {
 		result := feed.FetchFeed(feedURL)
 		if !result.IsSuccess() {
 			return FeedRefreshedMsg{FeedID: feedID, Err: result.Err, Result: result, Manual: manual}
@@ -2568,6 +2580,7 @@ func (m *Model) refreshFeedCmd(feedID int64, feedURL string, manual bool) tea.Cm
 			Manual:      manual,
 		}
 	}
+	return tea.Batch(m.spinner.Tick, fetch)
 }
 
 func (m *Model) setArticleReadCmd(article db.Article, read, advance bool) tea.Cmd {
@@ -2756,7 +2769,7 @@ func (m Model) openSummary() (tea.Model, tea.Cmd) {
 	m.summaryGenerating = true
 	m.summaryErr = ""
 	m.overlay = overlaySummary
-	return m, m.aiSummarizeCmd(a)
+	return m, tea.Batch(m.spinner.Tick, m.aiSummarizeCmd(a))
 }
 
 func (m *Model) aiSummarizeCmd(a db.Article) tea.Cmd {
