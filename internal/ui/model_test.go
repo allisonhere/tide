@@ -851,6 +851,23 @@ func TestRenderHelpDocumentsDisplayFocusLine(t *testing.T) {
 	}
 }
 
+func TestRenderHelpDocumentsCurrentSearchKeys(t *testing.T) {
+	view := ansi.Strip(renderHelp(100, BuildStyles(CatppuccinMocha, "comfortable"), DefaultKeys))
+	for _, want := range []string{
+		"search titles, content, and summaries across stored local feeds",
+		"ctrl+f",
+		"find text in current article",
+		"toggle unread-only view",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected help to document %q, got %q", want, view)
+		}
+	}
+	if strings.Contains(view, "search articles in current feed") {
+		t.Fatalf("expected help to omit the retired per-feed search description, got %q", view)
+	}
+}
+
 func TestRenderHelpDocumentsPaneResizeKeys(t *testing.T) {
 	view := ansi.Strip(renderHelp(100, BuildStyles(CatppuccinMocha, "comfortable"), DefaultKeys))
 	if !strings.Contains(view, "shift+←/shift+→") {

@@ -48,12 +48,31 @@ info "Latest version: ${LATEST}"
 
 # Download
 URL="https://github.com/${REPO}/releases/download/${LATEST}/${ASSET}.tar.gz"
+CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${LATEST}/checksums.txt"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 info "Downloading ${ASSET}.tar.gz..."
 curl -fsSL "$URL" -o "${TMP}/${ASSET}.tar.gz" \
   || error "Download failed: ${URL}"
+
+# Releases made by the deployment TUI include checksums. Keep the fallback so
+# older releases remain installable while verifying every new archive.
+if curl -fsSL "$CHECKSUMS_URL" -o "${TMP}/checksums.txt"; then
+  EXPECTED=$(awk -v file="${ASSET}.tar.gz" '$2 == file { print $1; exit }' "${TMP}/checksums.txt")
+  [ -z "$EXPECTED" ] && error "Checksum missing for ${ASSET}.tar.gz"
+  if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL=$(sha256sum "${TMP}/${ASSET}.tar.gz" | awk '{ print $1 }')
+  elif command -v shasum >/dev/null 2>&1; then
+    ACTUAL=$(shasum -a 256 "${TMP}/${ASSET}.tar.gz" | awk '{ print $1 }')
+  else
+    error "Need sha256sum or shasum to verify the download"
+  fi
+  [ "$ACTUAL" = "$EXPECTED" ] || error "Checksum verification failed"
+  success "Checksum verified"
+else
+  info "Checksum unavailable for this older release; continuing"
+fi
 
 tar -xzf "${TMP}/${ASSET}.tar.gz" -C "$TMP"
 

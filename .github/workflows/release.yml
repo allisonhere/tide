@@ -12,6 +12,7 @@ jobs:
   build:
     name: Build & Release
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -27,6 +28,9 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        run: go test ./...
 
       - name: Build binaries
         run: |
@@ -48,21 +52,15 @@ jobs:
             echo "Built dist/$name.tar.gz"
           done
 
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz > checksums.txt
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: "Tide ${{ steps.version.outputs.tag }}"
-          body: |
-            ## Tide ${{ steps.version.outputs.tag }}
-
-            ### Install
-
-            Download a binary below for your platform and add it to your PATH.
-
-            Or build from source:
-            ```bash
-            git clone https://github.com/allisonhere/tide
-            cd tide
-            go build -o tide .
-            ```
-          files: dist/*.tar.gz
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt

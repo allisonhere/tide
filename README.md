@@ -16,11 +16,12 @@ The reusable themed UI toolkit derived from Tide is available as
 - Theme-aware dialogs and overlays
 - Feed manager: add, edit, delete, import/export OPML
 - Google Reader-compatible source support, including FreshRSS
-- Article search and filter
+- Full-text search across stored local articles, including titles, content, and AI summaries
+- Unread-only filtering and in-article find
 - Mark read/unread, open in browser
 - Optional actionable links in content pane (Settings → Display)
 - AI summaries with copy and save-to-Markdown actions
-- 17 built-in themes
+- 19 built-in themes, including customizable VT52 and VT100 palettes
 - Terminal background sync (OSC 11)
 
 ## Themes
@@ -42,6 +43,8 @@ The reusable themed UI toolkit derived from Tide is available as
 - `magenta-geode`
 - `coral-sunset`
 - `lavender-fields-forever`
+- `vt100`
+- `vt52`
 
 ## Installation
 
@@ -116,10 +119,16 @@ Display options:
 - Toggle Unicode icons for pane headers and item state markers
 - Switch between relative and absolute dates
 - Toggle mark-read-on-open
+- Toggle mark-read-on-focus
 - Toggle the content focus line
+- Start feeds in unread-only mode
+- Select any built-in theme, with custom background, foreground, and accent colors for VT52/VT100
+- Set the article reading width (`0` means no limit)
 - Toggle actionable article links (shows a `LINKS` block in content pane)
+- Filter links out of article body text
 - **Layout density:** comfortable (extra vertical spacing in lists) or **compact** (default; more rows on small terminals)
 - Set a custom browser command
+- Toggle the quit confirmation
 
 Feed options:
 - Set the maximum feed body size accepted during parsing
@@ -134,7 +143,9 @@ AI summary options:
 - Provider: `none`, `OpenAI`, `Claude`, `Gemini`, or `Ollama`
 - API key for OpenAI, Claude, or Gemini
 - Ollama URL and model for local summaries
+- Test the configured provider connection
 - Save path for exported Markdown summaries
+- Optionally mark an article read after summarizing it
 
 About:
 - Open the Tide repository and issues page from inside Settings
@@ -189,7 +200,13 @@ date_format = "relative"
 mark_read_on_open = true
 mark_read_on_focus = false
 focus_line = true
+default_unread_only = false
 actionable_links = false
+filter_links = false
+reading_width = 0
+feed_pane_width_percent = 28
+article_pane_height_percent = 40
+confirm_quit = true
 browser = ""
 density = "compact"
 
@@ -204,6 +221,7 @@ gemini_key = ""
 ollama_url = "http://localhost:11434"
 ollama_model = "llama3.2"
 save_path = "~/"
+mark_read_on_summarize = false
 
 [source]
 greader_url = ""
@@ -226,12 +244,33 @@ Tide can check GitHub releases for a newer version and install the matching bina
 - After a successful install, Tide offers `Restart now`
 - If the install target needs elevated permissions, Tide shows a manual `sudo install ...` command instead of failing silently
 
+## Making A Release
+
+Maintainers can prepare and publish a release with the deployment TUI:
+
+```bash
+./release.sh
+```
+
+The TUI:
+
+- Detects the latest semantic-version tag and offers patch, minor, or major bumps
+- Shows every worktree change before staging it
+- Requires a second release confirmation before making remote changes
+- Checks that Git author name and email are configured before doing any release work
+- Runs the complete Go test suite and checks the patch for whitespace errors
+- Fetches `origin/main`, refuses to release from another branch, and stops if local `main` is behind
+- Stages all worktree changes, creates the chosen release commit when needed, and pushes `main`
+- Creates and pushes an annotated version tag
+
+Pushing the tag starts the GitHub Actions release workflow. CI tests again, builds Linux and macOS archives for x86-64 and ARM64, publishes SHA-256 checksums, generates release notes, and creates the GitHub release. The installer verifies those checksums when they are available. If the final tag push fails after the local tag was created, the TUI prints the exact command needed to resume safely.
+
 ## Keyboard Shortcuts
 
 ### Navigation
 | Key | Action |
 |-----|--------|
-| `Tab` / `Shift-Tab` | Cycle panes |
+| `Tab` / `]`, `Shift-Tab` / `[` | Cycle panes forward or backward |
 | `h/←` `l/→` | Move between panes |
 | `j/↓` `k/↑` | Navigate within pane |
 | `Shift+←` / `Shift+→` | Resize feed pane |
@@ -243,11 +282,15 @@ Tide can check GitHub releases for a newer version and install the matching bina
 | Key | Action |
 |-----|--------|
 | `r` | Toggle read/unread |
-| `R` | Mark all read |
+| `R` | Mark the selected feed or folder read |
+| `u` | Toggle unread-only view |
 | `o` | Open selected content link (when enabled) or article URL |
 | `Ctrl+N` / `Alt+N` | Next actionable link in content pane |
 | `Ctrl+P` / `Alt+P` | Previous actionable link in content pane |
-| `/` | Search |
+| `Ctrl+F` | Find text in the current article; `Enter`/`↓` selects the next match and `↑` the previous match |
+| `/` | Search titles, content, and summaries across all stored local articles |
+
+Search results are ranked by relevance and include their source feed and a matching excerpt. Press `Enter` to jump to a result. Google Reader-compatible articles are loaded from the remote service rather than stored locally, so they are not included in library search.
 
 When `Display → Focus line` is enabled, the content pane highlights the current readable line. `j/↓` and `k/↑` move the focus line and scroll only when needed.
 
@@ -266,6 +309,7 @@ When `Display → Actionable article links` is enabled, the content pane renders
 | `f` | Refresh feed |
 | `F` / `I` | Refresh all |
 | `m` | Feed manager |
+| `a` | Add a feed or GReader source from anywhere |
 
 ### Feed Manager
 | Key | Action |
@@ -274,6 +318,7 @@ When `Display → Actionable article links` is enabled, the content pane renders
 | `n` | Add folder |
 | `Enter` | Browse selected remote feed, edit selected local feed, or enter the form from the left pane |
 | `e` | Edit selected local feed or GReader settings |
+| `v` | Move the selected feed to a folder |
 | `d` | Delete selected local feed |
 | `i` | Import OPML |
 | `x` | Export OPML |
@@ -283,7 +328,7 @@ When `Display → Actionable article links` is enabled, the content pane renders
 |-----|--------|
 | `T` | Theme picker |
 | `S` | Settings |
-| `/` | Search articles in current feed |
+| `/` | Search stored local articles across all feeds |
 | `?` | Help |
 | `q` | Quit |
 
