@@ -256,8 +256,8 @@ func TestOpenMigratesFolderSchemaToVersion5(t *testing.T) {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 6 {
-		t.Fatalf("expected schema version 6, got %d", version)
+	if version != latestSchemaVersion {
+		t.Fatalf("expected schema version %d, got %d", latestSchemaVersion, version)
 	}
 
 	rows, err := db.Query(`PRAGMA table_info(feeds)`)
@@ -458,7 +458,7 @@ func openSQLite(path string) (*DB, error) {
 		return nil, err
 	}
 	conn.SetMaxOpenConns(1)
-	return &DB{conn}, nil
+	return &DB{DB: conn}, nil
 }
 
 func unixTime(ts int64) time.Time {

@@ -419,8 +419,10 @@ func TestUpdateConfirmOverlayMentionsSettingsAvailability(t *testing.T) {
 	}
 
 	view := m.renderUpdateConfirmOverlay(72, newManagerChrome(72, CatppuccinMocha, false))
-	if !containsString(view, "INSTALL TIDE UPDATE?") {
-		t.Fatalf("expected Tide-specific update header, got %q", view)
+	// The panel title now lives on the soft-panel border drawn by renderOverlay,
+	// so this helper emits body content only.
+	if !containsString(view, "Install Tide v1.1.0?") {
+		t.Fatalf("expected Tide-specific update prompt, got %q", view)
 	}
 	if !containsString(view, "What's new: Faster update flow.") {
 		t.Fatalf("expected update confirm overlay to include release summary, got %q", view)
@@ -1812,10 +1814,10 @@ func TestFeedManagerOverlayShowsAddActionAndAOpensAddDialog(t *testing.T) {
 	m = m2.(Model)
 
 	view := ansi.Strip(m.View())
-	if !strings.Contains(view, "ADD FEED") {
+	if !strings.Contains(view, "add feed") {
 		t.Fatalf("expected manager overlay footer to advertise add feed, got %q", view)
 	}
-	if strings.Contains(view, "BROWSE-ONLY") {
+	if strings.Contains(view, "browse-only") {
 		t.Fatalf("expected editable manager overlay not to render browse-only footer, got %q", view)
 	}
 
@@ -3332,8 +3334,9 @@ func TestThemePickerUsesFullWidthChromeRows(t *testing.T) {
 	got := m.renderThemePicker(40, chrome)
 	lines := strings.Split(got, "\n")
 
-	if !containsString(got, "THEME") {
-		t.Fatalf("expected theme picker header, got %q", got)
+	// Focus is now an accent rail on the selected row rather than a title header.
+	if !containsString(got, "▌") {
+		t.Fatalf("expected theme picker selection rail, got %q", got)
 	}
 	if !containsString(got, "gruvbox-light") {
 		t.Fatalf("expected theme picker to include current selection row, got %q", got)
@@ -3655,7 +3658,8 @@ func TestSettingsViewRendersUpdateActions(t *testing.T) {
 	chrome := newManagerChrome(62, CatppuccinMocha, false)
 	view := s.View(62, 40, chrome)
 
-	if !containsString(view, "CATEGORIES") {
+	// The sidebar no longer carries a "CATEGORIES" heading; assert on its rows.
+	if !containsString(view, "DISPLAY") || !containsString(view, "UPDATES") {
 		t.Fatalf("expected categories pane in settings view: %q", view)
 	}
 	if !containsString(view, "Current version") {

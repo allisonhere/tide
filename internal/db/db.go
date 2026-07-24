@@ -13,6 +13,11 @@ import (
 
 type DB struct {
 	*sql.DB
+
+	// ftsAvailable reports whether the articles_fts full-text index exists and
+	// is usable. It is false on SQLite builds compiled without FTS5, in which
+	// case SearchArticles falls back to a LIKE scan.
+	ftsAvailable bool
 }
 
 func Open() (*DB, error) {
@@ -32,7 +37,7 @@ func Open() (*DB, error) {
 
 	conn.SetMaxOpenConns(1)
 
-	db := &DB{conn}
+	db := &DB{DB: conn}
 	if err := db.init(); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("init db: %w", err)
@@ -59,6 +64,10 @@ func (db *DB) init() error {
 	}
 	return db.migrateSchema()
 }
+
+// latestSchemaVersion is the PRAGMA user_version a fully migrated database
+// reports. Bump it whenever a new migration block is added below.
+const latestSchemaVersion = 7
 
 // migrateSchema applies incremental ALTER TABLE migrations tracked by
 // PRAGMA user_version so they are applied exactly once.
@@ -140,7 +149,90 @@ func (db *DB) migrateSchema() error {
 			return err
 		}
 	}
+	if version < 7 {
+		if err := db.migrateArticlesFTS(); err != nil {
+			return err
+		}
+		if _, err := db.Exec(`PRAGMA user_version = 7`); err != nil {
+			return err
+		}
+	}
+	// Later runs skip the migration block entirely, so probe the index to learn
+	// whether searching can use it.
+	db.ftsAvailable = db.probeFTS()
 	return nil
+}
+
+// migrateArticlesFTS builds the full-text index over articles and the triggers
+// that keep it in sync.
+//
+// The table is external-content (content='articles'), so it stores only terms
+// and never duplicates article bodies. That form requires the 'delete' command
+// syntax in the delete/update triggers — a plain DELETE FROM articles_fts would
+// silently corrupt the index.
+//
+// A SQLite build without FTS5 is not fatal: the index is skipped and search
+// falls back to a LIKE scan. The migration still records as applied so the app
+// does not retry on every launch.
+func (db *DB) migrateArticlesFTS() error {
+	// The index spans summary, but a database that reached user_version >= 1 by
+	// a path that never ran the summary migration will not have that column —
+	// building the index over it would fail at 'rebuild' with "no such column".
+	// Add it defensively, reusing the duplicate-column tolerance used above.
+	if _, err := db.Exec(`ALTER TABLE articles ADD COLUMN summary TEXT NOT NULL DEFAULT ''`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return err
+		}
+	}
+
+	if _, err := db.Exec(`
+		CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
+			title, content, summary,
+			content='articles',
+			content_rowid='id',
+			tokenize='porter unicode61'
+		)
+	`); err != nil {
+		// No FTS5 in this build — degrade instead of bricking startup.
+		db.ftsAvailable = false
+		return nil
+	}
+
+	for _, stmt := range []string{
+		`CREATE TRIGGER IF NOT EXISTS articles_fts_ai AFTER INSERT ON articles BEGIN
+			INSERT INTO articles_fts(rowid, title, content, summary)
+			VALUES (new.id, new.title, new.content, new.summary);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS articles_fts_ad AFTER DELETE ON articles BEGIN
+			INSERT INTO articles_fts(articles_fts, rowid, title, content, summary)
+			VALUES ('delete', old.id, old.title, old.content, old.summary);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS articles_fts_au AFTER UPDATE ON articles BEGIN
+			INSERT INTO articles_fts(articles_fts, rowid, title, content, summary)
+			VALUES ('delete', old.id, old.title, old.content, old.summary);
+			INSERT INTO articles_fts(rowid, title, content, summary)
+			VALUES (new.id, new.title, new.content, new.summary);
+		END`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+
+	// Backfill rows that predate the index. 'rebuild' is idempotent, so a
+	// re-run after an interrupted migration is safe.
+	if _, err := db.Exec(`INSERT INTO articles_fts(articles_fts) VALUES('rebuild')`); err != nil {
+		return err
+	}
+	db.ftsAvailable = true
+	return nil
+}
+
+// probeFTS reports whether articles_fts exists and answers queries.
+func (db *DB) probeFTS() bool {
+	var n int
+	err := db.QueryRow(`SELECT COUNT(*) FROM articles_fts WHERE articles_fts MATCH 'tide_fts_probe'`).Scan(&n)
+	return err == nil
 }
 
 func (db *DB) migrate() error {

@@ -131,6 +131,20 @@ type Model struct {
 	overlay     overlayMode
 	searchInput textinput.Model
 
+	// Library search (overlaySearch). Results come from the FTS index and span
+	// every local feed, so they are kept separate from the article pane's
+	// filtered projection.
+	searchResults      []db.SearchResult
+	searchResultCursor int
+	searchOffset       int
+	searchErr          string
+	// searchSeq tags each dispatched query so results from a stale keystroke
+	// can be discarded when they land out of order.
+	searchSeq int
+	// pendingArticleID is the article to select once its feed finishes loading,
+	// set when opening a search result from another feed.
+	pendingArticleID int64
+
 	// Theme
 	confirmedTheme int
 	activeTheme    int
@@ -189,7 +203,7 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string, preview
 	merged, themeIdx := MergedThemeFromConfig(cfg)
 
 	si := textinput.New()
-	si.Placeholder = "search articles..."
+	si.Placeholder = "search all feeds…"
 	si.CharLimit = 100
 
 	csi := textinput.New()
@@ -493,6 +507,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyFilter()
 			m.articleCursor = clamp(m.articleCursor, 0, max(0, len(m.filteredArticles)-1))
 			m.listOffset = 0
+			// A search result queued an article to open once its feed loaded.
+			m.selectPendingArticle()
 			var cmd tea.Cmd
 			if len(m.filteredArticles) > 0 {
 				m.setViewportArticle(m.filteredArticles[m.articleCursor])
@@ -500,6 +516,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, cmd
 		}
+		return m, nil
+
+	case SearchResultsMsg:
+		// Drop results from a keystroke the user has already typed past.
+		if msg.Seq != m.searchSeq {
+			return m, nil
+		}
+		if msg.Err != nil {
+			m.searchErr = msg.Err.Error()
+			m.searchResults = nil
+			return m, nil
+		}
+		m.searchErr = ""
+		m.searchResults = msg.Results
+		m.searchResultCursor = clamp(m.searchResultCursor, 0, max(0, len(msg.Results)-1))
+		m.searchOffset = 0
 		return m, nil
 
 	case FeedRefreshedMsg:
@@ -1200,21 +1232,27 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case overlaySearch:
 		switch {
 		case keyMatches(msg, m.keys.Cancel):
-			m.overlay = overlayNone
-			m.searchQuery = ""
-			m.applyFilter()
-			m.articleCursor = 0
-			m.listOffset = 0
+			m.closeSearch()
+		case keyMatches(msg, m.keys.Up):
+			if m.searchResultCursor > 0 {
+				m.searchResultCursor--
+			}
+		case keyMatches(msg, m.keys.Down):
+			if m.searchResultCursor < len(m.searchResults)-1 {
+				m.searchResultCursor++
+			}
 		case keyMatches(msg, m.keys.Confirm):
-			m.overlay = overlayNone
+			if m.searchResultCursor >= 0 && m.searchResultCursor < len(m.searchResults) {
+				result := m.searchResults[m.searchResultCursor]
+				cmd := m.openSearchResult(result)
+				m.closeSearch()
+				return m, cmd
+			}
+			m.closeSearch()
 		default:
 			var cmd tea.Cmd
 			m.searchInput, cmd = m.searchInput.Update(msg)
-			m.searchQuery = m.searchInput.Value()
-			m.applyFilter()
-			m.articleCursor = 0
-			m.listOffset = 0
-			return m, cmd
+			return m, tea.Batch(cmd, m.startSearch())
 		}
 		return m, nil
 
@@ -1570,11 +1608,7 @@ func (m Model) renderArticlesPane() string {
 	}
 
 	if len(m.filteredArticles) == 0 {
-		if m.searchQuery != "" {
-			rows = append(rows, articleRead.Render("  no results"))
-		} else {
-			rows = append(rows, articleRead.Render("  no articles"))
-		}
+		rows = append(rows, articleRead.Render("  no articles"))
 	}
 
 	focused := m.focused == paneArticles
@@ -1583,9 +1617,6 @@ func (m Model) renderArticlesPane() string {
 		border = border.BorderForeground(borderFocus)
 	}
 	title := "Articles"
-	if m.searchQuery != "" {
-		title = fmt.Sprintf("Articles [/%s]", m.searchQuery)
-	}
 	if m.showUnreadOnly {
 		title += " (unread)"
 	}
@@ -2165,34 +2196,33 @@ func (m Model) renderOverlay(base string) string {
 		quitW := 40
 		qt := m.styles.Theme
 		chrome := newManagerChrome(quitW, qt, m.styles.PlainUI)
-		header := renderManagerHeader("QUIT TIDE?", quitW, chrome)
 		body := lipgloss.NewStyle().
 			Background(chrome.baseBg).
 			Foreground(chrome.text).
 			Width(quitW).
 			Padding(1, 2).
 			Render("Exit Tide now?")
-		actions := renderManagerActions(quitW, chrome,
+		hints := renderSoftHints(quitW, chrome,
 			"y", "quit",
 			"esc", "cancel",
 		)
-		inner := lipgloss.JoinVertical(lipgloss.Left, header, body, actions)
+		inner := lipgloss.JoinVertical(lipgloss.Left, body, hints)
 		inner = clampView(inner, quitW, strings.Count(inner, "\n")+1, chrome.baseBg)
-		box = renderChromeOverlayBox(inner, quitW, chrome, chrome.accent)
+		box = renderSoftPanelBox(inner, quitW, "tide", "quit", chrome)
 
 	case overlaySearch:
 		winW := min(m.width-4, 52)
 		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
 		inner := m.renderSearchOverlay(winW, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
-		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
+		box = renderSoftPanelBox(inner, winW, "tide", "search", chrome)
 
 	case overlayThemePicker:
 		winW := min(m.width-4, 40)
 		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
 		inner := m.renderThemePicker(winW, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
-		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
+		box = renderSoftPanelBox(inner, winW, "tide", "theme", chrome)
 
 	case overlayFeedManager:
 		winW := min(m.width-4, 74)
@@ -2201,29 +2231,19 @@ func (m Model) renderOverlay(base string) string {
 		m.feedManager.collapsedFolders = m.collapsedFolders
 		inner := m.feedManager.View(winW, winH, m.styles, m.iconsEnabled())
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
-		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
+		box = renderSoftPanelBox(inner, winW, "tide", "feeds", chrome)
 
 	case overlayHelp:
 		winW := min(m.width-6, 90)
-		winH := min(m.height-4, 38)
-		t := m.styles.Theme
-		surface := modalSurface(t)
-		border := t.OverlayBorder
-		if border == "" {
-			border = t.BorderFocus
-		}
-		m.helpVP.Style = lipgloss.NewStyle().Background(surface)
-		footer := m.styles.OverlayHint.
-			MarginTop(1).
-			Width(max(1, winW-1)).
-			Padding(0, 1, 0, 4).
-			Render("[esc/?/q] close  [j/k/↑↓] scroll")
-		box = lipgloss.NewStyle().
-			Background(surface).
-			Border(lipPaneBorder(m.styles.PlainUI)).
-			BorderForeground(border).
-			Width(winW).Height(winH).
-			Render(m.helpVP.View() + "\n" + footer)
+		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
+		m.helpVP.Style = lipgloss.NewStyle().Background(chrome.baseBg)
+		footer := renderSoftHints(winW, chrome,
+			"esc/?/q", "close",
+			"j/k", "scroll",
+		)
+		inner := m.helpVP.View() + "\n\n" + footer
+		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
+		box = renderSoftPanelBox(inner, winW, "tide", "help", chrome)
 
 	case overlayFetchError:
 		if m.lastFetchError != nil {
@@ -2232,7 +2252,7 @@ func (m Model) renderOverlay(base string) string {
 			chrome := newManagerChrome(winW, et, m.styles.PlainUI)
 			inner := m.renderFetchErrorOverlay(winW, chrome)
 			inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
-			box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
+			box = renderSoftPanelBox(inner, winW, "tide", "fetch error", chrome)
 		}
 
 	case overlaySettings:
@@ -2241,14 +2261,14 @@ func (m Model) renderOverlay(base string) string {
 		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
 		inner := m.settings.View(winW, winH, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
-		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
+		box = renderSoftPanelBox(inner, winW, "tide", "settings", chrome)
 
 	case overlayUpdateConfirm:
 		winW := min(m.width-8, 72)
 		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
 		inner := m.renderUpdateConfirmOverlay(winW, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
-		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
+		box = renderSoftPanelBox(inner, winW, "tide", "update", chrome)
 
 	case overlaySummary:
 		winW := min(m.width-8, 76)
@@ -2256,7 +2276,7 @@ func (m Model) renderOverlay(base string) string {
 		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
 		inner := m.renderSummaryOverlay(winW, winH, chrome)
 		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
-		box = renderChromeOverlayBox(inner, winW, chrome, chrome.accent)
+		box = renderSoftPanelBox(inner, winW, "tide", "summary", chrome)
 	}
 
 	return overlayOnBase(base, box, m.width, m.height, m.styles.Theme.Bg)
@@ -2272,30 +2292,155 @@ func renderChromeOverlayBox(inner string, width int, chrome managerChrome, borde
 		Render(inner)
 }
 
-func (m Model) renderSearchOverlay(width int, chrome managerChrome) string {
-	header := renderManagerHeader("SEARCH ARTICLES", width, chrome)
-	input := m.searchInput
-	inputW := max(1, width-4)
-	input.Width = inputW
-	input.PromptStyle = lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.accent).Bold(true)
-	input.TextStyle = lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.text)
-	input.PlaceholderStyle = lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted)
-	input.Cursor.Style = lipgloss.NewStyle().Background(chrome.accent).Foreground(contrastFg(chrome.accent))
-	input.Cursor.TextStyle = lipgloss.NewStyle().Background(chrome.accent).Foreground(contrastFg(chrome.accent))
+// searchResultRows is how many result rows the overlay shows at once. Each
+// result occupies two lines (title, then a dim meta/snippet line).
+const searchResultRows = 8
 
-	body := lipgloss.NewStyle().
-		Background(chrome.baseBg).
-		Foreground(chrome.text).
-		Width(width).
-		Padding(1, 2).
-		Render(input.View())
-	actions := renderManagerActions(width, chrome, "enter", "apply", "esc", "clear")
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, actions)
+func (m Model) renderSearchOverlay(width int, chrome managerChrome) string {
+	// Use the shared soft input renderer rather than styling the textinput
+	// inline: it supplies the field surface and focus bar every other input in
+	// the app has, and it re-pads bubbles' unstyled trailing spaces, which
+	// otherwise leak the terminal background across the row.
+	blank := padStyled("", width, chrome.baseBg)
+	field := renderInsetControl(
+		renderTextInput(m.searchInput, max(1, width-4), true, false, chrome),
+		width, 2, chrome,
+	)
+
+	sections := []string{
+		blank,
+		field,
+		blank,
+		m.renderSearchStatus(width, chrome),
+	}
+	if rows := m.renderSearchResultRows(width, chrome); rows != "" {
+		sections = append(sections, rows)
+	}
+	sections = append(sections, renderSoftHints(width, chrome,
+		"enter", "open",
+		"↑↓", "move",
+		"esc", "close",
+	))
+	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+// renderSearchStatus is the single line under the input: hit count, an error,
+// or guidance before anything has been typed.
+func (m Model) renderSearchStatus(width int, chrome managerChrome) string {
+	msg := ""
+	fg := chrome.muted
+	switch {
+	case m.searchErr != "":
+		msg = truncate(m.searchErr, max(1, width-4))
+		fg = chrome.errorFg
+	case strings.TrimSpace(m.searchInput.Value()) == "":
+		msg = "matches titles and article text"
+	case len(m.searchResults) == 0:
+		msg = "no matches"
+	case len(m.searchResults) == 1:
+		msg = "1 match"
+	default:
+		msg = fmt.Sprintf("%d matches", len(m.searchResults))
+	}
+	line := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(fg).Render("  " + msg)
+	return padStyled(line, width, chrome.baseBg)
+}
+
+// renderSearchResultRows renders the visible window of results, two lines each:
+// the title on a focus rail, then feed · age · snippet.
+func (m Model) renderSearchResultRows(width int, chrome managerChrome) string {
+	if len(m.searchResults) == 0 {
+		return ""
+	}
+	start := searchScrollOffset(len(m.searchResults), m.searchResultCursor, searchResultRows)
+	end := min(len(m.searchResults), start+searchResultRows)
+
+	textW := max(1, width-2)
+	lines := make([]string, 0, (end-start)*2+1)
+	lines = append(lines, padStyled("", width, chrome.baseBg))
+
+	for i := start; i < end; i++ {
+		r := m.searchResults[i]
+		selected := i == m.searchResultCursor
+
+		titleFg := chrome.text
+		if r.Read {
+			titleFg = chrome.muted
+		}
+		title := lipgloss.NewStyle().
+			Background(chrome.baseBg).
+			Foreground(titleFg).
+			Bold(selected).
+			Render(truncate(unescapeDisplayText(r.Title), max(1, textW-1)))
+		lines = append(lines, softRail(chrome, selected, chrome.baseBg)+padStyled(title, textW, chrome.baseBg))
+
+		meta := r.FeedTitle
+		if age := m.formatTime(r.PublishedAt); age != "" {
+			meta += " · " + age
+		}
+		metaLine := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted).Render("  " + truncate(meta, max(1, textW-4)))
+		if snip := renderSnippet(r.Snippet, max(1, textW-lipgloss.Width(metaLine)-4), chrome); snip != "" {
+			metaLine += lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted).Render(" · ") + snip
+		}
+		lines = append(lines, padStyled(metaLine, width, chrome.baseBg))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+var snippetDelimStripper = strings.NewReplacer(db.SnippetOpen, "", db.SnippetClose, "")
+
+// renderSnippet styles an FTS snippet, accenting the matched terms that
+// SearchArticles delimited with db.SnippetOpen/db.SnippetClose.
+func renderSnippet(snippet string, width int, chrome managerChrome) string {
+	if snippet == "" || width <= 0 {
+		return ""
+	}
+	snippet = strings.ReplaceAll(snippet, "\n", " ")
+	normal := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted)
+	hit := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.accent).Bold(true)
+
+	var b strings.Builder
+	used := 0
+	inHit := false
+	for len(snippet) > 0 && used < width {
+		var chunk string
+		delim := db.SnippetOpen
+		if inHit {
+			delim = db.SnippetClose
+		}
+		if idx := strings.Index(snippet, delim); idx >= 0 {
+			chunk, snippet = snippet[:idx], snippet[idx+len(delim):]
+		} else {
+			chunk, snippet = snippet, ""
+		}
+		if chunk != "" {
+			// Strip any unpaired delimiters: SQLite emits balanced markers, but
+			// article text containing a literal STX/ETX would otherwise leak a
+			// control character onto the screen.
+			chunk = snippetDelimStripper.Replace(chunk)
+			chunk = truncate(chunk, width-used)
+			used += lipgloss.Width(chunk)
+			if inHit {
+				b.WriteString(hit.Render(chunk))
+			} else {
+				b.WriteString(normal.Render(chunk))
+			}
+		}
+		inHit = !inHit
+	}
+	return b.String()
+}
+
+// searchScrollOffset keeps the cursor inside the visible result window.
+func searchScrollOffset(total, cursor, height int) int {
+	if total <= height || height <= 0 {
+		return 0
+	}
+	offset := cursor - height/2
+	return clamp(offset, 0, total-height)
 }
 
 func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) string {
-	header := renderManagerHeader("AI SUMMARY", width, chrome)
-
 	var bodyText string
 	switch {
 	case m.summaryGenerating:
@@ -2331,20 +2476,18 @@ func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) str
 			Render(provider)
 		hints = lipgloss.JoinVertical(lipgloss.Left,
 			providerLine,
-			renderManagerActions(width, chrome, "c", "copy", "M", "save .md", "esc", "close"),
+			renderSoftHints(width, chrome, "c", "copy", "M", "save .md", "esc", "close"),
 		)
 	} else {
-		hints = renderManagerActions(width, chrome, "esc", "close")
+		hints = renderSoftHints(width, chrome, "esc", "close")
 	}
 
-	bodyH := max(1, height-lipgloss.Height(header)-lipgloss.Height(hints))
+	bodyH := max(1, height-lipgloss.Height(hints))
 	body = clampView(body, width, bodyH, chrome.baseBg)
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, hints)
+	return lipgloss.JoinVertical(lipgloss.Left, body, hints)
 }
 
 func (m Model) renderUpdateConfirmOverlay(width int, chrome managerChrome) string {
-	header := renderManagerHeader("INSTALL TIDE UPDATE?", width, chrome)
-
 	target, _ := os.Executable()
 	bodyLines := []string{
 		"Install Tide " + m.updateInfo.Version + "?",
@@ -2375,8 +2518,8 @@ func (m Model) renderUpdateConfirmOverlay(width int, chrome managerChrome) strin
 		Padding(0, 2, 1, 2).
 		Render("Also available in Settings > Updates")
 
-	actions := renderManagerActions(width, chrome, "enter", "install", "esc", "cancel")
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, note, actions)
+	hints := renderSoftHints(width, chrome, "enter", "install", "esc", "cancel")
+	return lipgloss.JoinVertical(lipgloss.Left, body, note, hints)
 }
 
 func overlayOnBase(base, box string, width, height int, bg lipgloss.Color) string {
@@ -2423,27 +2566,19 @@ func overlayOnBase(base, box string, width, height int, bg lipgloss.Color) strin
 }
 
 func (m Model) renderThemePicker(width int, chrome managerChrome) string {
-	header := renderManagerHeader("THEME", width, chrome)
+	labelW := max(1, width-2) // minus the 2-cell rail
 	rows := make([]string, 0, len(BuiltinThemes))
 	for i, t := range BuiltinThemes {
-		if i == m.themeCursor {
-			rows = append(rows, renderManagerSelectedRow(width, m.styles.ThemePickerCursor()+t.Name, chrome, m.styles))
-		} else {
-			rows = append(rows, clampView(
-				lipgloss.NewStyle().
-					Background(chrome.baseBg).
-					Foreground(chrome.text).
-					Padding(0, 1).
-					Render("  "+t.Name),
-				width,
-				1,
-				chrome.baseBg,
-			))
-		}
+		selected := i == m.themeCursor
+		label := lipgloss.NewStyle().
+			Background(chrome.baseBg).
+			Foreground(chrome.text).
+			Render(" " + truncate(t.Name, max(1, labelW-1)))
+		rows = append(rows, softRail(chrome, selected, chrome.baseBg)+padStyled(label, labelW, chrome.baseBg))
 	}
 	body := clampView(lipgloss.JoinVertical(lipgloss.Left, rows...), width, len(rows), chrome.baseBg)
-	hints := renderManagerActions(width, chrome, "enter", "confirm", "esc", "revert")
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, hints)
+	hints := renderSoftHints(width, chrome, "enter", "confirm", "esc", "revert")
+	return lipgloss.JoinVertical(lipgloss.Left, body, hints)
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────
@@ -2470,6 +2605,107 @@ func (m *Model) loadFeedsCmd() tea.Cmd {
 			return FeedsLoadedMsg{Feeds: feeds, Folders: folders, RemoteStreams: streams, Err: remoteErr}
 		}
 		return FeedsLoadedMsg{Feeds: feeds, Folders: folders, RemoteStreams: streams}
+	}
+}
+
+// runSearchCmd dispatches a library-wide search off the update loop.
+//
+// This is async rather than inline because measured worst case on a real
+// 2k-article library is ~60ms for a common prefix like "the" — enough to be
+// felt on every keystroke if it blocked the UI.
+func (m *Model) runSearchCmd(query string, seq int) tea.Cmd {
+	database := m.db
+	unreadOnly := m.showUnreadOnly
+	return func() tea.Msg {
+		if database == nil {
+			return SearchResultsMsg{Seq: seq, Query: query}
+		}
+		results, err := database.SearchArticles(query, unreadOnly, 200)
+		return SearchResultsMsg{Seq: seq, Query: query, Results: results, Err: err}
+	}
+}
+
+// startSearch bumps the sequence and dispatches a query for the current input,
+// clearing results when the query is empty.
+func (m *Model) startSearch() tea.Cmd {
+	query := strings.TrimSpace(m.searchInput.Value())
+	m.searchQuery = m.searchInput.Value()
+	m.searchResultCursor = 0
+	m.searchOffset = 0
+	m.searchErr = ""
+	if query == "" {
+		m.searchResults = nil
+		return nil
+	}
+	m.searchSeq++
+	return m.runSearchCmd(query, m.searchSeq)
+}
+
+// closeSearch dismisses the search overlay and drops its results. It leaves
+// pendingArticleID alone so a result opened on the way out still lands.
+func (m *Model) closeSearch() {
+	m.overlay = overlayNone
+	m.searchResults = nil
+	m.searchResultCursor = 0
+	m.searchOffset = 0
+	m.searchErr = ""
+	m.searchQuery = ""
+	m.searchInput.SetValue("")
+	// Invalidate any query still in flight.
+	m.searchSeq++
+}
+
+// openSearchResult jumps to the article behind a result: reveal and select its
+// feed, then load that feed's articles and select the article once they land.
+func (m *Model) openSearchResult(r db.SearchResult) tea.Cmd {
+	m.overlay = overlayNone
+
+	// The feed's folder may be collapsed, in which case it has no sidebar row.
+	if m.sidebarRowForFeed(r.FeedID) < 0 {
+		if feed := m.feedByID(r.FeedID); feed != nil && feed.FolderID != 0 {
+			m.collapsedFolders[feed.FolderID] = false
+			m.rebuildSidebar()
+		}
+	}
+	idx := m.sidebarRowForFeed(r.FeedID)
+	if idx < 0 {
+		m.setStatus("feed for that result is no longer available", true)
+		return m.clearStatusCmd()
+	}
+
+	m.sidebarCursor = idx
+	m.pendingArticleID = r.ID
+	m.articleCursor = 0
+	m.listOffset = 0
+	return m.loadArticlesCmd(r.FeedID)
+}
+
+// sidebarRowForFeed returns the sidebar index of a feed row, or -1.
+func (m Model) sidebarRowForFeed(feedID int64) int {
+	for i, row := range m.sidebarRows {
+		if row.kind == rowKindFeed && row.feedID == feedID {
+			return i
+		}
+	}
+	return -1
+}
+
+// selectPendingArticle moves the cursor to the article queued by a search
+// result. Unread-only is lifted when it would hide the very article the user
+// asked to open.
+func (m *Model) selectPendingArticle() {
+	if m.pendingArticleID == 0 {
+		return
+	}
+	id := m.pendingArticleID
+	m.pendingArticleID = 0
+
+	if m.indexOfFilteredArticle(id) < 0 && m.showUnreadOnly {
+		m.showUnreadOnly = false
+		m.applyFilter()
+	}
+	if idx := m.indexOfFilteredArticle(id); idx >= 0 {
+		m.articleCursor = idx
 	}
 }
 
@@ -3303,18 +3539,19 @@ func (m *Model) toggleSelectedFolder() bool {
 	return true
 }
 
+// applyFilter projects the loaded article slice for the article pane.
+//
+// Search is no longer part of this: it is a library-wide FTS query surfaced in
+// its own results view (see startSearch/openSearchResult), not an in-place
+// title filter over the current feed's loaded rows.
 func (m *Model) applyFilter() {
-	q := strings.ToLower(m.searchQuery)
-	if q == "" && !m.showUnreadOnly {
+	if !m.showUnreadOnly {
 		m.filteredArticles = m.articles
 		return
 	}
 	filtered := make([]db.Article, 0, len(m.articles))
 	for _, a := range m.articles {
-		if m.showUnreadOnly && a.Read {
-			continue
-		}
-		if q != "" && !strings.Contains(strings.ToLower(a.Title), q) {
+		if a.Read {
 			continue
 		}
 		filtered = append(filtered, a)
@@ -3362,8 +3599,6 @@ func (m Model) renderFetchErrorOverlay(w int, chrome managerChrome) string {
 		return lipgloss.NewStyle().Background(bg).Width(textW).
 			Render(label(k) + val(v))
 	}
-
-	header := renderManagerHeader("FETCH ERROR", w, chrome)
 
 	// Title line
 	title := accentLine(r.FriendlyMessage())
@@ -3426,12 +3661,12 @@ func (m Model) renderFetchErrorOverlay(w int, chrome managerChrome) string {
 		rows = append(rows, lipgloss.NewStyle().Background(bg).Foreground(accent).
 			Render("↳ Feed permanently moved to new URL"))
 	}
-	actions := renderManagerActions(w, chrome, "esc", "dismiss")
+	hints := renderSoftHints(w, chrome, "esc", "dismiss")
 
 	body := lipgloss.NewStyle().Background(bg).Width(w).Padding(0, 2).
 		Render(lipgloss.JoinVertical(lipgloss.Left, title, strings.Join(rows, "\n")))
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, actions)
+	return lipgloss.JoinVertical(lipgloss.Left, body, hints)
 }
 
 func shouldFetchArticleContent(a db.Article) bool {

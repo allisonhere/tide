@@ -1408,13 +1408,17 @@ func (fm FeedManager) updateMove(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 	options := fm.folderOptionsForMove()
 	switch {
 	case keyMatches(msg, keys.Back), keyMatches(msg, keys.Cancel):
-		fm.paneFocus = fmPaneList
-		fm.blurEditInputs()
+		// Leave fmMove entirely. Setting paneFocus alone would strand the
+		// manager: Update dispatches on fm.mode, and unlike updateEdit this
+		// handler has no fmPaneList branch, so every later key fell through
+		// the switch and the manager stopped responding. viewMove also renders
+		// unconditionally in fmMove, so the picker stayed on screen. The hint
+		// bar promises "esc cancel", so cancel is the right behaviour.
+		fm.returnToListPane()
 	case keyMatches(msg, keys.Tab):
 		fm = fm.advanceFieldInOrder([]int{fmFieldBack, fmFieldMoveFolder})
 	case fm.focusedField == fmFieldBack && (keyMatches(msg, keys.Left) || keyMatches(msg, keys.Enter) || keyMatches(msg, keys.Space)):
-		fm.paneFocus = fmPaneList
-		fm.blurEditInputs()
+		fm.returnToListPane()
 	case fm.focusedField == fmFieldBack && keyMatches(msg, keys.Down):
 		fm.focusedField = fmFieldMoveFolder
 		fm.focusCurrentEditField()
@@ -1434,14 +1438,13 @@ func (fm FeedManager) updateMove(msg tea.KeyMsg, keys KeyMap) (FeedManager, tea.
 		}
 	case keyMatches(msg, keys.Confirm):
 		if fm.focusedField == fmFieldBack {
-			fm.paneFocus = fmPaneList
-			fm.blurEditInputs()
+			fm.returnToListPane()
 			return fm, nil
 		}
 		feedID := fm.moveTarget
 		folderID := fm.moveFolderIDAt(fm.moveCursor)
 		if feedID == 0 {
-			fm.paneFocus = fmPaneList
+			fm.returnToListPane()
 			return fm, nil
 		}
 		fm.statusMsg = "MOVING FEED..."
@@ -1798,7 +1801,6 @@ func (fm *FeedManager) View(width, height int, styles Styles, icons bool) string
 	}
 	contentW := min(width, 74)
 	chrome := newManagerChrome(contentW, styles.Theme, styles.PlainUI)
-	header := renderManagerHeader("MANAGER", contentW, chrome)
 	status := ""
 	hints := ""
 
@@ -1818,14 +1820,14 @@ func (fm *FeedManager) View(width, height int, styles Styles, icons bool) string
 		hintsH = lipgloss.Height(hints)
 	}
 	spacerH := 1
-	bodyH := max(1, height-lipgloss.Height(header)-spacerH-statusH-hintsH)
+	bodyH := max(1, height-spacerH-statusH-hintsH)
 	if fm.mode == fmList {
 		bodyH = max(1, bodyH-lipgloss.Height(fm.viewListActions(contentW, chrome)))
 	}
 	body := fm.viewSplit(contentW, bodyH, chrome, styles, icons)
 
 	spacer := lipgloss.NewStyle().Background(chrome.baseBg).Width(contentW).Render("")
-	parts := []string{header, spacer, body}
+	parts := []string{spacer, body}
 	if status != "" {
 		parts = append(parts, status)
 	}
@@ -2061,66 +2063,80 @@ func (fm FeedManager) addSourceLabel() string {
 }
 
 func (fm FeedManager) viewEdit(width, height int, chrome managerChrome, styles Styles) string {
-	fieldW := max(1, width-2)
+	labelW, ctlW := managerFormWidths(width)
 	detailFocused := !fm.listPaneFocused()
 	contentRows := []string{}
+
+	// row builds one Settings-style form row: rail, label column, control column.
+	row := func(label string, focused bool, control string) string {
+		return renderSoftRow(label, focused, control, width, labelW, chrome)
+	}
+	input := func(label string, in textinput.Model, field int, secret bool) string {
+		focused := detailFocused && fm.focusedField == field
+		return row(label, focused, renderTextInput(in, ctlW, focused, secret, chrome))
+	}
+	// renderManagerReadOnlyLine truncates to its own width internally; adding a
+	// second truncate here would clip two more cells for no reason.
+	readOnly := func(label, value string) string {
+		return row(label, false, renderManagerReadOnlyLine(ctlW, value, chrome))
+	}
+
 	if fm.editTarget == 0 && !fm.remoteSettingsEdit {
+		focused := detailFocused && fm.focusedField == fmFieldAddSource
 		contentRows = append(contentRows,
-			renderManagerSection("Source", renderManagerPicker(fieldW, fm.addSourceLabel(), detailFocused && fm.focusedField == fmFieldAddSource, chrome, styles), chrome, detailFocused && fm.focusedField == fmFieldAddSource),
+			row("Source", focused, renderManagerPicker(ctlW, fm.addSourceLabel(), focused, chrome, styles)),
 		)
 	}
 	if fm.remoteSettingsEdit {
-		feedNameLine := strings.ToUpper(truncate(strings.TrimSpace(fm.titleInput.Value()), max(8, fieldW-4)))
+		feedNameLine := strings.TrimSpace(fm.titleInput.Value())
 		if feedNameLine == "" {
 			feedNameLine = "—"
 		}
 		contentRows = append(contentRows,
-			renderManagerSection("Name", renderManagerReadOnlyLine(fieldW, feedNameLine, chrome), chrome, false),
-			renderManagerSection("Feed URL", renderManagerReadOnlyLine(fieldW, strings.ToUpper(truncate(fm.urlInput.Value(), max(8, fieldW-4))), chrome), chrome, false),
-		)
-		contentRows = append(contentRows,
-			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome, detailFocused && fm.focusedField == fmFieldGReaderURL),
-			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome, detailFocused && fm.focusedField == fmFieldGReaderLogin),
-			renderManagerSection("Password", renderTextInput(fm.greaderPasswordInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderPassword, true, chrome), chrome, detailFocused && fm.focusedField == fmFieldGReaderPassword),
+			readOnly("Name", feedNameLine),
+			readOnly("Feed URL", fm.urlInput.Value()),
+			input("API URL", fm.greaderURLInput, fmFieldGReaderURL, false),
+			input("Login", fm.greaderLoginInput, fmFieldGReaderLogin, false),
+			input("Password", fm.greaderPasswordInput, fmFieldGReaderPassword, true),
 		)
 	} else if fm.editTarget == 0 && fm.addSourceIdx == fmAddSourceGReader {
 		contentRows = append(contentRows,
-			renderManagerSection("Name", renderManagerReadOnlyLine(fieldW, strings.ToUpper(truncate("Pulled from the feed when added.", max(8, fieldW-4))), chrome), chrome, false),
-			renderManagerSection("URL (optional)", renderTextInput(fm.urlInput, fieldW, detailFocused && fm.focusedField == 1, false, chrome), chrome, detailFocused && fm.focusedField == 1),
-			renderManagerSection("API URL", renderTextInput(fm.greaderURLInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderURL, false, chrome), chrome, detailFocused && fm.focusedField == fmFieldGReaderURL),
-			renderManagerSection("Login", renderTextInput(fm.greaderLoginInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderLogin, false, chrome), chrome, detailFocused && fm.focusedField == fmFieldGReaderLogin),
-			renderManagerSection("Password", renderTextInput(fm.greaderPasswordInput, fieldW, detailFocused && fm.focusedField == fmFieldGReaderPassword, true, chrome), chrome, detailFocused && fm.focusedField == fmFieldGReaderPassword),
+			readOnly("Name", "Pulled from the feed when added."),
+			input("URL (optional)", fm.urlInput, 1, false),
+			input("API URL", fm.greaderURLInput, fmFieldGReaderURL, false),
+			input("Login", fm.greaderLoginInput, fmFieldGReaderLogin, false),
+			input("Password", fm.greaderPasswordInput, fmFieldGReaderPassword, true),
 		)
 	} else if fm.editTarget != 0 {
+		folderFocused := detailFocused && fm.focusedField == 3
 		contentRows = append(contentRows,
-			renderManagerSection("Name", renderTextInput(fm.titleInput, fieldW, detailFocused && fm.focusedField == 1, false, chrome), chrome, detailFocused && fm.focusedField == 1),
-			renderManagerSection("URL", renderTextInput(fm.urlInput, fieldW, detailFocused && fm.focusedField == 2, false, chrome), chrome, detailFocused && fm.focusedField == 2),
-			renderManagerSection("Folder", renderManagerPicker(fieldW, fm.folderOptions()[fm.folderCursor], detailFocused && fm.focusedField == 3, chrome, styles), chrome, detailFocused && fm.focusedField == 3),
+			input("Name", fm.titleInput, 1, false),
+			input("URL", fm.urlInput, 2, false),
+			row("Folder", folderFocused, renderManagerPicker(ctlW, fm.folderOptions()[fm.folderCursor], folderFocused, chrome, styles)),
 		)
 		if fm.showNewFolder {
-			contentRows = append(contentRows,
-				renderManagerSection("New", renderTextInput(fm.newFolderInput, fieldW, detailFocused && fm.focusedField == 4, false, chrome), chrome, detailFocused && fm.focusedField == 4),
-			)
+			contentRows = append(contentRows, input("New", fm.newFolderInput, 4, false))
 		}
 		if fm.shouldShowColorPicker() {
+			colorFocused := detailFocused && fm.focusedField == 5
 			contentRows = append(contentRows,
-				renderManagerSection("Color", renderManagerColorPicker(fieldW, fm.displayedColorOption(), detailFocused && fm.focusedField == 5, chrome, styles), chrome, detailFocused && fm.focusedField == 5),
+				row("Color", colorFocused, renderManagerColorPicker(ctlW, fm.displayedColorOption(), colorFocused, chrome, styles)),
 			)
 		}
 	} else {
+		folderFocused := detailFocused && fm.focusedField == 2
 		contentRows = append(contentRows,
-			renderManagerSection("Name", renderManagerReadOnlyLine(fieldW, strings.ToUpper(truncate("Pulled from the feed when refreshed.", max(8, fieldW-4))), chrome), chrome, false),
-			renderManagerSection("URL", renderTextInput(fm.urlInput, fieldW, detailFocused && fm.focusedField == 1, false, chrome), chrome, detailFocused && fm.focusedField == 1),
-			renderManagerSection("Folder", renderManagerPicker(fieldW, fm.folderOptions()[fm.folderCursor], detailFocused && fm.focusedField == 2, chrome, styles), chrome, detailFocused && fm.focusedField == 2),
+			readOnly("Name", "Pulled from the feed when refreshed."),
+			input("URL", fm.urlInput, 1, false),
+			row("Folder", folderFocused, renderManagerPicker(ctlW, fm.folderOptions()[fm.folderCursor], folderFocused, chrome, styles)),
 		)
 		if fm.showNewFolder {
-			contentRows = append(contentRows,
-				renderManagerSection("New", renderTextInput(fm.newFolderInput, fieldW, detailFocused && fm.focusedField == 3, false, chrome), chrome, detailFocused && fm.focusedField == 3),
-			)
+			contentRows = append(contentRows, input("New", fm.newFolderInput, 3, false))
 		}
 		if fm.shouldShowColorPicker() {
+			colorFocused := detailFocused && fm.focusedField == 4
 			contentRows = append(contentRows,
-				renderManagerSection("Color", renderManagerColorPicker(fieldW, fm.displayedColorOption(), detailFocused && fm.focusedField == 4, chrome, styles), chrome, detailFocused && fm.focusedField == 4),
+				row("Color", colorFocused, renderManagerColorPicker(ctlW, fm.displayedColorOption(), colorFocused, chrome, styles)),
 			)
 		}
 	}
@@ -2128,19 +2144,22 @@ func (fm FeedManager) viewEdit(width, height int, chrome managerChrome, styles S
 }
 
 func (fm FeedManager) viewFolderEdit(width, height int, chrome managerChrome, styles Styles) string {
-	fieldW := max(1, width-2)
+	labelW, ctlW := managerFormWidths(width)
 	detailFocused := !fm.listPaneFocused()
+	nameFocused := detailFocused && fm.focusedField == 0
+	colorFocused := detailFocused && fm.focusedField == 4
 	return renderManagerDetailColumn(width, []string{
-		renderManagerSection("Name", renderTextInput(fm.titleInput, fieldW, detailFocused && fm.focusedField == 0, false, chrome), chrome, detailFocused && fm.focusedField == 0),
-		renderManagerSection("Color", renderManagerColorPicker(fieldW, fm.currentColorOption(), detailFocused && fm.focusedField == 4, chrome, styles), chrome, detailFocused && fm.focusedField == 4),
+		renderSoftRow("Name", nameFocused, renderTextInput(fm.titleInput, ctlW, nameFocused, false, chrome), width, labelW, chrome),
+		renderSoftRow("Color", colorFocused, renderManagerColorPicker(ctlW, fm.currentColorOption(), colorFocused, chrome, styles), width, labelW, chrome),
 	}, chrome)
 }
 
 func (fm FeedManager) viewImport(width, height int, chrome managerChrome) string {
-	fieldW := max(1, width-2)
+	labelW, ctlW := managerFormWidths(width)
 	detailFocused := !fm.listPaneFocused()
+	focused := detailFocused && fm.focusedField == fmFieldImportPath
 	return renderManagerDetailColumn(width, []string{
-		renderManagerSection("PATH", renderTextInput(fm.importInput, fieldW, detailFocused && fm.focusedField == fmFieldImportPath, false, chrome), chrome, detailFocused && fm.focusedField == fmFieldImportPath),
+		renderSoftRow("Path", focused, renderTextInput(fm.importInput, ctlW, focused, false, chrome), width, labelW, chrome),
 	}, chrome)
 }
 
@@ -2160,14 +2179,14 @@ func (fm FeedManager) viewConfirmDelete(width, height int, chrome managerChrome)
 		name = unescapeDisplayText(feed.Title)
 		warning = "ALL ARTICLES FROM THIS FEED WILL BE REMOVED."
 	}
-	fieldW := max(1, width-2)
+	labelW, ctlW := managerFormWidths(width)
 	warningBlock := lipgloss.JoinVertical(
 		lipgloss.Left,
-		lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.errorFg).Bold(true).Width(max(12, fieldW)).Render("WARNING"),
-		chrome.body.Width(max(12, fieldW)).Render(warning),
+		lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.errorFg).Bold(true).Width(max(12, width)).Render("  Warning"),
+		chrome.body.Width(max(12, width)).Render("  "+warning),
 	)
 	return renderManagerDetailColumn(width, []string{
-		renderManagerSection("TARGET", renderManagerPanel(fieldW, strings.ToUpper(truncate(name, max(1, fieldW-4))), chrome), chrome, false),
+		renderSoftRow("Target", false, renderManagerPanel(ctlW, truncate(name, max(1, ctlW-4)), chrome), width, labelW, chrome),
 		warningBlock,
 	}, chrome)
 }
@@ -2216,21 +2235,26 @@ func (fm FeedManager) viewMove(width, height int, chrome managerChrome, styles S
 		listRows = append(listRows, row)
 	}
 	folderList := lipgloss.JoinVertical(lipgloss.Left, listRows...)
-	detailFocused := !fm.listPaneFocused()
+	labelW, ctlW := managerFormWidths(width)
+	// The folder list is multi-line and uses the shared list-row renderers, so
+	// it keeps a heading above it rather than becoming a side-by-side row.
 	return renderManagerDetailColumn(width, []string{
-		renderManagerSection("FEED", renderManagerPanel(fieldW, feedLabel, chrome), chrome, false),
-		renderManagerSection("FOLDER", folderList, chrome, detailFocused && fm.focusedField == fmFieldMoveFolder),
+		renderSoftRow("Feed", false, renderManagerPanel(ctlW, feedLabel, chrome), width, labelW, chrome),
+		lipgloss.JoinVertical(lipgloss.Left,
+			renderSoftGroupTitle("Folder", width, chrome),
+			folderList,
+		),
 	}, chrome)
 }
 
 func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 	if fm.busy {
-		return renderManagerActions(width, chrome, "working", strings.ToLower(fm.busyMsg))
+		return renderSoftHints(width, chrome, "working", strings.ToLower(fm.busyMsg))
 	}
 	switch fm.mode {
 	case fmEdit:
 		if fm.paneFocus == fmPaneList {
-			return renderManagerActions(width, chrome,
+			return renderSoftHints(width, chrome,
 				"a", "new feed",
 				"↑/↓", "browse list",
 				"enter", "edit form",
@@ -2254,7 +2278,7 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 			enterLabel = "sections"
 			pickLabel = "back"
 		}
-		return renderManagerActions(width, chrome,
+		return renderSoftHints(width, chrome,
 			"tab", "next field",
 			"←/→", pickLabel,
 			"enter", enterLabel,
@@ -2262,7 +2286,7 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 		)
 	case fmFolderEdit:
 		if fm.paneFocus == fmPaneList {
-			return renderManagerActions(width, chrome,
+			return renderSoftHints(width, chrome,
 				"tab", "next field",
 				"←/→", "color",
 				"enter", "save folder",
@@ -2275,7 +2299,7 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 			enterLabel = "sections"
 			pickLabel = "back"
 		}
-		return renderManagerActions(width, chrome,
+		return renderSoftHints(width, chrome,
 			"tab", "next field",
 			"←/→", pickLabel,
 			"enter", enterLabel,
@@ -2283,7 +2307,7 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 		)
 	case fmImport:
 		if fm.paneFocus == fmPaneList {
-			return renderManagerActions(width, chrome,
+			return renderSoftHints(width, chrome,
 				"enter", "import",
 				"esc", "close",
 			)
@@ -2292,13 +2316,13 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 		if fm.focusedField == fmFieldBack {
 			enterLabel = "sections"
 		}
-		return renderManagerActions(width, chrome,
+		return renderSoftHints(width, chrome,
 			"tab", "path",
 			"enter", enterLabel,
 			"esc", "list pane",
 		)
 	case fmConfirmDelete:
-		return renderManagerActions(width, chrome,
+		return renderSoftHints(width, chrome,
 			"y", "confirm",
 			"esc", "cancel",
 		)
@@ -2309,7 +2333,7 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 			enterLabel = "sections"
 			pickLabel = "back"
 		}
-		return renderManagerActions(width, chrome,
+		return renderSoftHints(width, chrome,
 			"↑/↓", pickLabel,
 			"enter", enterLabel,
 			"esc", "cancel",
@@ -2472,21 +2496,6 @@ func newManagerChrome(width int, t Theme, plainUI bool) managerChrome {
 	}
 }
 
-func renderManagerHeader(title string, width int, chrome managerChrome) string {
-	gap := max(0, width-lipgloss.Width(title)-2)
-	return chrome.header.Render(title + strings.Repeat(" ", gap))
-}
-
-func renderManagerSection(label, body string, chrome managerChrome, labelActive bool) string {
-	w := lipgloss.Width(body)
-	style := chrome.sectionLabel
-	if labelActive {
-		style = chrome.sectionLabelActive
-	}
-	styledLabel := style.Width(w).Render(label)
-	return lipgloss.JoinVertical(lipgloss.Left, styledLabel, body)
-}
-
 func renderManagerPaneSection(label, body string, focused bool, chrome managerChrome) string {
 	w := lipgloss.Width(body)
 	style := chrome.sectionLabel
@@ -2529,9 +2538,13 @@ func renderManagerBackLinkRow(focused bool, width int, chrome managerChrome) str
 		Render(style.Width(max(1, width-2)).Render(label))
 }
 
+// renderManagerDetailColumn stacks form rows with a blank line between them.
+// Rows are full-width soft rows whose 2-cell focus rail supplies the left
+// gutter, so this adds no padding of its own — that keeps manager forms
+// aligned with Settings. Only the form views use this; the tree's detail
+// panel goes through renderManagerPanel instead.
 func renderManagerDetailColumn(width int, sections []string, chrome managerChrome) string {
-	innerW := max(1, width-2)
-	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(innerW).Render("")
+	gap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	rows := make([]string, 0, max(0, len(sections)*2-1))
 	for _, section := range sections {
 		if section == "" {
@@ -2540,14 +2553,32 @@ func renderManagerDetailColumn(width int, sections []string, chrome managerChrom
 		if len(rows) > 0 {
 			rows = append(rows, gap)
 		}
-		rows = append(rows, clampView(section, innerW, lipgloss.Height(section), chrome.baseBg))
+		rows = append(rows, clampView(section, width, lipgloss.Height(section), chrome.baseBg))
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
 	return lipgloss.NewStyle().
 		Background(chrome.baseBg).
 		Width(width).
-		PaddingLeft(2).
-		Render(clampView(content, innerW, lipgloss.Height(content), chrome.baseBg))
+		Render(clampView(content, width, lipgloss.Height(content), chrome.baseBg))
+}
+
+// managerFormWidths returns the label and control column widths for a manager
+// form row rendered at pane width w. Controls MUST be built at controlW: the
+// 2-cell focus rail is reserved by renderSoftRow, and anything wider gets
+// clipped from the right — which is exactly where a picker's ‹› lives.
+//
+// This deliberately uses a narrower label column than Settings' formLabelWidth.
+// Manager labels are short ("Name", "Folder", "URL (optional)") while its values
+// are long feed URLs, so spending 28 cells on labels in a ~53-wide pane would
+// truncate the URLs that matter most here.
+// Note the tradeoff this layout accepts: side-by-side rows cannot show a long
+// feed URL in full the way the old stacked layout could, because the value no
+// longer gets the pane's whole width. Focused inputs scroll horizontally, so
+// editing is unaffected — only the at-rest render truncates.
+func managerFormWidths(w int) (labelW, controlW int) {
+	labelW = clamp(w/3, 12, 16) // "URL (optional)" is the longest label at 14
+	controlW = max(1, w-2-labelW)
+	return labelW, controlW
 }
 
 func renderManagerPanel(width int, content string, chrome managerChrome) string {
@@ -2748,41 +2779,41 @@ func renderManagerInput(width int, value, placeholder string, focused bool, chro
 	return lipgloss.NewStyle().Background(bg).Padding(0, 1).Render(clampView(line, textW, 1, bg))
 }
 
-func renderManagerPicker(width int, value string, focused bool, chrome managerChrome, styles Styles) string {
-	textW := max(1, width-1)
-	bg := chrome.surfaceBg
-	fg := chrome.text
-	accentFg := chrome.muted
-	if focused {
-		bg = terminalColorAsColor(styles.FeedItemSelectedFocused.GetBackground())
-		fg = terminalColorAsColor(styles.FeedItemSelectedFocused.GetForeground())
-		accentFg = fg
-	}
-	text := lipgloss.NewStyle().Background(bg).Foreground(fg)
-	accent := lipgloss.NewStyle().Background(bg).Foreground(accentFg).Bold(true)
-	line := accent.Render(chrome.pickerChevronLeft()) + text.Render(truncate(value, max(1, textW-4))) + accent.Render(chrome.pickerChevronRight())
-	return lipgloss.NewStyle().Background(bg).Padding(0, 1).Render(clampView(line, textW, 1, bg))
+// renderManagerPicker delegates to the soft-panel picker so the manager's
+// selectors match Settings: value on the left, ‹› pinned to the right edge.
+// styles is retained for signature compatibility with the call sites.
+func renderManagerPicker(width int, value string, focused bool, chrome managerChrome, _ Styles) string {
+	return renderSoftPicker(width, value, focused, chrome)
 }
 
-func renderManagerColorPicker(width int, option folderColorOption, focused bool, chrome managerChrome, styles Styles) string {
-	textW := max(1, width-1)
-	bg := chrome.surfaceBg
-	fg := chrome.text
-	accentFg := chrome.muted
+// renderManagerColorPicker mirrors renderSoftPicker's layout — value left, ‹›
+// pinned right — but keeps the colour swatch that makes the folder colour
+// legible at a glance. styles is retained for call-site compatibility.
+func renderManagerColorPicker(width int, option folderColorOption, focused bool, chrome managerChrome, _ Styles) string {
+	chevrons := chrome.softChevrons()
+	chevronW := lipgloss.Width(chevrons) + 1 // trailing space
+	nameFg := chrome.muted
+	valueBg := chrome.baseBg
+	chevronFg := chrome.muted
 	if focused {
-		bg = terminalColorAsColor(styles.FeedItemSelectedFocused.GetBackground())
-		fg = terminalColorAsColor(styles.FeedItemSelectedFocused.GetForeground())
-		accentFg = fg
+		nameFg = chrome.text
+		valueBg = chrome.fieldBg
+		chevronFg = chrome.accent
 	}
-	accent := lipgloss.NewStyle().Background(bg).Foreground(accentFg).Bold(true)
-	nameStyle := lipgloss.NewStyle().Background(bg).Foreground(fg)
 	swatch := lipgloss.NewStyle().
 		Background(option.Color).
 		Foreground(contrastFg(option.Color)).
 		Bold(true).
 		Render(" " + strings.ToUpper(option.Name[:min(3, len(option.Name))]) + " ")
-	line := accent.Render(chrome.pickerChevronLeft()) + swatch + lipgloss.NewStyle().Background(bg).Render(" ") + nameStyle.Render(option.Name) + accent.Render(chrome.pickerChevronRight())
-	return lipgloss.NewStyle().Background(bg).Padding(0, 1).Render(clampView(line, textW, 1, bg))
+	pad := lipgloss.NewStyle().Background(valueBg).Render(" ")
+	nameW := max(1, width-chevronW-lipgloss.Width(swatch)-3)
+	name := lipgloss.NewStyle().Background(valueBg).Foreground(nameFg).Render(truncate(option.Name, nameW))
+	left := pad + swatch + pad + name + pad
+	gap := max(1, width-lipgloss.Width(left)-chevronW)
+	return left +
+		lipgloss.NewStyle().Background(chrome.baseBg).Render(strings.Repeat(" ", gap)) +
+		lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chevronFg).Bold(focused).Render(chevrons) +
+		lipgloss.NewStyle().Background(chrome.baseBg).Render(" ")
 }
 
 func renderManagerRow(width int, title string, chrome managerChrome) string {
@@ -2944,40 +2975,11 @@ func renderManagerSourceLine(width int, value string, chrome managerChrome) stri
 }
 
 func renderManagerActionGroups(width int, chrome managerChrome, primaryPairs, secondaryPairs []string) string {
-	rows := []string{renderManagerActions(width, chrome, primaryPairs...)}
+	rows := []string{renderSoftHints(width, chrome, primaryPairs...)}
 	if len(secondaryPairs) > 0 {
-		rows = append(rows, renderManagerActions(width, chrome, secondaryPairs...))
+		rows = append(rows, renderSoftHints(width, chrome, secondaryPairs...))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, rows...)
-}
-
-func renderManagerActions(width int, chrome managerChrome, pairs ...string) string {
-	bar := lipgloss.NewStyle().
-		Width(width).
-		Background(chrome.baseBg).
-		Border(lipPaneBorder(chrome.plainUI), true, false, false, false).
-		BorderForeground(chrome.border).
-		Padding(0, 0)
-	parts := make([]string, 0, len(pairs)/2)
-	spacer := lipgloss.NewStyle().Background(chrome.baseBg).Render(" ")
-	for i := 0; i+1 < len(pairs); i += 2 {
-		parts = append(parts, lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			chrome.key.Render(strings.ToUpper(pairs[i])),
-			spacer,
-			chrome.keyLabel.Render(strings.ToUpper(pairs[i+1])),
-		))
-	}
-	if len(parts) == 0 {
-		return bar.Render(clampView("", width, 1, chrome.baseBg))
-	}
-	bg := lipgloss.NewStyle().Background(chrome.baseBg)
-	sep := bg.Render("  ")
-	left := strings.Join(parts[:max(0, len(parts)-1)], sep)
-	right := parts[len(parts)-1]
-	gap := max(1, width-lipgloss.Width(left)-lipgloss.Width(right))
-	row := clampView(left+bg.Render(strings.Repeat(" ", gap))+right, width, 1, chrome.baseBg)
-	return bar.Render(row)
 }
 
 func (fm FeedManager) folderFeedCount(folderID int64) int {

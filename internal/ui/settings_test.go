@@ -869,10 +869,10 @@ func TestSettingsSectionsUseSharedRightPaneGroupHeaders(t *testing.T) {
 		section settingsSection
 		want    string
 	}{
-		{section: ssDisplay, want: "━ DISPLAY"},
-		{section: ssFeeds, want: "━ FEEDS"},
-		{section: ssUpdates, want: "━ UPDATES"},
-		{section: ssAI, want: "━ PROVIDER CREDENTIALS"},
+		{section: ssDisplay, want: "Display"},
+		{section: ssFeeds, want: "Feeds"},
+		{section: ssUpdates, want: "Updates"},
+		{section: ssAI, want: "Provider credentials"},
 	}
 
 	for _, tt := range tests {
@@ -962,8 +962,8 @@ func TestSettingsProviderSelectorStaysSingleLineInNarrowPane(t *testing.T) {
 		t.Fatalf("expected provider selector to stay on one line, got height %d", got)
 	}
 	stripped := ansi.Strip(row)
-	if !strings.Contains(stripped, "◀") || !strings.Contains(stripped, "▶") {
-		t.Fatalf("expected provider selector to render side arrows, got %q", stripped)
+	if !strings.Contains(stripped, "‹") || !strings.Contains(stripped, "›") {
+		t.Fatalf("expected provider selector to render soft chevrons, got %q", stripped)
 	}
 	if got := lipgloss.Width(row); got != 42 {
 		t.Fatalf("expected provider selector to fill the stable form row width 42, got width %d", got)

@@ -31,7 +31,7 @@ func TestFeedManagerListViewGeometry(t *testing.T) {
 	if got := len(lines); got > 24 {
 		t.Fatalf("expected at most 24 lines, got %d", got)
 	}
-	if !strings.Contains(lines[len(lines)-1], "BACK") {
+	if !strings.Contains(lines[len(lines)-1], "back") {
 		t.Fatalf("expected bottom line to contain action bar, got %q", lines[len(lines)-1])
 	}
 	if strings.Contains(lines[4], "Linux\n") {
@@ -157,7 +157,7 @@ func TestFeedManagerEditViewShowsBusyStatus(t *testing.T) {
 	if !strings.Contains(view, "ADDING FEED...") {
 		t.Fatalf("expected busy status in edit view, got %q", view)
 	}
-	if !strings.Contains(view, "WORKING") {
+	if !strings.Contains(view, "working") {
 		t.Fatalf("expected busy action hint in edit view, got %q", view)
 	}
 }
@@ -290,7 +290,7 @@ func TestFeedManagerListShowsFoldersBeforeFeeds(t *testing.T) {
 	if !strings.Contains(view, "\U000f046b FEED ONE") {
 		t.Fatalf("expected feed icon in manager list, got %q", view)
 	}
-	if !strings.Contains(view, "EDIT") || !strings.Contains(view, "DELETE") {
+	if !strings.Contains(view, "edit") || !strings.Contains(view, "delete") {
 		t.Fatalf("expected generic actions in footer, got %q", view)
 	}
 }
@@ -339,10 +339,10 @@ func TestRemoteFeedManagerViewShowsBrowseOnlyActions(t *testing.T) {
 	if !strings.Contains(view, "SUBSCRIPTIONS") {
 		t.Fatalf("expected remote manager list title, got %q", view)
 	}
-	if strings.Contains(view, "ADD FEED") || strings.Contains(view, "DELETE") {
+	if strings.Contains(view, "add feed") || strings.Contains(view, "delete") {
 		t.Fatalf("expected remote manager to omit local CRUD actions, got %q", view)
 	}
-	if !strings.Contains(view, "BROWSE-ONLY") || !strings.Contains(view, "GOOGLE READER") {
+	if !strings.Contains(view, "browse-only") || !strings.Contains(view, "google reader") {
 		t.Fatalf("expected remote browse-only footer, got %q", view)
 	}
 }
@@ -386,7 +386,10 @@ func TestFeedManagerAddDialogCanSwitchToGReaderFields(t *testing.T) {
 	}
 
 	view := ansi.Strip(next.View(96, 32, BuildStyles(CatppuccinMocha, "comfortable"), true))
-	for _, want := range []string{"ADD FEED", "Source", "Name", "PULLED FROM THE FEED WHEN ADDED.", "URL (optional)", "API URL", "Login", "Password", "alice", "https://rss.example.com/api/greader.php"} {
+	// Side-by-side form rows give the value column less width than the old
+	// stacked layout, so a long API URL renders truncated at rest (the focused
+	// input still scrolls to the full value). Assert on the visible prefix.
+	for _, want := range []string{"ADD FEED", "Source", "Name", "Pulled from the feed when added.", "URL (optional)", "API URL", "Login", "Password", "alice", "https://rss.example.com"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected greader add dialog to contain %q, got %q", want, view)
 		}
@@ -411,7 +414,7 @@ func TestFeedManagerSourceToggleShowsToggleHint(t *testing.T) {
 	next, _ := fm.updateEdit(tea.KeyMsg{Type: tea.KeyTab}, DefaultKeys)
 
 	view := ansi.Strip(next.View(96, 24, BuildStyles(CatppuccinMocha, "comfortable"), true))
-	if !strings.Contains(view, "TOGGLE SOURCE") {
+	if !strings.Contains(view, "toggle source") {
 		t.Fatalf("expected add dialog source toggle hint, got %q", view)
 	}
 }
@@ -1084,5 +1087,53 @@ func TestFeedManagerFolderEditNameAcceptsMovementRunes(t *testing.T) {
 	}
 	if got := next.titleInput.Value(); got != "k" {
 		t.Fatalf("expected folder name input to receive typed rune, got %q", got)
+	}
+}
+
+// Escaping the move picker must leave fmMove, not merely shift paneFocus.
+// Update dispatches on fm.mode, and updateMove has no fmPaneList branch, so
+// leaving the mode set stranded the manager: arrow keys were swallowed by the
+// picker, escape never closed the overlay, and viewMove kept rendering.
+func TestFeedManagerMoveEscapeReturnsToList(t *testing.T) {
+	newFM := func() FeedManager {
+		fm := FeedManager{
+			folders: []db.Folder{{ID: 1, Name: "Tech"}, {ID: 2, Name: "News"}},
+			feeds: []db.Feed{
+				{ID: 10, Title: "Feed One", URL: "https://a.example/f", FolderID: 1},
+				{ID: 11, Title: "Feed Two", URL: "https://b.example/f", FolderID: 2},
+			},
+			mode: fmList,
+		}
+		fm.focusMove(fm.feeds[0])
+		return fm
+	}
+
+	for _, tc := range []struct {
+		name string
+		key  tea.KeyMsg
+	}{
+		{"esc", tea.KeyMsg{Type: tea.KeyEsc}},
+		{"back-link enter", tea.KeyMsg{Type: tea.KeyEnter}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fm := newFM()
+			fm.focusedField = fmFieldBack
+			next, _ := fm.updateMove(tc.key, DefaultKeys)
+
+			if next.mode != fmList {
+				t.Fatalf("expected fmList after %s, got mode %v", tc.name, next.mode)
+			}
+
+			// The tree must respond again.
+			nav, _, _ := next.Update(tea.KeyMsg{Type: tea.KeyDown}, DefaultKeys)
+			if nav.cursor == next.cursor {
+				t.Fatalf("expected tree cursor to advance after %s, stuck at %d", tc.name, nav.cursor)
+			}
+
+			// And escape must still close the manager.
+			if _, _, exit := nav.Update(tea.KeyMsg{Type: tea.KeyEsc}, DefaultKeys); !exit {
+				t.Fatalf("expected escape to close the manager after %s", tc.name)
+			}
+		})
 	}
 }

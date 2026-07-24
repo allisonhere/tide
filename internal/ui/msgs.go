@@ -112,3 +112,13 @@ type ClipboardCopiedMsg struct {
 }
 type StatusClearMsg struct{}
 type ErrMsg struct{ Err error }
+
+// SearchResultsMsg carries the outcome of a library-wide FTS query. Seq
+// identifies the keystroke that dispatched it so late results from an
+// abandoned query can be dropped.
+type SearchResultsMsg struct {
+	Seq     int
+	Query   string
+	Results []db.SearchResult
+	Err     error
+}
