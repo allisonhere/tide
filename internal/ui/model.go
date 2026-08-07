@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,7 +44,20 @@ type sidebarRowKind int
 const (
 	rowKindFolder sidebarRowKind = iota
 	rowKindFeed
+	// rowKindSaved is the "Saved" virtual feed pinned above the real tree. It
+	// has no db.Feed behind it, so every path that reaches for selectedFeed()
+	// must treat it as "no feed selected" and consult savedSelected() instead.
+	rowKindSaved
 )
+
+// savedFeedID is the sentinel feed id carried by ArticlesLoadedMsg for the
+// Saved view, so the existing stale-load guard works unchanged.
+//
+// math.MinInt64 specifically: local feed ids are positive AUTOINCREMENT rowids,
+// and remote ids come from remoteStableID, which masks to 63 bits before
+// negating and so bottoms out at MinInt64+1. MinInt64 is the one value neither
+// source can produce.
+const savedFeedID int64 = math.MinInt64
 
 type sidebarRow struct {
 	kind     sidebarRowKind
@@ -101,6 +115,10 @@ type Model struct {
 	sidebarRows      []sidebarRow
 	sidebarCursor    int
 	collapsedFolders map[int64]bool
+	// savedCount backs the Saved row's badge. It is refreshed with the feed
+	// list and adjusted in place on each star toggle so the badge does not
+	// need a round trip to move.
+	savedCount int64
 
 	// Article pane keeps the unfiltered cache and current filtered projection so search/unread toggles do not re-query. -allie
 	// Article pane
@@ -419,6 +437,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		prevKind, prevID := m.currentSidebarSelection()
 		m.feeds = msg.Feeds
 		m.folders = msg.Folders
+		m.savedCount = msg.SavedCount
 		m.greaderStreams = msg.RemoteStreams
 		if m.greaderStreams == nil {
 			m.greaderStreams = map[int64]string{}
@@ -439,6 +458,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.pendingSelectFeedID = 0
+		} else if prevKind == rowKindSaved {
+			for i, row := range m.sidebarRows {
+				if row.kind == rowKindSaved {
+					m.sidebarCursor = i
+					break
+				}
+			}
 		} else if prevID != 0 {
 			for i, row := range m.sidebarRows {
 				if row.kind == prevKind {
@@ -469,12 +495,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.feedManager.selectFolder(folderID)
 			}
 		}
-		if len(m.feeds) == 0 {
+		cmds := []tea.Cmd{}
+		if m.savedSelected() {
+			cmds = append(cmds, m.loadSavedArticlesCmd())
+		} else if len(m.feeds) == 0 {
 			m.clearArticles()
 			return m, nil
-		}
-		cmds := []tea.Cmd{}
-		if selected := m.selectedFeed(); selected != nil {
+		} else if selected := m.selectedFeed(); selected != nil {
 			cmds = append(cmds, m.loadUnreadArticlesCmd(selected.ID))
 		} else {
 			m.clearArticles()
@@ -496,13 +523,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ArticlesLoadedMsg:
 		// Ignore stale article loads from a previously selected feed; async loads can race with sidebar movement. -allie
 		if msg.Err != nil {
-			if selected := m.selectedFeed(); selected != nil && msg.FeedID == selected.ID {
+			if m.articlesLoadIsCurrent(msg.FeedID) {
 				m.clearArticles()
 			}
 			m.setStatus(msg.Err.Error(), true)
 			return m, m.clearStatusCmd()
 		}
-		if selected := m.selectedFeed(); selected != nil && msg.FeedID == selected.ID {
+		if m.articlesLoadIsCurrent(msg.FeedID) {
 			m.articles = msg.Articles
 			m.applyFilter()
 			m.articleCursor = clamp(m.articleCursor, 0, max(0, len(m.filteredArticles)-1))
@@ -771,6 +798,57 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ArticleStarUpdatedMsg:
+		if msg.Err != nil {
+			// Deliberately not "save failed": that phrasing is already used by
+			// the feed, folder, OPML and settings save paths, and a starring
+			// failure must not be mistaken for one of those.
+			m.setStatus(fmt.Sprintf("could not star article: %v", msg.Err), true)
+			return m, m.clearStatusCmd()
+		}
+		if msg.WasStarred != msg.Starred {
+			if msg.Starred {
+				m.savedCount++
+			} else {
+				m.savedCount = max(0, m.savedCount-1)
+			}
+		}
+
+		if m.savedSelected() && !msg.Starred {
+			// The Saved view is defined by the flag that was just cleared, so
+			// the row no longer belongs in the list. Drop it rather than
+			// leaving a phantom entry until the next reload.
+			kept := make([]db.Article, 0, len(m.articles))
+			for _, a := range m.articles {
+				if a.ID != msg.ArticleID {
+					kept = append(kept, a)
+				}
+			}
+			m.articles = kept
+		} else {
+			for i := range m.articles {
+				if m.articles[i].ID == msg.ArticleID {
+					m.articles[i].Starred = msg.Starred
+					break
+				}
+			}
+		}
+		m.applyFilter()
+		m.articleCursor = clamp(m.articleCursor, 0, max(0, len(m.filteredArticles)-1))
+		m.listOffset = clamp(m.listOffset, 0, max(0, len(m.filteredArticles)-1))
+		if len(m.filteredArticles) == 0 {
+			m.clearViewportArticle()
+		} else {
+			m.setViewportArticle(m.filteredArticles[m.articleCursor])
+		}
+
+		if msg.Starred {
+			m.setStatus("starred", false)
+		} else {
+			m.setStatus("unstarred", false)
+		}
+		return m, m.clearStatusCmd()
+
 	case FeedsReadUpdatedMsg:
 		if len(msg.FeedIDs) > 0 {
 			m.markFeedsReadInMemory(msg.FeedIDs)
@@ -1025,6 +1103,19 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case keyMatches(msg, m.keys.ToggleStar):
+		if len(m.filteredArticles) == 0 {
+			return m, nil
+		}
+		a := m.filteredArticles[m.articleCursor]
+		// Remote articles are never persisted locally, so there is no row to
+		// set a flag on. Say so rather than appearing to save and losing it.
+		if m.isRemoteFeed(a.FeedID) {
+			m.setStatus("starring is not available for remote feeds", true)
+			return m, m.clearStatusCmd()
+		}
+		return m, m.setArticleStarredCmd(a, !a.Starred)
+
 	case keyMatches(msg, m.keys.MarkAllRead):
 		if feed := m.selectedFeed(); feed != nil {
 			return m, m.markAllReadCmd(feed.ID)
@@ -1158,10 +1249,7 @@ func (m Model) handleUp() (tea.Model, tea.Cmd) {
 	case paneFeeds:
 		if m.sidebarCursor > 0 {
 			m.sidebarCursor--
-			if selected := m.selectedFeed(); selected != nil {
-				return m, m.loadUnreadArticlesCmd(selected.ID)
-			}
-			m.clearArticles()
+			return m.loadSidebarSelection()
 		}
 	case paneArticles:
 		if m.articleCursor > 0 {
@@ -1190,10 +1278,7 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 	case paneFeeds:
 		if m.sidebarCursor < len(m.sidebarRows)-1 {
 			m.sidebarCursor++
-			if selected := m.selectedFeed(); selected != nil {
-				return m, m.loadUnreadArticlesCmd(selected.ID)
-			}
-			m.clearArticles()
+			return m.loadSidebarSelection()
 		}
 	case paneArticles:
 		if m.articleCursor < len(m.filteredArticles)-1 {
@@ -1215,6 +1300,19 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 		}
 		m.moveContentFocusLine(1)
 	}
+	return m, nil
+}
+
+// loadSidebarSelection loads whatever the sidebar cursor now points at. Folder
+// rows have no article list of their own, so they clear the pane.
+func (m Model) loadSidebarSelection() (tea.Model, tea.Cmd) {
+	if m.savedSelected() {
+		return m, m.loadSavedArticlesCmd()
+	}
+	if selected := m.selectedFeed(); selected != nil {
+		return m, m.loadUnreadArticlesCmd(selected.ID)
+	}
+	m.clearArticles()
 	return m, nil
 }
 
@@ -1549,6 +1647,8 @@ func (m Model) renderFeedsPane() string {
 	for i, row := range m.sidebarRows {
 		selected := i == m.sidebarCursor
 		switch row.kind {
+		case rowKindSaved:
+			rows = append(rows, m.renderSavedRow(selected, innerW))
 		case rowKindFolder:
 			rows = append(rows, m.renderFolderHeader(row.folderID, selected, innerW))
 		case rowKindFeed:
@@ -1600,15 +1700,21 @@ func (m Model) renderArticlesPane() string {
 		if !a.Read {
 			style = articleUnread
 		}
-		if i == m.articleCursor {
-			style = articleSelected
-		}
+		style = applyArticleRowState(style, articleSelected, a.Starred, i == m.articleCursor, m.styles.Theme)
+		left, star, right := articleRowSegments(dot, m.articleRowStar(a.Starred), unescapeDisplayText(a.Title), age, w-2)
 
-		rows = append(rows, style.Width(w-2).Render(renderArticleRow(dot, unescapeDisplayText(a.Title), age, w-2)))
+		// Style the star as its own segment so it can carry the accent without
+		// its reset stripping the rest of the row (see articleRowSegments).
+		// Every segment repeats the row style, so the resets are harmless.
+		if accent := starColor(m.styles.Theme); a.Starred && accent != "" && !m.styles.PlainUI {
+			rows = append(rows, renderStyledArticleRow(style, accent, left, star, right, w-2))
+			continue
+		}
+		rows = append(rows, style.Width(w-2).Render(left+star+right))
 	}
 
 	if len(m.filteredArticles) == 0 {
-		rows = append(rows, articleRead.Render("  no articles"))
+		rows = append(rows, articleRead.Render(m.emptyArticlesHint()))
 	}
 
 	focused := m.focused == paneArticles
@@ -1617,6 +1723,9 @@ func (m Model) renderArticlesPane() string {
 		border = border.BorderForeground(borderFocus)
 	}
 	title := "Articles"
+	if m.savedSelected() {
+		title = savedRowLabel
+	}
 	if m.showUnreadOnly {
 		title += " (unread)"
 	}
@@ -1711,7 +1820,8 @@ func (m Model) renderPaneHint(p pane) string {
 			m.keyHint(m.keys.Enter) + " toggle  " + m.keyHint(m.keys.Refresh) + " refresh"
 	case paneArticles:
 		hint = m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " move  " +
-			m.keyHint(m.keys.MarkRead) + " read  " + m.keyHint(m.keys.Search) + " search"
+			m.keyHint(m.keys.MarkRead) + " read  " + m.keyHint(m.keys.ToggleStar) + " star  " +
+			m.keyHint(m.keys.Search) + " search"
 	case paneContent:
 		progress := ""
 		if m.contentLineCount > 0 {
@@ -2334,7 +2444,7 @@ func (m Model) renderSearchStatus(width int, chrome managerChrome) string {
 		msg = truncate(m.searchErr, max(1, width-4))
 		fg = chrome.errorFg
 	case strings.TrimSpace(m.searchInput.Value()) == "":
-		msg = "matches titles and article text"
+		msg = "matches titles and article text · is:starred to limit to starred"
 	case len(m.searchResults) == 0:
 		msg = "no matches"
 	case len(m.searchResults) == 1:
@@ -2367,11 +2477,17 @@ func (m Model) renderSearchResultRows(width int, chrome managerChrome) string {
 		if r.Read {
 			titleFg = chrome.muted
 		}
+		// Same fixed 2-cell column as the article list, so saved and unsaved
+		// results stay left-aligned with each other. These rows sit on the
+		// overlay surface, not the pane background, so the glyph carries
+		// chrome.baseBg explicitly.
+		star := m.searchResultStar(r.Starred, chrome)
 		title := lipgloss.NewStyle().
 			Background(chrome.baseBg).
 			Foreground(titleFg).
 			Bold(selected).
-			Render(truncate(unescapeDisplayText(r.Title), max(1, textW-1)))
+			Render(truncate(unescapeDisplayText(r.Title), max(1, textW-1-lipgloss.Width(star))))
+		title = star + title
 		lines = append(lines, softRail(chrome, selected, chrome.baseBg)+padStyled(title, textW, chrome.baseBg))
 
 		meta := r.FeedTitle
@@ -2385,6 +2501,26 @@ func (m Model) renderSearchResultRows(width int, chrome managerChrome) string {
 		lines = append(lines, padStyled(metaLine, width, chrome.baseBg))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+// searchResultStar is the search overlay's counterpart to articleRowStar: the
+// same fixed 2-cell column, drawn on the overlay surface instead of the pane
+// background.
+func (m Model) searchResultStar(starred bool, chrome managerChrome) string {
+	if !starred {
+		return padStyled("", 2, chrome.baseBg)
+	}
+	if m.styles.PlainUI {
+		return lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.text).Render("* ")
+	}
+	accent := starColor(m.styles.Theme)
+	if accent == "" {
+		accent = chrome.text
+	}
+	return lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Foreground(accent).
+		Render(m.styles.StarGlyph() + " ")
 }
 
 var snippetDelimStripper = strings.NewReplacer(db.SnippetOpen, "", db.SnippetClose, "")
@@ -2595,6 +2731,9 @@ func (m *Model) loadFeedsCmd() tea.Cmd {
 		if err != nil {
 			return FeedsLoadedMsg{Err: err}
 		}
+		// A failed count only costs the Saved badge its number, so it is not
+		// worth failing the whole feed load over.
+		savedCount, _ := db.CountStarred()
 		streams := map[int64]string{}
 		if client != nil {
 			remoteFeeds, remoteStreams, remoteErr := m.loadGReaderFeeds(context.Background())
@@ -2602,9 +2741,9 @@ func (m *Model) loadFeedsCmd() tea.Cmd {
 			if remoteStreams != nil {
 				streams = remoteStreams
 			}
-			return FeedsLoadedMsg{Feeds: feeds, Folders: folders, RemoteStreams: streams, Err: remoteErr}
+			return FeedsLoadedMsg{Feeds: feeds, Folders: folders, RemoteStreams: streams, SavedCount: savedCount, Err: remoteErr}
 		}
-		return FeedsLoadedMsg{Feeds: feeds, Folders: folders, RemoteStreams: streams}
+		return FeedsLoadedMsg{Feeds: feeds, Folders: folders, RemoteStreams: streams, SavedCount: savedCount}
 	}
 }
 
@@ -2706,6 +2845,33 @@ func (m *Model) selectPendingArticle() {
 	}
 	if idx := m.indexOfFilteredArticle(id); idx >= 0 {
 		m.articleCursor = idx
+	}
+}
+
+// articlesLoadIsCurrent reports whether an ArticlesLoadedMsg belongs to what
+// the sidebar has selected right now. Loads are async, so a result can land
+// after the cursor has already moved on.
+func (m Model) articlesLoadIsCurrent(feedID int64) bool {
+	if feedID == savedFeedID {
+		return m.savedSelected()
+	}
+	selected := m.selectedFeed()
+	return selected != nil && selected.ID == feedID
+}
+
+// loadSavedArticlesCmd loads the Saved virtual feed: every starred article
+// across the library, newest first.
+func (m *Model) loadSavedArticlesCmd() tea.Cmd {
+	database := m.db
+	return func() tea.Msg {
+		if database == nil {
+			return ArticlesLoadedMsg{FeedID: savedFeedID}
+		}
+		articles, err := database.ListStarredArticles(0)
+		if err != nil {
+			return ArticlesLoadedMsg{FeedID: savedFeedID, Err: err}
+		}
+		return ArticlesLoadedMsg{FeedID: savedFeedID, Articles: articles}
 	}
 }
 
@@ -2862,6 +3028,26 @@ func (m *Model) setArticleReadCmd(article db.Article, read, advance bool) tea.Cm
 			Read:      read,
 			Advance:   advance,
 		}
+	}
+}
+
+// setArticleStarredCmd persists a save/unsave off the update loop.
+func (m *Model) setArticleStarredCmd(article db.Article, starred bool) tea.Cmd {
+	database := m.db
+	return func() tea.Msg {
+		msg := ArticleStarUpdatedMsg{
+			ArticleID:  article.ID,
+			WasStarred: article.Starred,
+			Starred:    starred,
+		}
+		if database == nil {
+			msg.Err = fmt.Errorf("no database")
+			return msg
+		}
+		if err := database.SetStarred(article.ID, starred); err != nil {
+			msg.Err = err
+		}
+		return msg
 	}
 }
 
@@ -3097,9 +3283,24 @@ func summaryFilename(title string) string {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// rebuildSidebar projects feeds and folders into rows, then pins the virtual
+// rows on top. Virtual rows are added here rather than inside buildSidebarRows
+// so that function stays a pure view of the real feed tree.
 func (m *Model) rebuildSidebar() {
-	m.sidebarRows = buildSidebarRows(m.feeds, m.folders, m.collapsedFolders, true)
+	rows := []sidebarRow{{kind: rowKindSaved}}
+	rows = append(rows, buildSidebarRows(m.feeds, m.folders, m.collapsedFolders, true)...)
+	m.sidebarRows = rows
 	m.sidebarCursor = clamp(m.sidebarCursor, 0, max(0, len(m.sidebarRows)-1))
+}
+
+// savedSelected reports whether the sidebar cursor is on the Saved virtual
+// feed. Callers must check this wherever they would otherwise conclude from a
+// nil selectedFeed() that nothing is selected.
+func (m Model) savedSelected() bool {
+	if m.sidebarCursor < 0 || m.sidebarCursor >= len(m.sidebarRows) {
+		return false
+	}
+	return m.sidebarRows[m.sidebarCursor].kind == rowKindSaved
 }
 
 func buildSidebarRows(feeds []db.Feed, folders []db.Folder, collapsedFolders map[int64]bool, showUncategorized bool) []sidebarRow {
@@ -3296,8 +3497,11 @@ func (m Model) currentSidebarSelection() (sidebarRowKind, int64) {
 		return rowKindFeed, 0
 	}
 	row := m.sidebarRows[m.sidebarCursor]
-	if row.kind == rowKindFolder {
+	switch row.kind {
+	case rowKindFolder:
 		return rowKindFolder, row.folderID
+	case rowKindSaved:
+		return rowKindSaved, savedFeedID
 	}
 	return rowKindFeed, row.feedID
 }
@@ -3428,7 +3632,12 @@ func (m Model) folderUnreadCount(folderID int64) int64 {
 
 func (m Model) folderHeaderStyle(folderID int64, selected bool) lipgloss.Style {
 	accent := m.folderColor(folderID)
-	style := m.styles.FeedItem.Copy().Foreground(lipgloss.Color(m.styles.Theme.Dimmed)).Bold(true)
+	// Saved is a top-level navigation item, so its folder glyph and label need
+	// the normal readable sidebar text color rather than the low-contrast dimmed
+	// folder-header color.
+	style := m.styles.FeedItem.Copy().Foreground(
+		readableText(m.styles.Theme.Fg, m.styles.Theme.Bg, 7),
+	).Bold(true)
 	if accent != "" {
 		style = style.Foreground(accentReadableOn(accent, m.styles.Theme.Bg, 3))
 	}
@@ -3840,6 +4049,105 @@ func feedDisplayLabel(name string, icons bool) string {
 	return "\U000f046b " + name
 }
 
+// savedRowLabel is the sidebar caption for the Saved virtual feed.
+const savedRowLabel = "Saved"
+
+// renderSavedRow draws the Saved virtual feed. It sits at folder level rather
+// than feed level — it is not inside any folder — so it borrows the folder
+// header's shape, with no accent colour since it has no folder behind it.
+func (m Model) renderSavedRow(selected bool, width int) string {
+	star := m.styles.StarGlyph()
+	prefix := star + " "
+	label := folderDisplayLabel(savedRowLabel, false, m.iconsEnabled())
+
+	badge := ""
+	badgeStyle := m.styles.UnreadBadge
+	if selected {
+		badgeStyle = m.sidebarSelectedBadgeStyle("")
+	}
+	if m.savedCount > 0 {
+		badge = badgeStyle.Render(fmt.Sprintf("(%d)", m.savedCount))
+	}
+
+	style := m.styles.FeedItem.Copy().Foreground(lipgloss.Color(m.styles.Theme.Dimmed)).Bold(true)
+	if selected {
+		style = m.sidebarSelectedStyle("").Copy().Bold(true)
+	}
+
+	// Capture the existing star color before changing the folder glyph and label.
+	// This keeps the star exactly as rendered today, including selected rows.
+	starFg := starColor(m.styles.Theme)
+	if selected || starFg == "" {
+		starFg = terminalColorAsColor(style.GetForeground())
+	}
+
+	// Selection styles carry their own foreground, so assign the Saved label's
+	// high-contrast color only after the selected/unselected style is resolved.
+	rowBg := terminalColorAsColor(style.GetBackground())
+	if rowBg == "" {
+		rowBg = m.styles.Theme.Bg
+	}
+	style = style.Foreground(contrastFg(rowBg))
+
+	row := renderFeedRow(prefix, label, badge, width)
+	if starFg != "" {
+		// Keep the star separate from the folder glyph and label so each retains
+		// its intended contrast.
+		return renderStyledArticleRow(style, starFg, "", star, row[len(star):], width)
+	}
+	return style.Width(width).Render(row)
+}
+
+// starColor is the warm accent used for the saved glyph and to derive the
+// subtle starred-row tint.
+//
+// It returns empty on the retro terminal themes, which are deliberately
+// monochrome — the same guard folderColor applies to folder accents.
+func starColor(t Theme) lipgloss.Color {
+	if config.IsRetroTerminalTheme(string(t.Name)) {
+		return ""
+	}
+	// The star is a small glyph, so use a stronger contrast target than normal
+	// text; otherwise the warm accent can still look washed out on light themes.
+	return accentReadableOn(lipgloss.Color("#f9c74f"), t.Bg, 7)
+}
+
+func starredRowBackground(t Theme) lipgloss.Color {
+	accent := starColor(t)
+	if accent == "" {
+		return t.Bg
+	}
+	return mixColors(t.Bg, accent, 0.12)
+}
+
+// applyArticleRowState layers saved-row tinting under the cursor highlight. The
+// cursor always wins: a selected row reads as selected first, saved second.
+func applyArticleRowState(style, selected lipgloss.Style, starred, cursor bool, t Theme) lipgloss.Style {
+	if starred {
+		if bg := starredRowBackground(t); bg != t.Bg {
+			style = style.Copy().Background(bg)
+		}
+	}
+	if cursor {
+		return selected
+	}
+	return style
+}
+
+// articleRowStar is the fixed-width star column that follows the read/unread
+// dot. It always occupies 2 cells so rows stay aligned whether or not they are
+// saved, and it is deliberately plain text — the caller colors it as one of the
+// row's segments so the styling does not have to nest.
+func (m Model) articleRowStar(starred bool) string {
+	if !starred {
+		return "  "
+	}
+	if m.styles.PlainUI {
+		return "* " // vt52 ASCII fallback
+	}
+	return m.styles.StarGlyph() + " "
+}
+
 func (m Model) renderFolderHeader(folderID int64, selected bool, width int) string {
 	icon := "v "
 	label := m.folderName(folderID)
@@ -3884,17 +4192,63 @@ func (m Model) renderSidebarFeedRow(feed db.Feed, selected bool, width int) stri
 	return style.Width(width).Render(row)
 }
 
-func renderArticleRow(prefix, title, age string, width int) string {
+// articleRowSegments lays out one article list row and returns it split at the
+// star column: everything before the star, the star column itself, and the rest.
+//
+// The split exists so a caller can give the star its own foreground without an
+// ANSI reset cutting the row short. lipgloss does not re-open an outer style
+// after a nested Render's reset, so styling the whole row once and embedding a
+// colored glyph inside it leaves the title and date unstyled — losing both the
+// row's text color and, on a saved row, its background tint.
+//
+// All three segments are plain text, so the width math stays exact.
+func articleRowSegments(prefix, star, title, age string, width int) (left, mid, right string) {
 	prefixW := lipgloss.Width(prefix)
+	starW := lipgloss.Width(star)
 	ageW := lipgloss.Width(age)
 	gapW := 2
 	if age == "" {
 		gapW = 0
 	}
 	title = stripEmailInvisibles(title)
-	titleW := max(0, width-prefixW-ageW-gapW)
-	row := prefix + padRight(truncate(title, titleW), titleW) + strings.Repeat(" ", gapW) + age
-	return padRight(row, width)
+	titleW := max(0, width-prefixW-starW-ageW-gapW)
+	right = padRight(truncate(title, titleW), titleW) + strings.Repeat(" ", gapW) + age
+	// Pad the tail so prefix+star+right is exactly width.
+	if pad := width - prefixW - starW - lipgloss.Width(right); pad > 0 {
+		right += strings.Repeat(" ", pad)
+	}
+	return prefix, star, right
+}
+
+// renderStyledArticleRow paints a row whose star column carries its own accent.
+//
+// The three segments are rendered separately so each re-states the row's colors,
+// but the row style's padding must not be re-applied per segment — in the
+// comfortable density it is a trailing spacer line, and three Renders would
+// stack three of them and break the pane's line count. Padding is therefore
+// stripped for the segments and re-emitted once, with the row's background so a
+// saved row's tint covers its spacer too.
+func renderStyledArticleRow(style lipgloss.Style, accent lipgloss.Color, left, star, right string, width int) string {
+	body := style.Copy().UnsetPadding()
+	line := body.Render(left) + body.Copy().Foreground(accent).Render(star) + body.Render(right)
+
+	blank := body.Copy().Width(width).Render("")
+	for i := 0; i < style.GetPaddingTop(); i++ {
+		line = blank + "\n" + line
+	}
+	for i := 0; i < style.GetPaddingBottom(); i++ {
+		line += "\n" + blank
+	}
+	return line
+}
+
+// renderArticleRow is the unstyled form of a row: the segments concatenated.
+// star is its own fixed-width column between the read/unread dot and the title,
+// so titles stay vertically aligned whether or not a row is saved. Callers pass
+// the padding for an unsaved row rather than an empty string.
+func renderArticleRow(prefix, star, title, age string, width int) string {
+	left, mid, right := articleRowSegments(prefix, star, title, age, width)
+	return left + mid + right
 }
 
 func (m Model) iconsEnabled() bool {
@@ -3910,6 +4264,9 @@ func (m Model) headerLabel(label string) string {
 		return "◉ Feeds"
 	case "Content":
 		return "▣ Content"
+	}
+	if strings.HasPrefix(label, savedRowLabel) {
+		return m.styles.StarGlyph() + " " + label
 	}
 	if strings.HasPrefix(label, "Articles") {
 		return strings.Replace(label, "Articles", "≣ Articles", 1)
@@ -3953,6 +4310,17 @@ func (m Model) articleRowPrefix(read bool) string {
 		return "· "
 	}
 	return "● "
+}
+
+// emptyArticlesHint explains an empty article pane. The Saved view gets its own
+// wording because "no articles" reads like a bug there, when it actually means
+// the user has not saved anything yet.
+func (m Model) emptyArticlesHint() string {
+	if m.savedSelected() {
+		return fmt.Sprintf("  nothing starred yet — press %s to star an article",
+			m.keys.ToggleStar.Help().Key)
+	}
+	return "  no articles"
 }
 
 func (m Model) emptyFeedsHint() string {

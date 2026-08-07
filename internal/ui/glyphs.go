@@ -23,6 +23,15 @@ func (s Styles) InlineMidDot() string {
 	return " · "
 }
 
+// StarGlyph marks a saved article. The ASCII fallback covers both the vt52
+// theme and terminals configured without icons.
+func (s Styles) StarGlyph() string {
+	if s.PlainUI {
+		return "*"
+	}
+	return "★"
+}
+
 func aiConnectionStatusGlyph(plain bool, state aiConnectionState) string {
 	if plain {
 		switch state {

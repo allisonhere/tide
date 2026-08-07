@@ -67,7 +67,7 @@ func (db *DB) init() error {
 
 // latestSchemaVersion is the PRAGMA user_version a fully migrated database
 // reports. Bump it whenever a new migration block is added below.
-const latestSchemaVersion = 7
+const latestSchemaVersion = 8
 
 // migrateSchema applies incremental ALTER TABLE migrations tracked by
 // PRAGMA user_version so they are applied exactly once.
@@ -154,6 +154,21 @@ func (db *DB) migrateSchema() error {
 			return err
 		}
 		if _, err := db.Exec(`PRAGMA user_version = 7`); err != nil {
+			return err
+		}
+	}
+	if version < 8 {
+		if _, err := db.Exec(`ALTER TABLE articles ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return err
+			}
+		}
+		// Partial index: the Saved view and `is:starred` only ever ask for
+		// starred = 1, and starred rows are a small fraction of the table.
+		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_articles_starred ON articles(starred, published_at DESC) WHERE starred = 1`); err != nil {
+			return err
+		}
+		if _, err := db.Exec(`PRAGMA user_version = 8`); err != nil {
 			return err
 		}
 	}

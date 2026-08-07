@@ -569,7 +569,7 @@ func TestLocalReadArticlesDisappearAfterRefreshReload(t *testing.T) {
 	m = m2.(Model)
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{{ID: feedID, Title: "Local Feed", URL: "https://example.com/feed.xml"}}})
 	m = m2.(Model)
-	m.sidebarCursor = 0
+	m.selectSidebarFeed(feedID)
 	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: feedID, Articles: []db.Article{
 		{ID: 1, FeedID: feedID, GUID: "readme", Title: "Read Me", Link: "https://example.com/read", Content: "one", PublishedAt: unixTestTime(1710000100), Read: true},
 		{ID: 2, FeedID: feedID, GUID: "keepme", Title: "Keep Me", Link: "https://example.com/keep", Content: "two", PublishedAt: unixTestTime(1710000000), Read: false},
@@ -935,10 +935,12 @@ func TestIconsToggleChangesRenderedPaneMarkers(t *testing.T) {
 	if !containsString(view, "≣ Articles") {
 		t.Fatalf("expected articles header icon when icons are enabled: %q", view)
 	}
-	if !containsString(view, "● Unread Article") {
+	// The extra two cells between marker and title are the (empty) star column;
+	// see renderArticleRow.
+	if !containsString(view, "●   Unread Article") {
 		t.Fatalf("expected unread article icon when icons are enabled: %q", view)
 	}
-	if !containsString(view, "· Read Article") {
+	if !containsString(view, "·   Read Article") {
 		t.Fatalf("expected read article marker when icons are enabled: %q", view)
 	}
 }
@@ -2625,7 +2627,7 @@ func newArticleFocusTestModel(t *testing.T, cfg config.Config, articles []db.Art
 	feed := db.Feed{ID: 1, Title: "Feed One", URL: "https://example.com/feed", UnreadCount: int64(len(articles))}
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
 	m = m2.(Model)
-	m.sidebarCursor = 0
+	m.selectSidebarFeed(feed.ID)
 	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: articles})
 	m = m2.(Model)
 	m.focused = paneArticles
@@ -2809,7 +2811,7 @@ func TestArticleReadUpdatedAdvancesToNextArticleInArticlesPane(t *testing.T) {
 	feed := db.Feed{ID: 1, Title: "Feed One", URL: "https://example.com/feed"}
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
 	m = m2.(Model)
-	m.sidebarCursor = 0
+	m.selectSidebarFeed(feed.ID)
 
 	articles := []db.Article{
 		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: "one", PublishedAt: unixTestTime(1710000100), Read: false},
@@ -2851,7 +2853,7 @@ func TestArticleReadUpdatedDoesNotAdvanceOutsideArticlesPane(t *testing.T) {
 	feed := db.Feed{ID: 1, Title: "Feed One", URL: "https://example.com/feed"}
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
 	m = m2.(Model)
-	m.sidebarCursor = 0
+	m.selectSidebarFeed(feed.ID)
 
 	articles := []db.Article{
 		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: "one", PublishedAt: unixTestTime(1710000100), Read: false},
@@ -2890,7 +2892,7 @@ func TestMarkReadKeyTogglesArticleBackToUnread(t *testing.T) {
 	feed := db.Feed{ID: 1, Title: "Feed One", URL: "https://example.com/feed"}
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
 	m = m2.(Model)
-	m.sidebarCursor = 0
+	m.selectSidebarFeed(feed.ID)
 	m.focused = paneContent
 	m.articles = []db.Article{
 		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: "one", PublishedAt: unixTestTime(1710000100), Read: true},
@@ -2964,7 +2966,7 @@ func TestMarkReadKeyAdvancesToNextArticleFromContentPane(t *testing.T) {
 	feed := db.Feed{ID: 1, Title: "Feed One", URL: "https://example.com/feed"}
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{feed}})
 	m = m2.(Model)
-	m.sidebarCursor = 0
+	m.selectSidebarFeed(feed.ID)
 	m.focused = paneContent
 	m.articles = []db.Article{
 		{ID: 1, FeedID: 1, Title: "Article One", Link: "https://example.com/a", Content: "one", PublishedAt: unixTestTime(1710000100), Read: false},
@@ -3326,7 +3328,7 @@ func TestRenderArticleContentStripsInvisibleTitleCharacters(t *testing.T) {
 func TestRenderArticleRowStripsInvisibleTitleCharacters(t *testing.T) {
 	title := "Visible" + strings.Repeat("\u200b\u200c\u200d\u2060\ufeff", 30) + " title"
 
-	got := renderArticleRow("• ", title, "now", 32)
+	got := renderArticleRow("• ", "  ", title, "now", 32)
 
 	if containsAny(got, []string{"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"}) {
 		t.Fatalf("expected article row to strip invisible title characters, got %q", got)
@@ -3471,8 +3473,12 @@ func TestFolderSelectionClearsArticlesAndToggleCollapses(t *testing.T) {
 
 	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = m2.(Model)
-	if len(m.sidebarRows) != 1 {
-		t.Fatalf("expected collapsed folder to hide feed rows, got %d sidebar rows", len(m.sidebarRows))
+	// Assert on feed rows rather than a total row count: the sidebar also
+	// carries pinned virtual rows (Saved) that no folder can collapse.
+	for _, row := range m.sidebarRows {
+		if row.kind == rowKindFeed {
+			t.Fatalf("expected collapsed folder to hide feed rows, got %+v", m.sidebarRows)
+		}
 	}
 }
 

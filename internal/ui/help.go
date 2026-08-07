@@ -47,6 +47,16 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 				{keys.ContentSearch.Help().Key, "find text in current article; enter/down next, up previous"},
 				{keys.Search.Help().Key, "search titles, content, and summaries across stored local feeds"},
 				{keys.UnreadOnly.Help().Key, "toggle unread-only view"},
+				{keys.ToggleStar.Help().Key, "star / unstar the selected article"},
+			},
+		},
+		{
+			name: "Saved",
+			entries: []entry{
+				{keys.ToggleStar.Help().Key, "star the selected article, or unstar it"},
+				{"★ Saved", "virtual feed at the top of the sidebar; every starred article"},
+				{keys.Search.Help().Key + " is:starred", "limit a search to starred articles"},
+				{"is:starred", "on its own, browses everything starred"},
 			},
 		},
 		{

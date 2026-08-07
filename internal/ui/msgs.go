@@ -11,6 +11,7 @@ type FeedsLoadedMsg struct {
 	Feeds         []db.Feed
 	Folders       []db.Folder
 	RemoteStreams map[int64]string
+	SavedCount    int64
 	Err           error
 }
 type ArticlesLoadedMsg struct {
@@ -72,6 +73,15 @@ type ArticleReadUpdatedMsg struct {
 	Read      bool
 	Advance   bool
 	Err       error
+}
+
+// ArticleStarUpdatedMsg reports the outcome of a save/unsave. WasStarred lets
+// the model correct the Saved badge without re-querying.
+type ArticleStarUpdatedMsg struct {
+	ArticleID  int64
+	WasStarred bool
+	Starred    bool
+	Err        error
 }
 type FeedsReadUpdatedMsg struct {
 	FeedIDs []int64
