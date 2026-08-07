@@ -25,6 +25,7 @@ type KeyMap struct {
 	PrevLink    key.Binding
 	Search      key.Binding
 	UnreadOnly  key.Binding
+	ToggleStar  key.Binding
 
 	FeedManager   key.Binding
 	ThemePicker   key.Binding
@@ -81,6 +82,7 @@ var DefaultKeys = KeyMap{
 	PrevLink:    key.NewBinding(key.WithKeys("ctrl+p", "alt+p"), key.WithHelp("ctrl+p", "prev link")),
 	Search:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 	UnreadOnly:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle unread only")),
+	ToggleStar:  key.NewBinding(key.WithKeys("*", "b"), key.WithHelp("*/b", "star article")),
 
 	FeedManager:   key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "feed manager")),
 	ThemePicker:   key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "theme picker")),

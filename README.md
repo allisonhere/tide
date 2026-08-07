@@ -244,10 +244,40 @@ Tide can check GitHub releases for a newer version and install the matching bina
 |-----|--------|
 | `r` | Toggle read/unread |
 | `R` | Mark all read |
+| `*` / `b` | Star article (save for later) |
+| `u` | Toggle unread-only view |
 | `o` | Open selected content link (when enabled) or article URL |
 | `Ctrl+N` / `Alt+N` | Next actionable link in content pane |
 | `Ctrl+P` / `Alt+P` | Previous actionable link in content pane |
 | `/` | Search |
+
+### Saved
+
+Starring is separate from read state, so an article stays starred after you have
+read it. Press `*` or `b` on any article to toggle it; starred articles show a `★`
+in a dedicated column between the read marker and the title.
+
+**★ Saved** is a virtual feed pinned to the top of the sidebar. It collects every
+starred article across all feeds, newest first, with a badge showing the total.
+
+In search, the `is:starred` filter limits results to starred articles:
+
+| Query | Result |
+|-------|--------|
+| `is:starred` | Browse everything starred |
+| `rust is:starred` | Starred articles matching "rust" |
+
+`is:saved` and `is:star` are accepted as aliases. The filter can appear anywhere
+in the query and combines with the unread-only toggle.
+
+Note that "star" is the action and **Saved** is the place it puts things — "save"
+on its own is reserved elsewhere in Tide for writing an edit (saving a feed, a
+folder, or settings).
+
+Starring requires a locally stored article. Google Reader feeds are fetched live
+and never persisted, so starring a remote article is refused rather than silently
+lost. Starred articles are never pruned, but deleting a feed removes its articles,
+starred ones included.
 
 When `Display → Focus line` is enabled, the content pane highlights the current readable line. `j/↓` and `k/↑` move the focus line and scroll only when needed.
 
