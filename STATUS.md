@@ -1,8 +1,9 @@
-# Status — 2026-03-29
+# Status — 2026-09-01
 
-## Current branch: main (b728584)
+## Current branch: feat/article-images
 
 ## What's working
+- Optional article images in the Content pane via the Kitty graphics protocol (`Settings → Display → Article images`, off by default): conservative terminal detection (Kitty/Ghostty/WezTerm/Konsole) with cell-pixel-size query, lazy fetch with disk cache under `~/.cache/rss/images/`, aspect-preserving resize capped at ~12 rows. Wide panes float the image top-left with the first lines of text wrapped beside it; narrow panes use a full-width band above the text. The Kitty escape sequence rides the Bubble Tea `View()` frame (single writer, no side channel) so it cannot be chopped and never overwrites the image. `i` toggles per article; cleanup on scroll/resize/overlay/theme/article-change/quit. Clean text-only fallback on unsupported terminals. Isolated in `internal/image/`; `TIDE_IMAGE_DEBUG=<file>` logs the lifecycle and `go run ./cmd/imgcheck [feed-url]` tests each stage in isolation.
 - Feed manager overlay: add / edit / delete / import OPML / export OPML
 - Blinking cursor in add/edit inputs via bubbles textinput
 - Accent left-border focus indicator on inputs; title field focused first on new add

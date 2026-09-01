@@ -45,6 +45,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 				{keys.NextLink.Help().Key, "next actionable link in content"},
 				{keys.PrevLink.Help().Key, "previous actionable link in content"},
 				{keys.ContentSearch.Help().Key, "find text in current article; enter/down next, up previous"},
+				{keys.ToggleImage.Help().Key, "show/hide the lead image for this article (when article images are on)"},
 				{keys.Search.Help().Key, "search titles, content, and summaries across stored local feeds"},
 				{keys.UnreadOnly.Help().Key, "toggle unread-only view"},
 				{keys.ToggleStar.Help().Key, "star / unstar the selected article"},
@@ -88,6 +89,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 				{"S → Display", "layout density: comfortable or compact (default compact)"},
 				{"S → Display", "focus line: highlight current readable content line"},
 				{"S → Display", "actionable article links: show links block and enable link navigation"},
+				{"S → Display", "article images: lead image at the top of the content pane (Kitty terminals; i toggles)"},
 			},
 		},
 		{

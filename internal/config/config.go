@@ -33,6 +33,7 @@ type DisplayConfig struct {
 	DefaultUnreadOnly        bool               `toml:"default_unread_only"`
 	ActionableLinks          bool               `toml:"actionable_links"`
 	FilterLinks              bool               `toml:"filter_links"`
+	ArticleImages            bool               `toml:"article_images"`
 	ReadingWidth             int                `toml:"reading_width"` // 0 = no limit
 	FeedPaneWidthPercent     int                `toml:"feed_pane_width_percent"`
 	ArticlePaneHeightPercent int                `toml:"article_pane_height_percent"`

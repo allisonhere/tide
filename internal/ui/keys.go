@@ -39,6 +39,7 @@ type KeyMap struct {
 	CopyText      key.Binding // copy summary to clipboard
 	SaveMD        key.Binding // save summary as .md file
 	ContentSearch key.Binding // find text in the current article
+	ToggleImage   key.Binding // show/hide the lead image for the current article
 
 	// Feed manager specific
 	Add       key.Binding
@@ -96,6 +97,7 @@ var DefaultKeys = KeyMap{
 	CopyText:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
 	SaveMD:        key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "save .md")),
 	ContentSearch: key.NewBinding(key.WithKeys("ctrl+f"), key.WithHelp("ctrl+f", "find")),
+	ToggleImage:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "show/hide image")),
 
 	Add:       key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 	AddFolder: key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "add folder")),

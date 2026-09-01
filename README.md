@@ -20,6 +20,7 @@ The reusable themed UI toolkit derived from Tide is available as
 - Unread-only filtering and in-article find
 - Mark read/unread, open in browser
 - Optional actionable links in content pane (Settings → Display)
+- **Optional article images in the content pane** (Kitty graphics; Settings → Display; off by default) — text wraps beside the image, `i` toggles per article, clean text-only fallback everywhere else
 - AI summaries with copy and save-to-Markdown actions
 - 19 built-in themes, including customizable VT52 and VT100 palettes
 - Terminal background sync (OSC 11)
@@ -126,6 +127,7 @@ Display options:
 - Set the article reading width (`0` means no limit)
 - Toggle actionable article links (shows a `LINKS` block in content pane)
 - Filter links out of article body text
+- Toggle article images (renders the lead image at the top of the content pane on Kitty-capable terminals; default off)
 - **Layout density:** comfortable (extra vertical spacing in lists) or **compact** (default; more rows on small terminals)
 - Set a custom browser command
 - Toggle the quit confirmation
@@ -152,6 +154,40 @@ About:
 - Includes a small signed note and project tagline
 
 Settings are saved to `~/.config/rss/config.toml`.
+
+## Article Images
+
+Tide can render an article's lead image at the top of the Content pane. It is **off by
+default** and text stays first-class:
+
+- Enable it under `Settings → Display → Article images`, or set `article_images = true`
+  in the `[display]` block of `config.toml`.
+- It uses the **Kitty graphics protocol**. Supported terminals: Kitty, Ghostty, WezTerm,
+  and Konsole 22.04+. On any other terminal the setting is inert — articles render exactly
+  as before, with no error and no placeholder.
+- The image is chosen from the feed metadata (Media RSS `media:content` / `media:thumbnail`,
+  an image `enclosure`, the item `<image>`), falling back to the first meaningful `<img>` in
+  the article HTML. Tracking pixels, spacers, avatars, icons and logos are skipped.
+- It is fetched lazily the first time you open the article, cached on disk under
+  `~/.cache/rss/images/`, and capped at roughly 8–12 rows.
+- On a wide enough reading column the image floats at the top-left and the first lines of
+  the article wrap to its right, magazine style. On a narrow column it falls back to a
+  full-width image with the text below it.
+- The image is part of the top of the article: scroll past it and it hides (the text
+  reflows to full width); scroll back to the top and it returns. It is also cleared
+  automatically on resize, overlays (Settings/help/search/feed manager), theme changes,
+  article changes and quit.
+- Press `i` (focus in the Content pane) to hide/show the image for the current article
+  without changing the global setting.
+
+Terminal detection runs once at startup. If you enable the setting while running in a
+terminal that does not advertise Kitty support in its environment, restart Tide to
+activate it.
+
+**Troubleshooting.** Run `go run ./cmd/imgcheck [feed-url]` to exercise each stage
+(terminal detection, image extraction, download, decode, resize, and a real draw) in
+isolation. Set `TIDE_IMAGE_DEBUG=/path/to/log` before launching Tide to log the image
+lifecycle (detection result, fetch outcome, and every placement).
 
 ## AI Summaries
 
@@ -203,6 +239,7 @@ focus_line = true
 default_unread_only = false
 actionable_links = false
 filter_links = false
+article_images = false
 reading_width = 0
 feed_pane_width_percent = 28
 article_pane_height_percent = 40
@@ -289,6 +326,7 @@ Pushing the tag starts the GitHub Actions release workflow. CI tests again, buil
 | `Ctrl+N` / `Alt+N` | Next actionable link in content pane |
 | `Ctrl+P` / `Alt+P` | Previous actionable link in content pane |
 | `Ctrl+F` | Find text in the current article; `Enter`/`↓` selects the next match and `↑` the previous match |
+| `i` | Show/hide the lead image for the current article (only when **Article images** is on and the focus is in the Content pane) |
 | `/` | Search titles, content, and summaries across all stored local articles |
 
 Search results are ranked by relevance and include their source feed and a matching excerpt. Press `Enter` to jump to a result. Google Reader-compatible articles are loaded from the remote service rather than stored locally, so they are not included in library search.

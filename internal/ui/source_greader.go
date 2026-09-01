@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/allisonhere/tide/internal/db"
+	"github.com/allisonhere/tide/internal/feed"
 	"github.com/allisonhere/tide/internal/greader"
 )
 
@@ -136,6 +137,7 @@ func (m Model) loadGReaderArticles(ctx context.Context, feedID int64) ([]db.Arti
 			Title:       title,
 			Link:        strings.TrimSpace(entry.Link),
 			Content:     m.normalizeRemoteArticleContent(entry.ContentHTML, entry.Link),
+			ImageURL:    feed.LeadImageFromHTML(entry.ContentHTML),
 			PublishedAt: entry.PublishedAt,
 			Read:        entry.Read,
 		})

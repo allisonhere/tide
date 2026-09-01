@@ -67,7 +67,7 @@ func (db *DB) init() error {
 
 // latestSchemaVersion is the PRAGMA user_version a fully migrated database
 // reports. Bump it whenever a new migration block is added below.
-const latestSchemaVersion = 8
+const latestSchemaVersion = 9
 
 // migrateSchema applies incremental ALTER TABLE migrations tracked by
 // PRAGMA user_version so they are applied exactly once.
@@ -169,6 +169,16 @@ func (db *DB) migrateSchema() error {
 			return err
 		}
 		if _, err := db.Exec(`PRAGMA user_version = 8`); err != nil {
+			return err
+		}
+	}
+	if version < 9 {
+		if _, err := db.Exec(`ALTER TABLE articles ADD COLUMN image_url TEXT NOT NULL DEFAULT ''`); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return err
+			}
+		}
+		if _, err := db.Exec(`PRAGMA user_version = 9`); err != nil {
 			return err
 		}
 	}

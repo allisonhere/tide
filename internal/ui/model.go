@@ -142,6 +142,17 @@ type Model struct {
 	contentSearchMatches []int
 	contentSearchIdx     int
 
+	// Article images (see images.go). imgRenderer is always non-nil; it is a
+	// no-op until EnableImages installs a real backend at startup.
+	imgRenderer imageRenderer
+	imgCap      imageCapability
+	imgFetcher  *imageFetcher
+	imgHidden   map[int64]bool // per-article "hide image" toggle bound to `i`
+	imgGen      uint64         // bumped on any change that starts a new fetch
+	imgDirty    bool           // article changed / `i` toggled: needs a fetch pass
+	imgCancel   func()         // cancels the in-flight fetch
+	image       imageState
+
 	// Help overlay
 	helpVP viewport.Model
 
@@ -265,6 +276,9 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string, preview
 		contentLinkIdx:        -1,
 		contentSearchInput:    csi,
 		contentSearchIdx:      -1,
+		imgRenderer:           imageNoopRenderer(),
+		imgFetcher:            newImageFetcher(),
+		imgHidden:             map[int64]bool{},
 	}
 	m.resetSourceClient()
 	m.restoreCachedUpdateState()
@@ -286,13 +300,28 @@ func (m Model) Init() tea.Cmd {
 
 // ── Update ───────────────────────────────────────────────────────────────────
 
+// Update is a thin wrapper around update() that funnels every return path
+// through the article-image lifecycle drain, so any state change that affects
+// the lead image (article switch, scroll, resize, overlay, …) is reconciled in
+// exactly one place instead of at ~40 call sites.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	mm, ok := next.(Model)
+	if !ok {
+		return next, cmd
+	}
+	mm.syncImageFloatLayout()
+	return mm.drainImageCmd(cmd)
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Update handles async results before key routing so completed commands cannot be swallowed by modal focus. -allie
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.refreshImageCellSize()
 		m.viewport = viewport.New(m.contentBodyWidth(), m.contentBodyHeight())
 		m.viewport.Style = lipgloss.NewStyle()
 		if len(m.filteredArticles) > 0 {
@@ -421,7 +450,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(msg.Err.Error(), true)
 			return m, m.clearStatusCmd()
 		}
-		return m, tea.Quit
+		return m, m.quitCmd()
 
 	case FeedsLoadedMsg:
 		// Reloads preserve the user's sidebar intent, unless a save flow requested a specific feed selection. -allie
@@ -881,6 +910,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case articleImageReadyMsg:
+		return m.handleArticleImageReady(msg)
+
 	case AISummaryFetchedMsg:
 		m.summaryGenerating = false
 		if msg.Err != nil {
@@ -960,7 +992,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case keyMatches(msg, m.keys.Quit):
 		if !m.cfg.Display.ConfirmQuit {
-			return m, tea.Quit
+			return m, m.quitCmd()
 		}
 		m.overlay = overlayQuitConfirm
 		return m, nil
@@ -1186,6 +1218,10 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.showAvailableUpdatePrompt() {
 			return m, m.dismissAvailableUpdate()
 		}
+		if m.focused == paneContent && m.imagesActive() && m.contentArticleID != 0 {
+			m.toggleCurrentArticleImage()
+			return m, nil // drainImageCmd (via the Update wrapper) does the fetch/redraw
+		}
 		return m, nil
 
 	case keyMatches(msg, m.keys.Space):
@@ -1321,7 +1357,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case overlayQuitConfirm:
 		switch {
 		case keyMatches(msg, m.keys.Yes), keyMatches(msg, m.keys.Confirm):
-			return m, tea.Quit
+			return m, m.quitCmd()
 		case keyMatches(msg, m.keys.No), keyMatches(msg, m.keys.Cancel):
 			m.overlay = overlayNone
 		}
@@ -1535,6 +1571,7 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.spinner.Spinner = spinner.Dot
 			}
 			feed.SetMaxFeedBodyBytes(m.cfg.Feed.MaxBodyMiB << 20)
+			m.reconcileImagesAfterSettings()
 			config.Save(m.cfg)
 			summarizer, _ := ai.New(m.cfg.AI)
 			m.summarizer = summarizer
@@ -1628,11 +1665,16 @@ func (m Model) View() string {
 		view = m.renderOverlay(view)
 	}
 	view = clampView(view, m.width, m.height, m.styles.Theme.Bg)
-	return lipgloss.NewStyle().
+	out := lipgloss.NewStyle().
 		Width(m.width).
 		Height(m.height).
 		Background(m.styles.Theme.Bg).
 		Render(view)
+
+	// Append the article-image escape sequence as a zero-width suffix so it
+	// rides the Bubble Tea frame: one writer, and it lands after every text
+	// cell is painted so nothing overwrites the image.
+	return out + m.imageFrameSequence()
 }
 
 // ── Pane renderers ────────────────────────────────────────────────────────────
@@ -1915,8 +1957,18 @@ func (m Model) renderArticleContent(a db.Article) string {
 		body += "\n\n" + m.renderContentLinks(bodyWidth)
 	}
 
+	// Lay the body out around the lead image: wrap the first rows of text beside
+	// a floated image, or reserve a full-width blank band above the text. The
+	// graphics backend paints the actual pixels into those cells after Bubble
+	// Tea draws the frame; the region scrolls with the article.
+	body = m.applyImageLayout(body)
+
 	return fillViewWidth(title+"\n"+meta+"\n\n"+body, m.articlesPaneWidth(), m.styles.Theme.Bg)
 }
+
+// imageBodyTopLine is the 0-based line index within the Content viewport where
+// the reserved image region begins: title (0), meta (1), blank (2), then body.
+const imageBodyTopLine = 3
 
 func (m Model) renderContentLinks(width int) string {
 	lines := make([]string, 0, len(m.contentLinks)+1)
@@ -1945,6 +1997,7 @@ func (m Model) actionableLinksEnabled() bool {
 
 func (m *Model) setViewportArticle(a db.Article) {
 	sameArticle := m.contentArticleID == a.ID && m.contentLineCount > 0
+	m.noteContentArticleForImage(a)
 	m.syncContentLinks(a)
 	content := m.renderArticleContent(a)
 	m.contentSearchMatches = collectSearchMatches(content, m.contentSearchQuery)
@@ -2969,6 +3022,7 @@ func (m *Model) refreshFeedCmd(feedID int64, feedURL string, manual bool) tea.Cm
 				Title:       item.Title,
 				Link:        item.Link,
 				Content:     content,
+				ImageURL:    item.ImageURL,
 				PublishedAt: item.PublishedAt,
 			})
 		}

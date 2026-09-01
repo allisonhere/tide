@@ -37,6 +37,7 @@ const (
 	sfDefaultUnreadOnly
 	sfActionableLinks
 	sfFilterLinks
+	sfArticleImages
 	sfReadingWidth
 	sfDisplayDensity
 	sfBrowser
@@ -172,6 +173,7 @@ type Settings struct {
 	defaultUnreadOnly    bool
 	actionableLinks      bool
 	filterLinks          bool
+	articleImages        bool
 	confirmQuit          bool
 	layoutDensityIdx     int // 0 = comfortable, 1 = compact
 	readingWidthInput    textinput.Model
@@ -251,6 +253,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		defaultUnreadOnly:    cfg.Display.DefaultUnreadOnly,
 		actionableLinks:      cfg.Display.ActionableLinks,
 		filterLinks:          cfg.Display.FilterLinks,
+		articleImages:        cfg.Display.ArticleImages,
 		confirmQuit:          cfg.Display.ConfirmQuit,
 		layoutDensityIdx:     layoutIdx,
 		readingWidthInput:    mkInput(strconv.Itoa(cfg.Display.ReadingWidth), "0 (no limit)", false),
@@ -305,6 +308,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	cfg.Display.DefaultUnreadOnly = s.defaultUnreadOnly
 	cfg.Display.ActionableLinks = s.actionableLinks
 	cfg.Display.FilterLinks = s.filterLinks
+	cfg.Display.ArticleImages = s.articleImages
 	cfg.Display.ConfirmQuit = s.confirmQuit
 	if w, err := strconv.Atoi(strings.TrimSpace(s.readingWidthInput.Value())); err == nil {
 		cfg.Display.ReadingWidth = max(0, w)
@@ -515,7 +519,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
-		return append(fields, sfActionableLinks, sfFilterLinks, sfBrowser, sfConfirmQuit)
+		return append(fields, sfActionableLinks, sfFilterLinks, sfArticleImages, sfBrowser, sfConfirmQuit)
 	case ssFeeds:
 		return []settingsField{sfBackToSections, sfFeedMaxBody}
 	case ssUpdates:
@@ -981,6 +985,15 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
+	case sfArticleImages:
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.articleImages = !s.articleImages
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
 	case sfConfirmQuit:
 		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.confirmQuit = !s.confirmQuit
@@ -1255,6 +1268,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		}
 		b.addToggle("Actionable article links", s.actionableLinks, sfActionableLinks)
 		b.addToggle("Filter links from articles", s.filterLinks, sfFilterLinks)
+		b.addToggle("Article images", s.articleImages, sfArticleImages)
 		b.addInput("Browser command", s.browserInput, sfBrowser)
 		b.addToggle("Confirm before quitting", s.confirmQuit, sfConfirmQuit)
 
@@ -2073,6 +2087,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "enable ctrl+n / ctrl+p to select links in article content; o opens selected link"
 	case sfFilterLinks:
 		return "strip bare URLs from the article body text"
+	case sfArticleImages:
+		return "show the article's lead image at the top of the content pane (Kitty-capable terminals; i toggles per article)"
 	case sfFocusLine:
 		return "highlight the current readable line in the content pane"
 	case sfUpdateManualCommand:

@@ -24,6 +24,7 @@ type ParsedItem struct {
 	Title       string
 	Link        string
 	Content     string // raw HTML
+	ImageURL    string // best-guess lead image, "" when none found
 	PublishedAt time.Time
 }
 
@@ -148,6 +149,7 @@ func parseItem(item *gofeed.Item) ParsedItem {
 		Title:       item.Title,
 		Link:        item.Link,
 		Content:     content,
+		ImageURL:    leadImageURL(item),
 		PublishedAt: pub,
 	}
 }

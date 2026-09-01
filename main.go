@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime/debug"
@@ -12,6 +13,7 @@ import (
 	"github.com/allisonhere/tide/internal/config"
 	"github.com/allisonhere/tide/internal/db"
 	"github.com/allisonhere/tide/internal/feed"
+	"github.com/allisonhere/tide/internal/image"
 	"github.com/allisonhere/tide/internal/ui"
 )
 
@@ -50,6 +52,22 @@ func main() {
 
 	// --preview-manual-update: open Settings on Updates with a demo manual-install command (dev UI).
 	model := ui.NewModel(database, cfg, resolvedVersion(), previewManualUpdate)
+
+	// Article images: detect terminal graphics support once, before Bubble Tea
+	// takes over the terminal. The active probe only runs when the feature is
+	// enabled, so an unrelated startup pays nothing. The renderer emits escape
+	// sequences into the Bubble Tea frame, so it needs no side channel.
+	imgCap := image.Detect(os.Getenv, cfg.Display.ArticleImages)
+	if cfg.Display.ArticleImages && imgCap.Supported {
+		model.EnableImages(imgCap, image.NewKittyRenderer())
+	} else {
+		model.EnableImages(imgCap, nil)
+	}
+	// Belt-and-suspenders cleanup: after Bubble Tea releases the terminal, purge
+	// any lingering images. Leaving the alt-screen clears them on most terminals.
+	cleanupImages := func() { io.WriteString(os.Stdout, image.DeleteAllSequence()) }
+	defer cleanupImages()
+
 	p := tea.NewProgram(model,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
@@ -58,12 +76,14 @@ func main() {
 	defer func() {
 		if r := recover(); r != nil {
 			p.Kill()
+			cleanupImages()
 			fmt.Fprintln(os.Stderr, "panic:", r)
 			os.Exit(1)
 		}
 	}()
 
 	if _, err := p.Run(); err != nil {
+		cleanupImages()
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
