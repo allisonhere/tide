@@ -63,3 +63,41 @@ func TestParseItemFallbackGUIDDiffersForDifferentItems(t *testing.T) {
 		t.Fatalf("expected distinct fallback GUIDs, got %q", first.GUID)
 	}
 }
+
+func TestParseItemPopulatesAuthorCategoriesUpdated(t *testing.T) {
+	published := time.Unix(1710000000, 0)
+	updated := published.Add(48 * time.Hour)
+	item := parseItem(&gofeed.Item{
+		Title:           "T",
+		Link:            "https://example.com/a",
+		PublishedParsed: &published,
+		UpdatedParsed:   &updated,
+		Author:          &gofeed.Person{Name: "  Ada Lovelace  "},
+		Authors:         []*gofeed.Person{{Name: "Someone Else"}},
+		Categories:      []string{" Tech ", "tech", "", "Science"},
+	})
+
+	if item.Author != "Ada Lovelace" {
+		t.Fatalf("Author = %q, want %q (item.Author wins over Authors)", item.Author, "Ada Lovelace")
+	}
+	if got := item.Categories; len(got) != 2 || got[0] != "Tech" || got[1] != "Science" {
+		t.Fatalf("Categories = %#v, want [Tech Science] (trimmed, deduped, order kept)", got)
+	}
+	if !item.UpdatedAt.Equal(updated) {
+		t.Fatalf("UpdatedAt = %v, want %v", item.UpdatedAt, updated)
+	}
+}
+
+func TestParseItemAuthorFallsBackToAuthorsList(t *testing.T) {
+	item := parseItem(&gofeed.Item{
+		Title:   "T",
+		Link:    "https://example.com/b",
+		Authors: []*gofeed.Person{{Name: ""}, {Name: "Grace Hopper"}},
+	})
+	if item.Author != "Grace Hopper" {
+		t.Fatalf("Author = %q, want first named entry in Authors", item.Author)
+	}
+	if item.UpdatedAt != (time.Time{}) {
+		t.Fatalf("UpdatedAt = %v, want zero when the feed gives no <updated>", item.UpdatedAt)
+	}
+}

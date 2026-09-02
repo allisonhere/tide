@@ -1653,7 +1653,11 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 				Title:       item.Title,
 				Link:        item.Link,
 				Content:     content,
+				ImageURL:    item.ImageURL,
 				PublishedAt: item.PublishedAt,
+				Author:      item.Author,
+				Categories:  item.Categories,
+				UpdatedAt:   item.UpdatedAt,
 			}); err != nil && firstUpsertErr == nil {
 				firstUpsertErr = err
 			}

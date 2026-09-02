@@ -1,6 +1,7 @@
 package db
 
 import (
+	"strings"
 	"time"
 )
 
@@ -19,11 +20,40 @@ type Article struct {
 	// independent of Read: saving is about intent to return, not about whether
 	// the article has been opened.
 	Starred bool
+	// Author is a single display name ("" when the feed gives none).
+	Author string
+	// Categories are the feed-supplied tags for the item, trimmed and
+	// de-duplicated. Stored newline-joined in a single TEXT column.
+	Categories []string
+	// UpdatedAt is the item's last-modified time, distinct from PublishedAt.
+	// Zero when the feed gives none.
+	UpdatedAt time.Time
 }
 
 // articleColumns is the shared SELECT list. Kept in one place because
 // scanArticle depends on the exact column order.
-const articleColumns = `id, feed_id, guid, title, link, content, summary, image_url, published_at, read, starred`
+const articleColumns = `id, feed_id, guid, title, link, content, summary, image_url, published_at, read, starred, author, categories, updated_at`
+
+// joinCategories / splitCategories move the Categories slice in and out of its
+// single newline-separated TEXT column.
+func joinCategories(c []string) string { return strings.Join(c, "\n") }
+
+func splitCategories(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, "\n")
+	out := parts[:0]
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
 
 func (db *DB) ListArticles(feedID int64) ([]Article, error) {
 	rows, err := db.Query(`
@@ -130,15 +160,19 @@ func (db *DB) SetStarred(id int64, starred bool) error {
 
 func (db *DB) UpsertArticle(a Article) error {
 	_, err := db.Exec(`
-		INSERT INTO articles (feed_id, guid, title, link, content, image_url, published_at, read)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+		INSERT INTO articles (feed_id, guid, title, link, content, image_url, published_at, read, author, categories, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
 		ON CONFLICT(feed_id, guid) DO UPDATE SET
 			title        = excluded.title,
 			link         = excluded.link,
 			content      = excluded.content,
 			image_url    = CASE WHEN excluded.image_url != '' THEN excluded.image_url ELSE articles.image_url END,
-			published_at = excluded.published_at
-	`, a.FeedID, a.GUID, a.Title, a.Link, a.Content, a.ImageURL, a.PublishedAt.Unix())
+			published_at = excluded.published_at,
+			author       = excluded.author,
+			categories   = excluded.categories,
+			updated_at   = excluded.updated_at
+	`, a.FeedID, a.GUID, a.Title, a.Link, a.Content, a.ImageURL, a.PublishedAt.Unix(),
+		a.Author, joinCategories(a.Categories), articleUpdatedUnix(a.UpdatedAt))
 	return err
 }
 
@@ -172,14 +206,27 @@ type scanner interface {
 
 func scanArticle(s scanner) (Article, error) {
 	var a Article
-	var publishedAt int64
+	var publishedAt, updatedAt int64
 	var read, starred int
-	err := s.Scan(&a.ID, &a.FeedID, &a.GUID, &a.Title, &a.Link, &a.Content, &a.Summary, &a.ImageURL, &publishedAt, &read, &starred)
+	var categories string
+	err := s.Scan(&a.ID, &a.FeedID, &a.GUID, &a.Title, &a.Link, &a.Content, &a.Summary, &a.ImageURL, &publishedAt, &read, &starred, &a.Author, &categories, &updatedAt)
 	if err != nil {
 		return Article{}, err
 	}
 	a.PublishedAt = time.Unix(publishedAt, 0)
 	a.Read = read != 0
 	a.Starred = starred != 0
+	a.Categories = splitCategories(categories)
+	if updatedAt > 0 {
+		a.UpdatedAt = time.Unix(updatedAt, 0)
+	}
 	return a, nil
+}
+
+// articleUpdatedUnix stores a zero UpdatedAt as 0 rather than a negative epoch.
+func articleUpdatedUnix(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
 }

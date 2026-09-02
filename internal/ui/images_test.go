@@ -259,122 +259,109 @@ func TestImageDrawOrigin_MatchesLayout(t *testing.T) {
 	}
 }
 
-func TestIndentFirstLines(t *testing.T) {
-	got := indentFirstLines("a\nb\nc\nd", 2, 3)
-	if got != "   a\n   b\nc\nd" {
-		t.Fatalf("indentFirstLines = %q", got)
-	}
-	// Pads when the string has fewer than n lines.
-	got = indentFirstLines("only", 3, 2)
-	if got != "  only\n  \n  " {
-		t.Fatalf("short-input pad = %q", got)
-	}
-	if indentFirstLines("x", 0, 4) != "x" || indentFirstLines("x", 3, 0) != "x" {
-		t.Fatal("zero n or indent must be a no-op")
-	}
-}
-
-func TestApplyImageLayout_Modes(t *testing.T) {
+func TestApplyLeadLayout_Modes(t *testing.T) {
 	m := newImageTestModel(t, true)
 	enableImageTestRenderer(&m)
 	m.width, m.height = 160, 50
 	m.contentArticleID = 1
+	art := db.Article{ID: 1, FeedID: 0, Content: "one two three four"}
 	m.image = imageState{
 		articleID: 1, status: imgReady, rows: 3, cols: 20,
 		pix: stdimage.NewRGBA(stdimage.Rect(0, 0, 160, 96)),
 	}
 	body := "L0\nL1\nL2\nL3\nL4"
 
-	// Floated + active: first 3 lines indented by cols+gutter.
-	m.image.floated, m.image.floatActive = true, true
-	got := m.applyImageLayout(body)
-	pad := 20 + imageFloatGutter
-	wantPrefix := repeatSpace(pad) + "L0"
-	if got[:len(wantPrefix)] != wantPrefix {
-		t.Fatalf("floated layout: line 0 = %q", got[:len(wantPrefix)+2])
+	// Side-by-side + beside active: first `rows` lines are the image gutter plus
+	// metadata; the body follows below the band.
+	m.image.sideBySide, m.image.metaBeside = true, true
+	got := m.applyLeadLayout(art, body)
+	gutter := repeatSpace(1 + 20 + imageMetaGutter)
+	lines := strings.Split(got, "\n")
+	for i := 0; i < 3; i++ {
+		if !strings.HasPrefix(lines[i], gutter) {
+			t.Fatalf("beside layout: line %d = %q, want gutter prefix", i, lines[i])
+		}
 	}
-	if countNL(got) != countNL(body) {
-		t.Fatalf("floated layout should not add lines: %d vs %d", countNL(got), countNL(body))
-	}
-
-	// Floated but scrolled away: untouched.
-	m.image.floatActive = false
-	if m.applyImageLayout(body) != body {
-		t.Fatal("floated+inactive layout must leave the body untouched")
+	if !strings.HasSuffix(got, "\n\n"+body) {
+		t.Fatalf("beside layout should leave one blank row between image and body: %q", got)
 	}
 
-	// Not floated: full-width blank band prepended.
-	m.image.floated = false
-	got = m.applyImageLayout(body)
-	if got != "\n\n\n"+body {
-		t.Fatalf("band layout = %q", got)
+	// Full-width band (narrow column / scrolled away): blank band reserves the
+	// rows, metadata stacks below it.
+	m.image.sideBySide = false
+	got = m.applyLeadLayout(art, body)
+	if !strings.HasPrefix(got, "\n\n\n") {
+		t.Fatalf("band layout must reserve a blank band: %q", got)
+	}
+	if !strings.Contains(got, "unread") {
+		t.Fatal("band layout must still stack the metadata block")
 	}
 
-	// Hidden / not ready: untouched.
+	// No image (hidden): plain reading view, body untouched, no metadata block.
 	m.imgHidden[1] = true
-	if m.applyImageLayout(body) != body {
-		t.Fatal("hidden image must not alter the body")
+	if got = m.applyLeadLayout(art, body); got != body {
+		t.Fatalf("hidden image must leave the body untouched: %q", got)
 	}
 }
 
-func TestImageFloatFits_NarrowFallsBack(t *testing.T) {
+func TestImageMetaColumnFits_NarrowFallsBack(t *testing.T) {
 	m := newImageTestModel(t, true)
 	m.width, m.height = 200, 50
-	if !m.imageFloatFits() {
-		t.Fatal("a wide pane should allow the float layout")
+	if !m.imageMetaColumnFits() {
+		t.Fatal("a wide pane should allow the beside-the-image metadata column")
 	}
 
 	m.width, m.height = 50, 50 // narrow content column
-	if m.imageFloatFits() {
+	if m.imageMetaColumnFits() {
 		t.Fatal("a narrow reading column must fall back to the full-width band")
 	}
 }
 
-func TestWantFloatContent_Gating(t *testing.T) {
+func TestWantMetaBeside_Gating(t *testing.T) {
 	m := newImageTestModel(t, true)
 	enableImageTestRenderer(&m)
 	m.width, m.height = 160, 50
 	m.contentArticleID = 9
-	m.image = imageState{articleID: 9, status: imgReady, rows: 4, floated: true}
+	m.image = imageState{articleID: 9, status: imgReady, rows: 4, sideBySide: true}
 	m.viewport.SetContent("x")
 	m.viewport.GotoTop()
 
-	if !m.wantFloatContent() {
-		t.Fatal("ready floated image at top should want float content")
+	if !m.wantMetaBeside() {
+		t.Fatal("ready side-by-side image at top should want metadata beside")
 	}
 
 	scrolled := m
 	scrolled.viewport.SetContent("a\nb\nc\nd\ne\nf\ng")
 	scrolled.viewport.Height = 3
 	scrolled.viewport.SetYOffset(2)
-	if scrolled.wantFloatContent() {
-		t.Fatal("scrolled away -> must not want float content")
+	if scrolled.wantMetaBeside() {
+		t.Fatal("scrolled away -> must not want metadata beside")
 	}
 
-	m.image.floated = false
-	if m.wantFloatContent() {
-		t.Fatal("non-floated image must not want float content")
+	m.image.sideBySide = false
+	if m.wantMetaBeside() {
+		t.Fatal("full-width band image must not want metadata beside")
 	}
 }
 
-func TestSyncImageFloatLayout_Flip(t *testing.T) {
+func TestSyncImageMetaLayout_Flip(t *testing.T) {
 	m := newImageTestModel(t, true)
 	enableImageTestRenderer(&m)
 	m.width, m.height = 160, 50
 	m.filteredArticles = []db.Article{{ID: 3, Title: "T", Content: "para one\n\npara two\n\npara three", ImageURL: "u"}}
 	m.articleCursor = 0
 	m.setViewportArticle(m.filteredArticles[0])
-	m.image.status, m.image.floated, m.image.rows, m.image.cols = imgReady, true, 3, 20
+	m.image.status, m.image.sideBySide, m.image.rows, m.image.cols = imgReady, true, 3, 20
 	m.viewport.GotoTop()
 
-	if !m.syncImageFloatLayout() {
-		t.Fatal("expected a layout flip to active")
+	if !m.syncImageMetaLayout() {
+		t.Fatal("expected a layout flip to beside")
 	}
-	if !m.image.floatActive {
-		t.Fatal("floatActive should now be true")
+	if !m.image.metaBeside {
+		t.Fatal("metaBeside should now be true")
 	}
 	// Idempotent second call.
-	if m.syncImageFloatLayout() {
+	if m.syncImageMetaLayout() {
 		t.Fatal("no flip expected on the second call")
 	}
 }

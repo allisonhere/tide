@@ -26,6 +26,9 @@ type ParsedItem struct {
 	Content     string // raw HTML
 	ImageURL    string // best-guess lead image, "" when none found
 	PublishedAt time.Time
+	Author      string    // single display name, "" when the feed gives none
+	Categories  []string  // trimmed, de-duplicated feed tags
+	UpdatedAt   time.Time // item's last-modified time, zero when absent
 }
 
 // Parse reads an RSS/Atom/JSON feed from r.
@@ -144,6 +147,11 @@ func parseItem(item *gofeed.Item) ParsedItem {
 		pub = *item.UpdatedParsed
 	}
 
+	var updated time.Time
+	if item.UpdatedParsed != nil {
+		updated = *item.UpdatedParsed
+	}
+
 	return ParsedItem{
 		GUID:        guid,
 		Title:       item.Title,
@@ -151,7 +159,55 @@ func parseItem(item *gofeed.Item) ParsedItem {
 		Content:     content,
 		ImageURL:    leadImageURL(item),
 		PublishedAt: pub,
+		Author:      itemAuthor(item),
+		Categories:  cleanCategories(item.Categories),
+		UpdatedAt:   updated,
 	}
+}
+
+// itemAuthor picks a single display name: the item's Author, else the first
+// named entry in Authors.
+func itemAuthor(item *gofeed.Item) string {
+	if item.Author != nil {
+		if n := strings.TrimSpace(item.Author.Name); n != "" {
+			return n
+		}
+	}
+	for _, p := range item.Authors {
+		if p == nil {
+			continue
+		}
+		if n := strings.TrimSpace(p.Name); n != "" {
+			return n
+		}
+	}
+	return ""
+}
+
+// cleanCategories trims each tag, drops blanks, and de-duplicates
+// case-insensitively while preserving first-seen order.
+func cleanCategories(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, c := range in {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		key := strings.ToLower(c)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, c)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func feedFaviconURL(f *gofeed.Feed) string {

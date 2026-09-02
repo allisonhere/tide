@@ -97,8 +97,10 @@ func TestStreamContentsParsesEntries(t *testing.T) {
 					{
 						"id": "tag:google.com,2005:reader/item/abc123",
 						"title": "It&#039;s a match",
+						"author": "Ada Lovelace",
 						"published": 1710000000,
-						"categories": ["user/-/state/com.google/read"],
+						"updated": 1710200000,
+						"categories": ["user/-/state/com.google/read", "user/-/label/Tech", "user/-/label/Science"],
 						"alternate": [{"href":"https://example.com/articles/1"}],
 						"summary": {"content":"<p>Hello world</p>"},
 						"origin": {"streamId":"feed/http://example.com/feed.xml"}
@@ -126,6 +128,15 @@ func TestStreamContentsParsesEntries(t *testing.T) {
 	}
 	if !strings.Contains(entries[0].ContentHTML, "Hello world") {
 		t.Fatalf("unexpected content %q", entries[0].ContentHTML)
+	}
+	if entries[0].Author != "Ada Lovelace" {
+		t.Fatalf("unexpected author %q", entries[0].Author)
+	}
+	if got := entries[0].Categories; len(got) != 2 || got[0] != "Tech" || got[1] != "Science" {
+		t.Fatalf("Categories = %#v, want user label names only", got)
+	}
+	if entries[0].UpdatedAt.Unix() != 1710200000 {
+		t.Fatalf("UpdatedAt = %v, want unix 1710200000", entries[0].UpdatedAt)
 	}
 	wantURL := "https://rss.example.com/api/greader.php/reader/api/0/stream/contents/feed%2Fhttp:%2F%2Fexample.com%2Ffeed.xml?n=25&output=json&xt=user%2F-%2Fstate%2Fcom.google%2Fread"
 	if requestedURL != wantURL {

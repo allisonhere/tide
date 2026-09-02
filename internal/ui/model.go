@@ -310,7 +310,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return next, cmd
 	}
-	mm.syncImageFloatLayout()
+	mm.syncImageMetaLayout()
 	return mm.drainImageCmd(cmd)
 }
 
@@ -1957,18 +1957,180 @@ func (m Model) renderArticleContent(a db.Article) string {
 		body += "\n\n" + m.renderContentLinks(bodyWidth)
 	}
 
-	// Lay the body out around the lead image: wrap the first rows of text beside
-	// a floated image, or reserve a full-width blank band above the text. The
-	// graphics backend paints the actual pixels into those cells after Bubble
-	// Tea draws the frame; the region scrolls with the article.
-	body = m.applyImageLayout(body)
+	// Lay the metadata block and lead image out above the body: the metadata
+	// column sits beside the image when the reading column is wide enough, else
+	// it stacks full-width. The graphics backend paints the image pixels into
+	// the reserved cells after Bubble Tea draws the frame; the region scrolls
+	// with the article.
+	region := m.applyLeadLayout(a, body)
 
-	return fillViewWidth(title+"\n"+meta+"\n\n"+body, m.articlesPaneWidth(), m.styles.Theme.Bg)
+	return fillViewWidth(title+"\n"+meta+"\n\n"+region, m.articlesPaneWidth(), m.styles.Theme.Bg)
 }
 
 // imageBodyTopLine is the 0-based line index within the Content viewport where
 // the reserved image region begins: title (0), meta (1), blank (2), then body.
 const imageBodyTopLine = 3
+
+// feedDisplayTitle returns the user-facing name for a feed id. db.Feed.Title is
+// already COALESCE(custom_title, title), so this is a plain lookup; "" when the
+// feed is not loaded (e.g. removed mid-session).
+func (m Model) feedDisplayTitle(feedID int64) string {
+	if f := m.feedByID(feedID); f != nil {
+		return f.Title
+	}
+	return ""
+}
+
+// renderArticleMeta builds the compact metadata block shown beside the lead
+// image, or stacked full-width above the body when no image is drawn. Lines are
+// dropped when the underlying field is empty, so the block is as short as the
+// article's metadata allows. Returns "" when there is nothing to show.
+func (m Model) renderArticleMeta(a db.Article, width int) string {
+	if width < 8 {
+		return ""
+	}
+
+	var lines []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			lines = append(lines, s)
+		}
+	}
+
+	add(m.feedDisplayTitle(a.FeedID))
+	if a.Author != "" {
+		add("By " + unescapeDisplayText(a.Author))
+	}
+	if words, minutes := articleReadingStats(a.Content); words > 0 {
+		add(fmt.Sprintf("%d min read · %s words", minutes, groupThousands(words)))
+	}
+	if metaShowsUpdated(a) {
+		add("Updated " + a.UpdatedAt.Format("Jan 2, 2006"))
+	}
+
+	state := "○ unread"
+	if m.styles.PlainUI {
+		state = "unread"
+	}
+	if a.Read {
+		state = "● read"
+		if m.styles.PlainUI {
+			state = "read"
+		}
+	}
+	if a.Starred {
+		state += " · " + m.styles.StarGlyph() + " saved"
+	}
+	add(state)
+
+	if len(a.Categories) > 0 {
+		tags := make([]string, 0, len(a.Categories))
+		for _, c := range a.Categories {
+			tags = append(tags, "#"+strings.ReplaceAll(c, " ", ""))
+		}
+		wrapped := strings.Split(wrapWords(strings.Join(tags, " "), width), "\n")
+		if len(wrapped) > 2 {
+			wrapped = wrapped[:2]
+			wrapped[1] = truncate(wrapped[1]+" …", width)
+		}
+		for _, w := range wrapped {
+			add(w)
+		}
+	}
+
+	if len(lines) == 0 {
+		return ""
+	}
+	for i, ln := range lines {
+		lines[i] = m.styles.ContentMeta.Width(width).Render(truncate(ln, width))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// metaShowsUpdated reports whether an "Updated" line is worth showing: the feed
+// gave an updated time and it lands on a later calendar day than publication
+// (many feeds bump <updated> on every republish or set it equal to <published>).
+func metaShowsUpdated(a db.Article) bool {
+	if a.UpdatedAt.IsZero() || !a.UpdatedAt.After(a.PublishedAt) {
+		return false
+	}
+	uy, um, ud := a.UpdatedAt.Date()
+	py, pm, pd := a.PublishedAt.Date()
+	return uy != py || um != pm || ud != pd
+}
+
+// groupThousands formats n with thin comma grouping ("1234" -> "1,234").
+func groupThousands(n int) string {
+	s := fmt.Sprintf("%d", n)
+	if n < 1000 {
+		return s
+	}
+	var b strings.Builder
+	pre := len(s) % 3
+	if pre > 0 {
+		b.WriteString(s[:pre])
+	}
+	for i := pre; i < len(s); i += 3 {
+		if b.Len() > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
+}
+
+// applyLeadLayout places the article metadata block and the reserved rows for
+// the lead image above the body. The block is tied to the image: it only
+// appears when a lead image is shown, so the plain reading view (no image,
+// image disabled, or an unsupported terminal) keeps its compact header.
+//
+//   - Wide reading column: metadata renders in the column to the right of the
+//     image, top-aligned to the reserved image band.
+//   - Narrow reading column, or scrolled off the top: a full-width blank band
+//     reserves the image rows, then the metadata stacks below it so it scrolls
+//     into view under the image.
+func (m Model) applyLeadLayout(a db.Article, body string) string {
+	imageOn := m.imagesActive() && m.image.status == imgReady &&
+		!m.imgHidden[m.image.articleID] && m.image.rows > 0
+	if !imageOn {
+		return body
+	}
+
+	rows := m.image.rows
+
+	if m.wantMetaBeside() {
+		colW := m.metaColumnWidth()
+		right := m.renderArticleMeta(a, colW)
+		rightLines := strings.Split(right, "\n")
+		if right == "" {
+			rightLines = nil
+		}
+		gutter := strings.Repeat(" ", 1+m.image.cols+imageMetaGutter)
+		out := make([]string, rows)
+		for i := 0; i < rows; i++ {
+			line := gutter
+			if i < len(rightLines) {
+				line += rightLines[i]
+			}
+			out[i] = line
+		}
+		// Metadata longer than the image band continues full-width below it.
+		var tail string
+		if len(rightLines) > rows {
+			tail = "\n" + indentBlock(strings.Join(rightLines[rows:], "\n"), 1)
+		}
+		// One blank row between the image and the article body.
+		return strings.Join(out, "\n") + tail + "\n\n" + body
+	}
+
+	band := strings.Repeat("\n", rows)
+	meta := m.renderArticleMeta(a, m.contentBodyWidth())
+	if strings.TrimSpace(meta) == "" {
+		return band + "\n" + body
+	}
+	return band + indentBlock(meta, 1) + "\n\n" + body
+}
 
 func (m Model) renderContentLinks(width int) string {
 	lines := make([]string, 0, len(m.contentLinks)+1)
@@ -3024,6 +3186,9 @@ func (m *Model) refreshFeedCmd(feedID int64, feedURL string, manual bool) tea.Cm
 				Content:     content,
 				ImageURL:    item.ImageURL,
 				PublishedAt: item.PublishedAt,
+				Author:      item.Author,
+				Categories:  item.Categories,
+				UpdatedAt:   item.UpdatedAt,
 			})
 		}
 		return FeedRefreshedMsg{

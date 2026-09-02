@@ -67,7 +67,7 @@ func (db *DB) init() error {
 
 // latestSchemaVersion is the PRAGMA user_version a fully migrated database
 // reports. Bump it whenever a new migration block is added below.
-const latestSchemaVersion = 9
+const latestSchemaVersion = 10
 
 // migrateSchema applies incremental ALTER TABLE migrations tracked by
 // PRAGMA user_version so they are applied exactly once.
@@ -179,6 +179,25 @@ func (db *DB) migrateSchema() error {
 			}
 		}
 		if _, err := db.Exec(`PRAGMA user_version = 9`); err != nil {
+			return err
+		}
+	}
+	if version < 10 {
+		// Per-article metadata surfaced in the content pane. categories is a
+		// newline-separated list (feed category names never contain newlines);
+		// updated_at mirrors published_at as unix seconds, 0 when absent.
+		for _, stmt := range []string{
+			`ALTER TABLE articles ADD COLUMN author TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE articles ADD COLUMN categories TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE articles ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
+		} {
+			if _, err := db.Exec(stmt); err != nil {
+				if !strings.Contains(err.Error(), "duplicate column") {
+					return err
+				}
+			}
+		}
+		if _, err := db.Exec(`PRAGMA user_version = 10`); err != nil {
 			return err
 		}
 	}

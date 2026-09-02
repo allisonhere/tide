@@ -66,7 +66,7 @@ func (db *DB) SearchArticles(query string, unreadOnly bool, limit int) ([]Search
 	}
 	rows, err := db.Query(`
 		SELECT a.id, a.feed_id, a.guid, a.title, a.link, a.content, a.summary,
-		       a.published_at, a.read, a.starred,
+		       a.published_at, a.read, a.starred, a.author, a.categories, a.updated_at,
 		       COALESCE(NULLIF(f.custom_title, ''), f.title) AS feed_title,
 		       snippet(articles_fts, -1, ?, ?, '…', 12) AS snip,
 		       bm25(articles_fts, 10.0, 1.0, 5.0) AS rank
@@ -98,7 +98,7 @@ func (db *DB) listStarredResults(unreadOnly bool, limit int) ([]SearchResult, er
 	}
 	rows, err := db.Query(`
 		SELECT a.id, a.feed_id, a.guid, a.title, a.link, a.content, a.summary,
-		       a.published_at, a.read, a.starred,
+		       a.published_at, a.read, a.starred, a.author, a.categories, a.updated_at,
 		       COALESCE(NULLIF(f.custom_title, ''), f.title) AS feed_title
 		FROM articles a
 		JOIN feeds f ON f.id = a.feed_id
@@ -141,7 +141,7 @@ func (db *DB) searchArticlesLike(query string, unreadOnly, starredOnly bool, lim
 
 	rows, err := db.Query(`
 		SELECT a.id, a.feed_id, a.guid, a.title, a.link, a.content, a.summary,
-		       a.published_at, a.read, a.starred,
+		       a.published_at, a.read, a.starred, a.author, a.categories, a.updated_at,
 		       COALESCE(NULLIF(f.custom_title, ''), f.title) AS feed_title
 		FROM articles a
 		JOIN feeds f ON f.id = a.feed_id
@@ -160,16 +160,18 @@ func scanSearchResults(rows scannerRows, withRank bool) ([]SearchResult, error) 
 	var out []SearchResult
 	for rows.Next() {
 		var (
-			r       SearchResult
-			ts      int64
-			read    int
-			starred int
-			snippet string
-			rank    float64
+			r          SearchResult
+			ts         int64
+			updatedAt  int64
+			read       int
+			starred    int
+			categories string
+			snippet    string
+			rank       float64
 		)
 		dest := []any{
 			&r.ID, &r.FeedID, &r.GUID, &r.Title, &r.Link, &r.Content, &r.Summary,
-			&ts, &read, &starred, &r.FeedTitle,
+			&ts, &read, &starred, &r.Author, &categories, &updatedAt, &r.FeedTitle,
 		}
 		if withRank {
 			dest = append(dest, &snippet, &rank)
@@ -178,8 +180,12 @@ func scanSearchResults(rows scannerRows, withRank bool) ([]SearchResult, error) 
 			return nil, err
 		}
 		r.PublishedAt = time.Unix(ts, 0)
+		if updatedAt > 0 {
+			r.UpdatedAt = time.Unix(updatedAt, 0)
+		}
 		r.Read = read != 0
 		r.Starred = starred != 0
+		r.Categories = splitCategories(categories)
 		r.Snippet = snippet
 		r.Rank = rank
 		out = append(out, r)

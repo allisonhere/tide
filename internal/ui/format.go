@@ -7,6 +7,26 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// readingWordsPerMinute is the assumed silent-reading pace for the "N min read"
+// estimate in the article metadata block.
+const readingWordsPerMinute = 225
+
+// articleReadingStats returns the word count and estimated read time in whole
+// minutes (>=1 when there is any text). Article content reaches the UI already
+// converted to markdown/plain text, so a whitespace split is close enough; the
+// minor inflation from markdown punctuation is acceptable for an estimate.
+func articleReadingStats(content string) (words, minutes int) {
+	words = len(strings.Fields(content))
+	if words == 0 {
+		return 0, 0
+	}
+	minutes = (words + readingWordsPerMinute - 1) / readingWordsPerMinute
+	if minutes < 1 {
+		minutes = 1
+	}
+	return words, minutes
+}
+
 func formatArticleBody(content string, width int, plainUI bool) string {
 	content = stripEmailInvisibles(content)
 	content = strings.ReplaceAll(content, "\r\n", "\n")

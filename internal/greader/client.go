@@ -41,7 +41,10 @@ type Entry struct {
 	Link        string
 	ContentHTML string
 	PublishedAt time.Time
+	UpdatedAt   time.Time
 	Read        bool
+	Author      string
+	Categories  []string
 }
 
 // QuickAddResult captures the stream identity returned when a server subscribes to a feed URL. -allie
@@ -198,6 +201,7 @@ func (c *Client) StreamContents(ctx context.Context, streamID string, limit int)
 		Items []struct {
 			ID         string   `json:"id"`
 			Title      string   `json:"title"`
+			Author     string   `json:"author"`
 			Published  int64    `json:"published"`
 			Updated    int64    `json:"updated"`
 			Categories []string `json:"categories"`
@@ -248,6 +252,10 @@ func (c *Client) StreamContents(ctx context.Context, streamID string, limit int)
 		if published == 0 {
 			published = item.Updated
 		}
+		var updatedAt time.Time
+		if item.Updated > 0 {
+			updatedAt = time.Unix(item.Updated, 0)
+		}
 
 		entryStreamID := item.Origin.StreamID
 		if entryStreamID == "" {
@@ -261,7 +269,10 @@ func (c *Client) StreamContents(ctx context.Context, streamID string, limit int)
 			Link:        link,
 			ContentHTML: contentHTML,
 			PublishedAt: time.Unix(published, 0),
+			UpdatedAt:   updatedAt,
 			Read:        hasReadState(item.Categories),
+			Author:      UnescapeAPIString(strings.TrimSpace(item.Author)),
+			Categories:  labelCategories(item.Categories),
 		})
 	}
 	return entries, nil
@@ -487,6 +498,23 @@ func hasReadState(categories []string) bool {
 		}
 	}
 	return false
+}
+
+// labelCategories pulls user tag labels ("user/-/label/Tech" -> "Tech") out of
+// the Reader category list, ignoring the "user/-/state/..." control entries.
+func labelCategories(categories []string) []string {
+	var out []string
+	for _, category := range categories {
+		const prefix = "user/-/label/"
+		if !strings.HasPrefix(category, prefix) {
+			continue
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(category, prefix))
+		if name != "" {
+			out = append(out, UnescapeAPIString(name))
+		}
+	}
+	return out
 }
 
 func cloneValues(v url.Values) url.Values {

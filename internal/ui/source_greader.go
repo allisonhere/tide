@@ -139,7 +139,10 @@ func (m Model) loadGReaderArticles(ctx context.Context, feedID int64) ([]db.Arti
 			Content:     m.normalizeRemoteArticleContent(entry.ContentHTML, entry.Link),
 			ImageURL:    feed.LeadImageFromHTML(entry.ContentHTML),
 			PublishedAt: entry.PublishedAt,
+			UpdatedAt:   entry.UpdatedAt,
 			Read:        entry.Read,
+			Author:      entry.Author,
+			Categories:  entry.Categories,
 		})
 	}
 

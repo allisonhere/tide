@@ -6,7 +6,6 @@ import (
 	stdimage "image"
 	"io"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -71,14 +70,15 @@ const (
 // reader. The effective cap also shrinks to fit a short content pane.
 const imageMaxRows = img.DefaultMaxRows
 
-// Float layout: when the content pane is wide enough the image sits at the
-// top-left and the first `rows` lines of body text wrap to its right, magazine
-// style. On a narrow reading column it falls back to a full-width blank band.
+// Side-by-side layout: when the content pane is wide enough the image sits at
+// the top-left and the article metadata block renders in the column to its
+// right. On a narrow reading column it falls back to a full-width blank band
+// with the metadata stacked below the image.
 const (
-	imageFloatGutter  = 2  // blank cells between the image and the text column
-	imageFloatMinText = 30 // minimum readable text column beside the image
-	imageFloatMaxCols = 46 // never let the floated image get wider than this
-	imageFloatMinCols = 16 // ...or narrower than this
+	imageMetaGutter  = 2  // blank cells between the image and the metadata column
+	imageMetaMinCol  = 22 // minimum readable metadata column beside the image
+	imageSideMaxCols = 46 // never let the side-by-side image get wider than this
+	imageSideMinCols = 16 // ...or narrower than this
 )
 
 // imageState is the Model's single in-flight/resident image.
@@ -89,8 +89,8 @@ type imageState struct {
 	rows            int            // cell rows the image occupies (0 unless status == imgReady)
 	cols            int            // image placement width in cells
 	resizedForWidth int            // contentBodyWidth() the current resize was made for
-	floated         bool           // sized for the wrap-alongside layout (vs full-width band)
-	floatActive     bool           // body is currently rendered with text wrapped beside the image
+	sideBySide      bool           // sized narrow so a metadata column fits beside it
+	metaBeside      bool           // metadata is currently rendered beside the image
 	src             stdimage.Image // decoded source, kept so re-fits on resize stay sharp
 	pix             *stdimage.RGBA // decoded + resized frame handed to the renderer
 	natW, natH      int            // decoded (pre-resize) pixel size
@@ -372,12 +372,12 @@ func (m Model) handleArticleImageReady(msg articleImageReadyMsg) (tea.Model, tea
 
 	m.image.src = msg.decoded
 	m.resizeCurrentImage()
-	imgDebugf("ready: OK id=%d status=%d rows=%d cols=%d floated=%v",
-		msg.req.ArticleID, m.image.status, m.image.rows, m.image.cols, m.image.floated)
+	imgDebugf("ready: OK id=%d status=%d rows=%d cols=%d sideBySide=%v",
+		msg.req.ArticleID, m.image.status, m.image.rows, m.image.cols, m.image.sideBySide)
 	if a := m.currentContentArticle(); a != nil {
 		if m.image.status == imgReady {
 			m.viewport.GotoTop()
-			m.image.floatActive = m.wantFloatContent()
+			m.image.metaBeside = m.wantMetaBeside()
 		}
 		m.setViewportArticle(*a)
 		if m.image.status == imgReady {
@@ -407,10 +407,10 @@ func (m *Model) resizeCurrentImage() {
 	}
 
 	bodyW := m.contentBodyWidth()
-	floated := m.imageFloatFits()
+	sideBySide := m.imageMetaColumnFits()
 	drawCols := max(1, bodyW-1)
-	if floated {
-		drawCols = m.imageFloatCols()
+	if sideBySide {
+		drawCols = m.imageSideCols()
 	}
 	maxPxW := drawCols * cellW
 	maxPxH := maxRows * cellH
@@ -422,87 +422,54 @@ func (m *Model) resizeCurrentImage() {
 	m.image.natW, m.image.natH = decoded.Bounds().Dx(), decoded.Bounds().Dy()
 	m.image.rows = img.RowsFor(b.Dy(), cellH, maxRows)
 	m.image.cols = img.ColsFor(b.Dx(), cellW, drawCols)
-	m.image.floated = floated
+	m.image.sideBySide = sideBySide
 	m.image.resizedForWidth = bodyW
 	m.image.status = imgReady
 }
 
-// imageFloatCols is the target width (cells) of a floated image: about 40% of
-// the reading column, clamped to a sane band.
-func (m Model) imageFloatCols() int {
+// imageSideCols is the target width (cells) of a side-by-side image: about 40%
+// of the reading column, clamped to a sane band.
+func (m Model) imageSideCols() int {
 	c := m.contentBodyWidth() * 2 / 5
-	if c > imageFloatMaxCols {
-		c = imageFloatMaxCols
+	if c > imageSideMaxCols {
+		c = imageSideMaxCols
 	}
-	if c < imageFloatMinCols {
-		c = imageFloatMinCols
+	if c < imageSideMinCols {
+		c = imageSideMinCols
 	}
 	return c
 }
 
-// imageFloatFits reports whether there is room for the image plus a gutter plus
-// a readable text column beside it. Otherwise the layout uses a full-width band.
-func (m Model) imageFloatFits() bool {
-	return m.contentBodyWidth()-1-m.imageFloatCols()-imageFloatGutter >= imageFloatMinText
+// imageMetaColumnFits reports whether there is room for the 1-cell indent, the
+// image, a gutter and a readable metadata column beside it. Otherwise the layout
+// uses a full-width band with the metadata stacked below the image.
+func (m Model) imageMetaColumnFits() bool {
+	return m.contentBodyWidth()-1-m.imageSideCols()-imageMetaGutter >= imageMetaMinCol
 }
 
-// wantFloatContent reports whether the Content viewport should currently be
-// rendered with text wrapped beside the image (image ready, sized for float,
+// wantMetaBeside reports whether the Content viewport should currently render
+// the metadata block in the column beside the image (image ready, sized for it,
 // this article, scrolled to the very top).
-func (m Model) wantFloatContent() bool {
+func (m Model) wantMetaBeside() bool {
 	return m.imagesActive() &&
 		m.image.status == imgReady &&
-		m.image.floated &&
+		m.image.sideBySide &&
 		m.image.rows > 0 &&
 		!m.imgHidden[m.image.articleID] &&
 		m.contentArticleID == m.image.articleID &&
 		m.viewport.YOffset == 0
 }
 
-// applyImageLayout adjusts the assembled article body for the current image
-// layout: indent the first `rows` lines past a floated image, or prepend a
-// full-width blank band, or (floated but scrolled away) leave it untouched.
-func (m Model) applyImageLayout(body string) string {
-	if !m.imagesActive() || m.image.status != imgReady ||
-		m.imgHidden[m.image.articleID] || m.image.rows <= 0 {
-		return body
-	}
-	if m.image.floated {
-		if m.image.floatActive {
-			return indentFirstLines(body, m.image.rows, m.image.cols+imageFloatGutter)
-		}
-		return body // scrolled past the top: full-width text, image not drawn
-	}
-	return strings.Repeat("\n", m.image.rows) + body
-}
-
-// indentFirstLines prepends `indent` spaces to the first n lines of s, padding
-// with blank indented lines when s has fewer than n lines so the image box is
-// never clipped by a short article.
-func indentFirstLines(s string, n, indent int) string {
-	if n <= 0 || indent <= 0 {
-		return s
-	}
-	pad := strings.Repeat(" ", indent)
-	lines := strings.Split(s, "\n")
-	for i := 0; i < n; i++ {
-		if i < len(lines) {
-			lines[i] = pad + lines[i]
-		} else {
-			lines = append(lines, pad)
-		}
-	}
-	return strings.Join(lines, "\n")
+// metaColumnWidth is the width available to the metadata block when it renders
+// beside the image (content width less the 1-cell indent, the image and the
+// gutter).
+func (m Model) metaColumnWidth() int {
+	return max(1, m.contentBodyWidth()-1-m.image.cols-imageMetaGutter)
 }
 
 // firstFocusableForImage picks where keyboard focus should start once the image
-// is shown. With the wrap-alongside layout the text beside the image is real
-// readable text, so focus starts on the first focusable line; with the
-// full-width band it starts on the first line below the band.
+// is shown: on the first focusable line below the reserved image band.
 func (m Model) firstFocusableForImage() int {
-	if m.image.floated && m.image.floatActive {
-		return firstFocusableLine(m.contentFocusable)
-	}
 	floor := imageBodyTopLine + m.image.rows
 	for i := floor; i < len(m.contentFocusable); i++ {
 		if m.contentFocusable[i] {
@@ -512,15 +479,15 @@ func (m Model) firstFocusableForImage() int {
 	return firstFocusableLine(m.contentFocusable)
 }
 
-// syncImageFloatLayout re-renders the Content viewport when the wrap-alongside
-// state needs to flip (e.g. the user scrolled away from the top, or back to
-// it). Called from the Update wrapper. Returns true if it re-rendered.
-func (m *Model) syncImageFloatLayout() bool {
-	want := m.wantFloatContent()
-	if want == m.image.floatActive {
+// syncImageMetaLayout re-renders the Content viewport when the beside-the-image
+// metadata state needs to flip (e.g. the user scrolled away from the top, or
+// back to it). Called from the Update wrapper. Returns true if it re-rendered.
+func (m *Model) syncImageMetaLayout() bool {
+	want := m.wantMetaBeside()
+	if want == m.image.metaBeside {
 		return false
 	}
-	m.image.floatActive = want
+	m.image.metaBeside = want
 	a := m.currentContentArticle()
 	if a == nil {
 		return false
@@ -528,7 +495,7 @@ func (m *Model) syncImageFloatLayout() bool {
 	off := m.viewport.YOffset
 	m.setViewportArticle(*a) // same-article path keeps the focus line; re-lays body
 	m.viewport.SetYOffset(off)
-	imgDebugf("float: layout flipped -> active=%v", want)
+	imgDebugf("meta: layout flipped -> beside=%v", want)
 	return true
 }
 
