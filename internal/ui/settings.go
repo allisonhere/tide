@@ -115,7 +115,6 @@ type settingsUpdateState struct {
 	latestVersion    string
 	latestIsFresh    bool
 	publishedAt      time.Time
-	summary          string
 	lastChecked      time.Time
 	err              string
 	dismissed        bool
@@ -1295,16 +1294,6 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 			b.addValue("Published", s.update.publishedAt.Format("Jan 2, 2006"), false)
 		}
 		b.addValue("Status", s.update.statusLabel(), false)
-		if s.update.summary != "" {
-			summaryIndent := "  "
-			sumW := max(1, b.contentW-lipgloss.Width(summaryIndent))
-			sumLines := wrapShellCommand(s.update.summary, sumW)
-			hintStyle := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted)
-			for _, sl := range sumLines {
-				b.addLine(hintStyle.Width(b.contentW).Render(summaryIndent + sl))
-			}
-			b.addBlank()
-		}
 		if s.updateNowActionVisible() {
 			b.addAction("Update now", "Update now", sfUpdateInstallNow)
 		}

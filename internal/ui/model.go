@@ -3645,7 +3645,6 @@ func (m Model) settingsUpdateState() settingsUpdateState {
 		latestVersion:    m.updateInfo.Version,
 		latestIsFresh:    m.updateInfoFresh,
 		publishedAt:      m.updateInfo.PublishedAt,
-		summary:          m.updateInfo.Summary,
 		lastChecked:      lastChecked,
 		err:              m.updateErr,
 		dismissed:        m.updateDismissed,

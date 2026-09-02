@@ -3675,7 +3675,6 @@ func TestSettingsViewRendersUpdateActions(t *testing.T) {
 		currentVersion: "v1.0.0",
 		state:          updateStateAvailable,
 		latestVersion:  "v1.1.0",
-		summary:        "Faster update flow.",
 	})
 	s.setActiveSection(ssUpdates)
 	chrome := newManagerChrome(62, CatppuccinMocha, false)
@@ -3700,7 +3699,6 @@ func TestSettingsViewHidesUpdateNowWhenManualInstallRequired(t *testing.T) {
 		state:          updateStateNeedsElevation,
 		latestVersion:  "v1.1.0",
 		manualCommand:  "sudo cp /tmp/tide /usr/local/bin/tide",
-		summary:        "Requires elevation.",
 	})
 	s.setActiveSection(ssUpdates)
 	chrome := newManagerChrome(62, CatppuccinMocha, false)
@@ -3723,7 +3721,6 @@ func TestSettingsViewHidesInstallWhenAlreadyOnLatest(t *testing.T) {
 		currentVersion: "v1.1.0",
 		state:          updateStateIdle,
 		latestVersion:  "v1.1.0",
-		summary:        "Nothing new.",
 	})
 	s.setActiveSection(ssUpdates)
 	chrome := newManagerChrome(62, CatppuccinMocha, false)
@@ -3744,7 +3741,6 @@ func TestSettingsViewShowsLatestVersionLabelForRestoredRelease(t *testing.T) {
 		state:          updateStateAvailable,
 		latestVersion:  "v1.1.0",
 		latestIsFresh:  false,
-		summary:        "Faster update flow.",
 	})
 	s.setActiveSection(ssUpdates)
 	chrome := newManagerChrome(62, CatppuccinMocha, false)
