@@ -100,6 +100,11 @@ type UpdateInstalledMsg struct {
 	Result update.InstallResult
 	Err    error
 }
+
+// UpdateProgressTickMsg advances the fake download/install progress bar shown
+// in the update overlay. It is time-driven, not byte-driven.
+type UpdateProgressTickMsg struct{}
+
 type RestartedMsg struct {
 	Err error
 }

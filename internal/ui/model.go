@@ -217,6 +217,13 @@ type Model struct {
 	updateErr            string
 	updateDismissed      bool
 	pendingUpdateInstall bool
+	// Fake progress bar shown in the update overlay while the download +
+	// install run. updateInstallReady holds the real completion until the bar
+	// has visibly filled; updateInstallErr carries a download/install failure
+	// through the same finalize path.
+	updateProgress     int
+	updateInstallReady bool
+	updateInstallErr   error
 
 	// Dev-only: launch with Settings > Updates showing the manual-install preview; avoids persisting demo update state.
 	previewManualUpdateUI bool
@@ -383,9 +390,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.pendingUpdateInstall {
 				m.pendingUpdateInstall = false
 				if !m.updateDismissed {
-					m.updateState = updateStateDownloading
-					m.syncSettingsUpdateState()
-					return m, m.downloadUpdateCmd(m.updateInfo)
+					return m, m.beginUpdateDownload()
 				}
 			}
 			if !m.updateDismissed && (msg.Manual || update.IsStableVersion(m.currentVersion)) {
@@ -409,11 +414,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case UpdateDownloadedMsg:
 		if msg.Err != nil {
-			m.updateState = updateStateError
-			m.updateErr = msg.Err.Error()
-			m.syncSettingsUpdateState()
-			m.setStatus("update download failed: "+msg.Err.Error(), true)
-			return m, m.clearStatusCmd()
+			m.updateInstallErr = fmt.Errorf("download failed: %w", msg.Err)
+			m.updateInstallReady = true
+			return m.finalizeUpdateInstall()
 		}
 		m.downloadedUpdate = &msg.Asset
 		m.updateState = updateStateInstalling
@@ -422,32 +425,31 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case UpdateInstalledMsg:
 		if msg.Err != nil {
-			m.updateState = updateStateError
-			m.updateErr = msg.Err.Error()
-			m.syncSettingsUpdateState()
-			m.setStatus("update failed: "+msg.Err.Error(), true)
-			return m, m.clearStatusCmd()
+			m.updateInstallErr = msg.Err
+			m.updateInstallReady = true
+			return m.finalizeUpdateInstall()
 		}
 		m.updateInstall = msg.Result
-		m.downloadedUpdate = nil
-		if msg.Result.RequiresManual {
-			m.updateState = updateStateNeedsElevation
-			m.syncSettingsUpdateState()
-			m.setStatus("update downloaded; admin permission required", true)
-			return m, m.clearStatusCmd()
+		m.updateInstallReady = true
+		// Hold the result until the progress bar has visibly filled.
+		if m.updateProgress >= 100 {
+			return m.finalizeUpdateInstall()
 		}
-		m.updateState = updateStateInstalled
-		m.updateDismissed = false
-		m.cfg.Updates.DismissedVersion = ""
-		m.clearCachedAvailableUpdate()
-		config.Save(m.cfg) //nolint:errcheck
 		m.syncSettingsUpdateState()
-		if msg.Result.ShadowedPath != "" {
-			m.setStatus("Tide updated to "+msg.Result.Version+m.styles.InlineMidDot()+"restart when ready"+m.styles.InlineMidDot()+"remove "+msg.Result.ShadowedPath+" (see Settings)", true)
-		} else {
-			m.setStatus("Tide updated to "+msg.Result.Version+m.styles.InlineMidDot()+"restart when ready", false)
+		return m, nil
+
+	case UpdateProgressTickMsg:
+		if !m.updateInProgress() {
+			return m, nil
 		}
-		return m, m.clearStatusCmd()
+		m.updateProgress = min(100, m.updateProgress+updateProgressStep)
+		if m.updateProgress < 100 {
+			return m, tickUpdateProgress()
+		}
+		if m.updateInstallReady {
+			return m.finalizeUpdateInstall()
+		}
+		return m, nil
 
 	case RestartedMsg:
 		if msg.Err != nil {
@@ -1461,18 +1463,20 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSettings(msg)
 
 	case overlayUpdateConfirm:
+		if m.updateInProgress() {
+			// No cancelling a download/install mid-flight; wait it out.
+			return m, nil
+		}
 		switch {
 		case keyMatches(msg, m.keys.Confirm):
-			m.overlay = overlayNone
 			if m.updateInfo.DownloadURL == "" {
+				m.overlay = overlayNone
 				m.pendingUpdateInstall = true
 				m.updateState = updateStateChecking
 				m.syncSettingsUpdateState()
 				return m, m.checkForUpdatesCmd(true)
 			}
-			m.updateState = updateStateDownloading
-			m.syncSettingsUpdateState()
-			return m, m.downloadUpdateCmd(m.updateInfo)
+			return m, m.beginUpdateDownload()
 		case keyMatches(msg, m.keys.Cancel):
 			m.overlay = overlayNone
 			return m, nil
@@ -2843,6 +2847,24 @@ func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) str
 }
 
 func (m Model) renderUpdateConfirmOverlay(width int, chrome managerChrome) string {
+	if m.updateInProgress() {
+		verb := "Downloading"
+		if m.updateState == updateStateInstalling {
+			verb = "Installing"
+		}
+		label := fmt.Sprintf("%s Tide %s... %d%%", verb, m.updateInfo.Version, m.updateProgress)
+		return lipgloss.NewStyle().
+			Background(chrome.baseBg).
+			Foreground(chrome.text).
+			Width(width).
+			Padding(1, 2).
+			Render(strings.Join([]string{
+				label,
+				"",
+				updateProgressBar(m.updateProgress, max(1, width-4), chrome),
+			}, "\n"))
+	}
+
 	target, _ := os.Executable()
 	bodyLines := []string{
 		"Install Tide " + m.updateInfo.Version + "?",
@@ -3167,6 +3189,82 @@ func (m *Model) installUpdateCmd(asset update.DownloadedAsset) tea.Cmd {
 		result, err := updater.Install(asset, currentExec)
 		return UpdateInstalledMsg{Result: result, Err: err}
 	}
+}
+
+const (
+	updateProgressStep     = 5
+	updateProgressInterval = 120 * time.Millisecond
+)
+
+func tickUpdateProgress() tea.Cmd {
+	return tea.Tick(updateProgressInterval, func(time.Time) tea.Msg { return UpdateProgressTickMsg{} })
+}
+
+// updateInProgress is true while the update overlay should show the progress bar
+// rather than the install prompt or a terminal state.
+func (m Model) updateInProgress() bool {
+	return m.updateState == updateStateDownloading || m.updateState == updateStateInstalling
+}
+
+// beginUpdateDownload opens the update overlay on the progress bar and kicks off
+// the download plus the time-driven progress tick.
+func (m *Model) beginUpdateDownload() tea.Cmd {
+	m.overlay = overlayUpdateConfirm
+	m.updateState = updateStateDownloading
+	m.updateErr = ""
+	m.updateProgress = 0
+	m.updateInstallReady = false
+	m.updateInstallErr = nil
+	m.updateInstall = update.InstallResult{}
+	m.syncSettingsUpdateState()
+	return tea.Batch(m.downloadUpdateCmd(m.updateInfo), tickUpdateProgress())
+}
+
+// finalizeUpdateInstall closes the progress overlay and applies the real
+// download/install outcome. Called once the bar has filled and the install
+// result (or an error) is in hand.
+func (m Model) finalizeUpdateInstall() (Model, tea.Cmd) {
+	m.overlay = overlayNone
+	m.updateInstallReady = false
+	m.downloadedUpdate = nil
+	err := m.updateInstallErr
+	m.updateInstallErr = nil
+
+	if err != nil {
+		m.updateState = updateStateError
+		m.updateErr = err.Error()
+		m.syncSettingsUpdateState()
+		m.setStatus("update failed: "+err.Error(), true)
+		return m, m.clearStatusCmd()
+	}
+	if m.updateInstall.RequiresManual {
+		m.updateState = updateStateNeedsElevation
+		m.syncSettingsUpdateState()
+		m.setStatus("update downloaded; admin permission required", true)
+		return m, m.clearStatusCmd()
+	}
+	m.updateState = updateStateInstalled
+	m.updateDismissed = false
+	m.cfg.Updates.DismissedVersion = ""
+	m.clearCachedAvailableUpdate()
+	config.Save(m.cfg) //nolint:errcheck
+	m.syncSettingsUpdateState()
+	if m.updateInstall.ShadowedPath != "" {
+		m.setStatus("Tide updated to "+m.updateInstall.Version+m.styles.InlineMidDot()+"restart when ready"+m.styles.InlineMidDot()+"remove "+m.updateInstall.ShadowedPath+" (see Settings)", true)
+	} else {
+		m.setStatus("Tide updated to "+m.updateInstall.Version+m.styles.InlineMidDot()+"restart when ready", false)
+	}
+	return m, m.clearStatusCmd()
+}
+
+// updateProgressBar renders a fixed-width block bar for the given percentage.
+func updateProgressBar(pct, width int, chrome managerChrome) string {
+	width = max(1, width)
+	pct = clamp(pct, 0, 100)
+	filled := clamp(width*pct/100, 0, width)
+	full := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.accent).Render(strings.Repeat("█", filled))
+	empty := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted).Render(strings.Repeat("░", width-filled))
+	return full + empty
 }
 
 func (m *Model) refreshFeedCmd(feedID int64, feedURL string, manual bool) tea.Cmd {

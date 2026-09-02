@@ -364,7 +364,7 @@ func TestUpdateConfirmEscReturnsToApp(t *testing.T) {
 	}
 }
 
-func TestUpdateConfirmEnterStartsDownloadAndReturnsToApp(t *testing.T) {
+func TestUpdateConfirmEnterStartsDownloadWithProgressOverlay(t *testing.T) {
 	m := Model{
 		overlay:    overlayUpdateConfirm,
 		keys:       DefaultKeys,
@@ -374,14 +374,51 @@ func TestUpdateConfirmEnterStartsDownloadAndReturnsToApp(t *testing.T) {
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	got := next.(Model)
 
-	if got.overlay != overlayNone {
-		t.Fatalf("expected enter from update confirm to return to app, got overlay %v", got.overlay)
+	// The overlay stays open to host the progress bar while the download runs.
+	if got.overlay != overlayUpdateConfirm {
+		t.Fatalf("expected update overlay to stay open for the progress bar, got overlay %v", got.overlay)
 	}
 	if got.updateState != updateStateDownloading {
 		t.Fatalf("expected enter from update confirm to start downloading, got state %v", got.updateState)
 	}
+	if got.updateProgress != 0 {
+		t.Fatalf("expected progress to reset to 0, got %d", got.updateProgress)
+	}
 	if cmd == nil {
-		t.Fatal("expected enter from update confirm to start a download command")
+		t.Fatal("expected enter from update confirm to start a download + tick command")
+	}
+}
+
+func TestUpdateProgressTickAdvancesAndFinalizes(t *testing.T) {
+	m := Model{
+		overlay:            overlayUpdateConfirm,
+		keys:               DefaultKeys,
+		updateState:        updateStateInstalling,
+		updateInfo:         update.ReleaseInfo{Version: "v1.1.0"},
+		updateProgress:     90,
+		updateInstallReady: true,
+		updateInstall:      update.InstallResult{Version: "v1.1.0", Restartable: true},
+		styles:             BuildStyles(GruvboxLight, "comfortable"),
+	}
+
+	// One tick short of full: advances, keeps the overlay, re-arms the tick.
+	next, cmd := m.Update(UpdateProgressTickMsg{})
+	got := next.(Model)
+	if got.updateProgress != 95 || got.overlay != overlayUpdateConfirm || cmd == nil {
+		t.Fatalf("mid-progress tick: progress=%d overlay=%v cmd=%v", got.updateProgress, got.overlay, cmd != nil)
+	}
+
+	// Next tick fills the bar; the ready install is finalized and the overlay closes.
+	next, _ = got.Update(UpdateProgressTickMsg{})
+	got = next.(Model)
+	if got.updateProgress != 100 {
+		t.Fatalf("expected progress 100, got %d", got.updateProgress)
+	}
+	if got.overlay != overlayNone {
+		t.Fatalf("expected overlay to close after finalize, got %v", got.overlay)
+	}
+	if got.updateState != updateStateInstalled {
+		t.Fatalf("expected installed state after finalize, got %v", got.updateState)
 	}
 }
 
@@ -429,6 +466,25 @@ func TestUpdateConfirmOverlayMentionsSettingsAvailability(t *testing.T) {
 	}
 	if !containsString(view, "Settings > Updates") {
 		t.Fatalf("expected update confirm overlay to mention settings availability, got %q", view)
+	}
+}
+
+func TestUpdateConfirmOverlayShowsProgressBarWhileInstalling(t *testing.T) {
+	m := Model{
+		updateState:    updateStateDownloading,
+		updateInfo:     update.ReleaseInfo{Version: "v1.1.0"},
+		updateProgress: 40,
+	}
+
+	view := m.renderUpdateConfirmOverlay(72, newManagerChrome(72, CatppuccinMocha, false))
+	if !containsString(view, "Downloading Tide v1.1.0... 40%") {
+		t.Fatalf("expected download progress label, got %q", view)
+	}
+	if !containsString(view, "█") || !containsString(view, "░") {
+		t.Fatalf("expected a filled/empty progress bar, got %q", view)
+	}
+	if containsString(view, "Install Tide v1.1.0?") {
+		t.Fatalf("did not expect the install prompt while a download is in progress, got %q", view)
 	}
 }
 
