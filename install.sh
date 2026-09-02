@@ -3,7 +3,13 @@ set -e
 
 REPO="allisonhere/tide"
 BINARY="tide"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+if [ -z "${INSTALL_DIR:-}" ]; then
+  if [ -z "${HOME:-}" ]; then
+    INSTALL_DIR=""
+  else
+    INSTALL_DIR="${HOME}/.local/bin"
+  fi
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -15,7 +21,12 @@ NC='\033[0m'
 
 info()    { printf "  ${CYAN}→${NC} %s\n" "$1"; }
 success() { printf "  ${GREEN}✓${NC} %s\n" "$1"; }
+warn()    { printf "  ${DIM}!${NC} %s\n" "$1"; }
 error()   { printf "  ${RED}✗${NC} %s\n" "$1" >&2; exit 1; }
+
+quote_path() {
+  printf "'%s'" "$(printf "%s" "$1" | sed "s/'/'\\\\''/g")"
+}
 
 # Detect OS
 case "$(uname -s)" in
@@ -37,27 +48,35 @@ printf "\n  ${BOLD}Tide Installer${NC}\n"
 printf "  ${DIM}──────────────────────────${NC}\n"
 info "Platform: ${OS}/${ARCH}"
 
-# Get latest release version
-info "Fetching latest release..."
-LATEST=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-  | grep '"tag_name"' \
-  | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
-
-[ -z "$LATEST" ] && error "Could not determine latest version"
-info "Latest version: ${LATEST}"
-
-# Download
-URL="https://github.com/${REPO}/releases/download/${LATEST}/${ASSET}.tar.gz"
-CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${LATEST}/checksums.txt"
+# ── Download ──────────────────────────────────────────────────────────────
+# Use GitHub's /latest/download/ redirect URL — no API call needed, so no
+# rate limiting and no fragile grep/sed parsing of the releases JSON.
+URL="https://github.com/${REPO}/releases/latest/download/${ASSET}.tar.gz"
+CHECKSUMS_URL="https://github.com/${REPO}/releases/latest/download/checksums.txt"
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+INSTALL_TMP=""
+cleanup() {
+  rm -rf "$TMP"
+  if [ -n "$INSTALL_TMP" ]; then
+    rm -f "$INSTALL_TMP"
+  fi
+}
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 
-info "Downloading ${ASSET}.tar.gz..."
-curl -fsSL "$URL" -o "${TMP}/${ASSET}.tar.gz" \
-  || error "Download failed: ${URL}"
+info "Downloading latest release..."
+if ! curl -fsSL -o "${TMP}/${ASSET}.tar.gz" "$URL"; then
+  error "Download failed — no release asset at ${URL}\n         Check that a release exists: https://github.com/${REPO}/releases"
+fi
 
-# Releases made by the deployment TUI include checksums. Keep the fallback so
-# older releases remain installable while verifying every new archive.
+# Verify we got a real gzip archive (not an HTML error page from a redirect).
+if ! gzip -t "${TMP}/${ASSET}.tar.gz" 2>/dev/null; then
+  error "Downloaded file is not a valid archive. The latest release may be missing ${OS}/${ARCH} assets.\n         See: https://github.com/${REPO}/releases"
+fi
+
+# Releases include a checksums.txt; verify the archive against it. Older
+# releases predate the file — fall back to a warning so they stay installable.
 if curl -fsSL "$CHECKSUMS_URL" -o "${TMP}/checksums.txt"; then
   EXPECTED=$(awk -v file="${ASSET}.tar.gz" '$2 == file { print $1; exit }' "${TMP}/checksums.txt")
   [ -z "$EXPECTED" ] && error "Checksum missing for ${ASSET}.tar.gz"
@@ -71,20 +90,98 @@ if curl -fsSL "$CHECKSUMS_URL" -o "${TMP}/checksums.txt"; then
   [ "$ACTUAL" = "$EXPECTED" ] || error "Checksum verification failed"
   success "Checksum verified"
 else
-  info "Checksum unavailable for this older release; continuing"
+  warn "Checksum unavailable for this release; continuing"
 fi
 
-tar -xzf "${TMP}/${ASSET}.tar.gz" -C "$TMP"
-
-# Install
-if [ -w "$INSTALL_DIR" ]; then
-  mv "${TMP}/${ASSET}" "${INSTALL_DIR}/${BINARY}"
-  chmod +x "${INSTALL_DIR}/${BINARY}"
-else
-  info "Need sudo to install to ${INSTALL_DIR}"
-  sudo mv "${TMP}/${ASSET}" "${INSTALL_DIR}/${BINARY}"
-  sudo chmod +x "${INSTALL_DIR}/${BINARY}"
+# ── Extract ───────────────────────────────────────────────────────────────
+info "Extracting..."
+if ! tar -xzf "${TMP}/${ASSET}.tar.gz" -C "$TMP"; then
+  error "Failed to extract ${ASSET}.tar.gz — the archive may be corrupt."
 fi
 
-success "Installed ${BINARY} ${LATEST} to ${INSTALL_DIR}/${BINARY}"
+if [ ! -f "${TMP}/${ASSET}" ]; then
+  contents=$(ls -A "$TMP" 2>/dev/null | tr '\n' ' ')
+  error "Archive does not contain expected binary '${ASSET}'.\n         Found instead: ${contents}"
+fi
+
+chmod +x "${TMP}/${ASSET}"
+
+# Verify the staged binary before touching any existing installation.
+if ! "${TMP}/${ASSET}" --version >/dev/null 2>&1; then
+  error "Downloaded binary failed its version check; existing installation left untouched."
+fi
+
+# ── Install ───────────────────────────────────────────────────────────────
+if [ -z "$INSTALL_DIR" ]; then
+  error "No install directory selected. Set INSTALL_DIR to a writable directory."
+fi
+
+if [ ! -d "$INSTALL_DIR" ]; then
+  info "Creating ${INSTALL_DIR}"
+  if ! mkdir -p "$INSTALL_DIR"; then
+    error "Could not create ${INSTALL_DIR}. Set INSTALL_DIR to a writable directory."
+  fi
+fi
+
+if [ ! -w "$INSTALL_DIR" ]; then
+  error "${INSTALL_DIR} is not writable. Existing installation left untouched.\n         Try: INSTALL_DIR=\"\$HOME/.local/bin\" sh install.sh"
+fi
+
+INSTALL_TMP="${INSTALL_DIR}/.${BINARY}.tmp.$$"
+info "Installing to ${INSTALL_DIR}/${BINARY}"
+if ! install -m 0755 "${TMP}/${ASSET}" "$INSTALL_TMP"; then
+  error "Could not stage binary in ${INSTALL_DIR}. Existing installation left untouched."
+fi
+
+if ! VERSION=$("$INSTALL_TMP" --version 2>/dev/null); then
+  error "Staged binary failed its version check; existing installation left untouched."
+fi
+
+mv -f "$INSTALL_TMP" "${INSTALL_DIR}/${BINARY}"
+INSTALL_TMP=""
+
+# ── Verify ────────────────────────────────────────────────────────────────
+success "Installed ${VERSION} to ${INSTALL_DIR}/${BINARY}"
+SHADOWED=""
+FOUND_INSTALLED=""
+OLD_IFS=$IFS
+IFS=:
+for dir in $PATH; do
+  [ -n "$dir" ] || dir="."
+  candidate="${dir}/${BINARY}"
+  if [ "$candidate" = "${INSTALL_DIR}/${BINARY}" ]; then
+    FOUND_INSTALLED=1
+    break
+  fi
+  if [ ! -f "$candidate" ] || [ ! -x "$candidate" ]; then
+    continue
+  fi
+
+  if [ -w "$dir" ]; then
+    if rm -f "$candidate"; then
+      success "Removed stale ${candidate} that appeared earlier on PATH"
+      continue
+    fi
+  fi
+
+  if [ -w "$dir" ]; then
+    SHADOWED_CMD="rm -f $(quote_path "$candidate")"
+  else
+    SHADOWED_CMD="sudo rm -f $(quote_path "$candidate")"
+  fi
+  SHADOWED="$candidate"
+  break
+done
+IFS=$OLD_IFS
+
+case ":$PATH:" in
+  *":$INSTALL_DIR:"*) ;;
+  *) warn "${INSTALL_DIR} is not on PATH; add it before running ${BINARY} by name." ;;
+esac
+if [ -n "$SHADOWED" ]; then
+  warn "${SHADOWED} appears before ${INSTALL_DIR}/${BINARY} on PATH, so it may still run first."
+  warn "Remove it with: ${SHADOWED_CMD}"
+elif [ -z "$FOUND_INSTALLED" ]; then
+  warn "${INSTALL_DIR}/${BINARY} is not before other ${BINARY} entries on PATH."
+fi
 printf "\n  Run ${BOLD}tide${NC} to get started.\n\n"

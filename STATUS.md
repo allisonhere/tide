@@ -14,6 +14,12 @@
 - Settings modal polish: compact aligned rows, dedicated FEEDS section, shorter inputs, inline helper text
 - 18 feed fetcher tests passing
 - deploy.sh release tool, install.sh curl installer, GitHub Actions release CI
+- Password-free install + self-update: `install.sh` defaults to `~/.local/bin`
+  (no sudo), stages + `--version`-checks + atomically swaps, and de-shadows any
+  earlier `tide` on `PATH` (`sudo rm -f` printed once for a non-writable dir).
+  The in-app updater mirrors this: a non-writable binary dir migrates the update
+  to `~/.local/bin/tide` and reports the shadowed old copy in Settings → UPDATES.
+  One `sudo rm -f /usr/local/bin/tide` on upgrade, then never again.
 
 ## Known issues / next up
 - Feed manager stability pass landed: shared detail-pane geometry, explicit background coverage, and regression tests for narrow widths and cancel/focus transitions

@@ -53,11 +53,20 @@ The reusable themed UI toolkit derived from Tide is available as
 curl -fsSL https://raw.githubusercontent.com/allisonhere/tide/main/install.sh | sh
 ```
 
-Installs to `/usr/local/bin` by default. To install elsewhere:
+Installs to `~/.local/bin` — no `sudo`, and in-app updates land there too, so you
+never need a password again. Make sure `~/.local/bin` is on your `PATH`. To
+install system-wide instead:
 
 ```bash
-INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/allisonhere/tide/main/install.sh | sh
+INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/allisonhere/tide/main/install.sh | sh
 ```
+
+(with a system-wide install, in-app updates fall back to a manual `sudo` command.)
+
+**Upgrading from an older install** that put `tide` in `/usr/local/bin`: re-run
+the installer above (or take an in-app update). It installs to `~/.local/bin` and
+prints a one-time `sudo rm -f /usr/local/bin/tide` to clear the old copy — after
+that, no more prompts.
 
 Or build from source:
 
@@ -138,8 +147,11 @@ Feed options:
 Update options:
 - Toggle startup update checks
 - Check for the latest Tide release manually
-- Install the latest release in place when the current binary path is writable
-- If admin permission is required, Tide shows the exact install command to run
+- Install the latest release: in place when the binary's directory is writable,
+  otherwise migrated to `~/.local/bin/tide`
+- After a migrating install, shows a one-time `sudo rm -f ...` for any older copy
+  still earlier on `PATH`
+- If neither location is writable, shows the exact `sudo install ...` command
 
 AI summary options:
 - Provider: `none`, `OpenAI`, `Claude`, `Gemini`, or `Ollama`
@@ -279,7 +291,12 @@ Tide can check GitHub releases for a newer version and install the matching bina
 - Manual checks and installs live in the `UPDATES` section of Settings (`S`)
 - Tide never downloads or installs an update until you explicitly choose `Update now`
 - After a successful install, Tide offers `Restart now`
-- If the install target needs elevated permissions, Tide shows a manual `sudo install ...` command instead of failing silently
+- Updates replace the binary in place. If its directory is not writable, Tide
+  migrates the install to `~/.local/bin/tide` instead — no `sudo`. When an older
+  copy is still earlier on your `PATH`, Settings shows a one-time
+  `sudo rm -f ...` to remove it
+- Only if neither location is writable does Tide fall back to a manual
+  `sudo install ...` command instead of failing silently
 
 ## Making A Release
 

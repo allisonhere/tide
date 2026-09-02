@@ -16,6 +16,7 @@ import (
 )
 
 const defaultReleasesURL = "https://api.github.com/repos/allisonhere/tide/releases/latest"
+const binaryName = "tide"
 
 // SuggestedManualInstallScript is shown when an update is available but the running binary's install directory is not writable (before any download/install attempt).
 const SuggestedManualInstallScript = "curl -fsSL https://raw.githubusercontent.com/allisonhere/tide/main/install.sh | sh"
@@ -59,6 +60,11 @@ type InstallResult struct {
 	RequiresManual bool
 	ManualCommand  string
 	Restartable    bool
+	// ShadowedPath is a still-present older tide binary that sits earlier on
+	// PATH than the freshly installed one (set only when the install migrated
+	// to the user bin dir). ShadowedCommand removes it.
+	ShadowedPath    string
+	ShadowedCommand string
 }
 
 type githubRelease struct {
@@ -200,14 +206,16 @@ func (u *Updater) Install(asset DownloadedAsset, currentExec string) (InstallRes
 		return result, fmt.Errorf("current executable path is empty")
 	}
 
-	if err := ensureDirWritable(filepath.Dir(currentExec)); err != nil {
+	targetExec, err := installTarget(currentExec, true)
+	if err != nil {
 		result.RequiresManual = true
 		result.ManualCommand = manualInstallCommand(asset.BinaryPath, currentExec)
 		return result, nil
 	}
+	result.ExecutablePath = targetExec
 
-	nextPath := currentExec + ".new"
-	backupPath := currentExec + ".bak"
+	nextPath := targetExec + ".new"
+	backupPath := targetExec + ".bak"
 	_ = os.Remove(nextPath)
 	_ = os.Remove(backupPath)
 
@@ -215,21 +223,21 @@ func (u *Updater) Install(asset DownloadedAsset, currentExec string) (InstallRes
 		return result, fmt.Errorf("stage update binary: %w", err)
 	}
 
-	_, statErr := os.Stat(currentExec)
+	_, statErr := os.Stat(targetExec)
 	targetExists := statErr == nil
 	if statErr != nil && !os.IsNotExist(statErr) {
 		return result, fmt.Errorf("stat current executable: %w", statErr)
 	}
 
 	if targetExists {
-		if err := os.Rename(currentExec, backupPath); err != nil {
+		if err := os.Rename(targetExec, backupPath); err != nil {
 			return result, fmt.Errorf("backup current executable: %w", err)
 		}
 	}
 
-	if err := os.Rename(nextPath, currentExec); err != nil {
+	if err := os.Rename(nextPath, targetExec); err != nil {
 		if targetExists {
-			_ = os.Rename(backupPath, currentExec)
+			_ = os.Rename(backupPath, targetExec)
 		}
 		return result, fmt.Errorf("replace executable: %w", err)
 	}
@@ -238,6 +246,12 @@ func (u *Updater) Install(asset DownloadedAsset, currentExec string) (InstallRes
 		_ = os.Remove(backupPath)
 	}
 	result.Restartable = true
+	// If the install migrated to the user bin dir, an older copy may still sit
+	// earlier on PATH and keep winning `tide` — tell the UI to offer its removal.
+	if shadowedBy(currentExec, targetExec) {
+		result.ShadowedPath = currentExec
+		result.ShadowedCommand = removeCommand(currentExec)
+	}
 	return result, nil
 }
 
@@ -420,17 +434,112 @@ func extractTarGz(archivePath, destDir, expectedName string) (string, error) {
 	return "", fmt.Errorf("archive does not contain %s", expectedName)
 }
 
-// InstallDestinationWritable reports whether the directory containing the current executable allows creating files (same gate as in-place install).
+// InstallDestinationWritable reports whether an in-app update can install
+// without a manual step — either the current executable's directory is
+// writable, or the ~/.local/bin fallback is usable.
 func InstallDestinationWritable() (bool, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return false, err
 	}
-	dir := filepath.Dir(exe)
-	if err := ensureDirWritable(dir); err != nil {
+	if _, err := installTarget(exe, false); err != nil {
 		return false, nil
 	}
 	return true, nil
+}
+
+// Indirected for tests.
+var (
+	userHomeDir = os.UserHomeDir
+	dirWritable = ensureDirWritable
+)
+
+// installTarget picks where an in-app update should write the binary: the
+// current executable's own path when its directory is writable, otherwise
+// ~/.local/bin/tide (created when createFallbackDir is set). Returns an error
+// only when neither location is usable.
+func installTarget(currentExec string, createFallbackDir bool) (string, error) {
+	currentExec = strings.TrimSpace(currentExec)
+	if currentExec == "" {
+		return "", fmt.Errorf("current executable path is empty")
+	}
+	currentExec, err := filepath.Abs(currentExec)
+	if err != nil {
+		return "", err
+	}
+	if err := dirWritable(filepath.Dir(currentExec)); err == nil {
+		return currentExec, nil
+	}
+
+	fallback, err := defaultUserInstallPath()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(fallback)
+	if createFallbackDir {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
+	} else if _, err := os.Stat(dir); err != nil {
+		if statErr := dirWritable(filepath.Dir(filepath.Dir(dir))); statErr != nil {
+			return "", err
+		}
+		return fallback, nil
+	}
+	if err := dirWritable(dir); err != nil {
+		return "", err
+	}
+	return fallback, nil
+}
+
+func defaultUserInstallPath() (string, error) {
+	home, err := userHomeDir()
+	if err != nil {
+		return "", err
+	}
+	home = strings.TrimSpace(home)
+	if home == "" {
+		return "", fmt.Errorf("home directory is empty")
+	}
+	return filepath.Join(home, ".local", "bin", binaryName), nil
+}
+
+// shadowedBy reports whether `candidate` (an older binary) appears earlier on
+// PATH than `target` (the freshly installed one), so it would still run first.
+func shadowedBy(candidate, target string) bool {
+	candidate = strings.TrimSpace(candidate)
+	target = strings.TrimSpace(target)
+	if candidate == "" || target == "" {
+		return false
+	}
+	candidateAbs, err := filepath.Abs(candidate)
+	if err != nil {
+		return false
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return false
+	}
+	if candidateAbs == targetAbs {
+		return false
+	}
+	seenCandidate := false
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			dir = "."
+		}
+		path, err := filepath.Abs(filepath.Join(dir, binaryName))
+		if err != nil {
+			continue
+		}
+		switch path {
+		case targetAbs:
+			return seenCandidate
+		case candidateAbs:
+			seenCandidate = true
+		}
+	}
+	return false
 }
 
 func ensureDirWritable(dir string) error {
@@ -469,4 +578,8 @@ func copyExecutable(src, dst string) error {
 
 func manualInstallCommand(binaryPath, target string) string {
 	return fmt.Sprintf("sudo install -m 0755 %q %q", binaryPath, target)
+}
+
+func removeCommand(path string) string {
+	return fmt.Sprintf("sudo rm -f %q", path)
 }

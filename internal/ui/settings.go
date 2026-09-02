@@ -122,6 +122,10 @@ type settingsUpdateState struct {
 	manualCommand    string
 	restartable      bool
 	installedVersion string
+	// shadowCommand removes an older tide binary still earlier on PATH after
+	// the updater migrated the install to ~/.local/bin. Empty when none.
+	shadowCommand string
+	shadowPath    string
 }
 
 type settingsSectionBody struct {
@@ -1320,6 +1324,15 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		}
 		if s.update.restartable {
 			b.addAction("Restart now", "launch updated Tide", sfUpdateRestartNow)
+		}
+		if s.update.shadowCommand != "" {
+			hintStyle := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted)
+			b.addBlank()
+			b.addLine(hintStyle.Width(b.contentW).Render("  " + s.update.shadowPath + " is still earlier on PATH."))
+			b.addLine(hintStyle.Width(b.contentW).Render("  Remove it so tide starts this version:"))
+			for _, cl := range wrapShellCommand(s.update.shadowCommand, max(1, b.contentW-4)) {
+				b.addLine(hintStyle.Width(b.contentW).Render("    " + cl))
+			}
 		}
 
 	case ssAI:

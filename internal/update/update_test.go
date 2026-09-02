@@ -117,7 +117,13 @@ func TestInstallReplacesExistingBinary(t *testing.T) {
 	}
 }
 
-func TestInstallReturnsManualCommandWhenTargetDirNotWritable(t *testing.T) {
+// When the running binary's dir is not writable, the updater migrates the
+// install to ~/.local/bin rather than demanding sudo.
+func TestInstallMigratesToUserBinWhenTargetDirNotWritable(t *testing.T) {
+	home := t.TempDir()
+	restore := stubHome(home)
+	defer restore()
+
 	dir := t.TempDir()
 	protectedDir := filepath.Join(dir, "protected")
 	if err := os.Mkdir(protectedDir, 0o755); err != nil {
@@ -133,20 +139,112 @@ func TestInstallReturnsManualCommandWhenTargetDirNotWritable(t *testing.T) {
 		t.Fatalf("write new binary: %v", err)
 	}
 
-	target := filepath.Join(protectedDir, "tide")
 	result, err := New().Install(DownloadedAsset{
 		Release:    ReleaseInfo{Version: "v1.2.3"},
 		BinaryPath: newBinary,
-	}, target)
+	}, filepath.Join(protectedDir, "tide"))
+	if err != nil {
+		t.Fatalf("Install returned error: %v", err)
+	}
+	if result.RequiresManual {
+		t.Fatalf("expected migration, not a manual step: %q", result.ManualCommand)
+	}
+	want := filepath.Join(home, ".local", "bin", "tide")
+	if result.ExecutablePath != want {
+		t.Fatalf("ExecutablePath = %q, want %q", result.ExecutablePath, want)
+	}
+	if !result.Restartable {
+		t.Fatal("expected migrated install to be restartable")
+	}
+	if data, _ := os.ReadFile(want); string(data) != "new" {
+		t.Fatalf("migrated binary content = %q, want %q", data, "new")
+	}
+}
+
+// Only when neither the current dir nor ~/.local/bin is usable does it fall
+// back to a manual sudo command.
+func TestInstallReturnsManualCommandWhenNoWritableTarget(t *testing.T) {
+	restoreHome := stubHome(t.TempDir())
+	defer restoreHome()
+	restoreWritable := dirWritable
+	dirWritable = func(string) error { return os.ErrPermission }
+	defer func() { dirWritable = restoreWritable }()
+
+	dir := t.TempDir()
+	newBinary := filepath.Join(dir, "downloaded")
+	if err := os.WriteFile(newBinary, []byte("new"), 0o755); err != nil {
+		t.Fatalf("write new binary: %v", err)
+	}
+
+	result, err := New().Install(DownloadedAsset{
+		Release:    ReleaseInfo{Version: "v1.2.3"},
+		BinaryPath: newBinary,
+	}, filepath.Join(dir, "tide"))
 	if err != nil {
 		t.Fatalf("Install returned error: %v", err)
 	}
 	if !result.RequiresManual {
-		t.Fatal("expected install to require manual step")
+		t.Fatal("expected install to require a manual step")
 	}
 	if !strings.Contains(result.ManualCommand, "sudo install -m 0755") {
 		t.Fatalf("unexpected manual command: %q", result.ManualCommand)
 	}
+}
+
+// After migrating, an older tide earlier on PATH is reported for removal.
+func TestInstallReportsShadowedBinary(t *testing.T) {
+	home := t.TempDir()
+	defer stubHome(home)()
+
+	oldDir := t.TempDir()
+	oldExec := filepath.Join(oldDir, "tide")
+	if err := os.WriteFile(oldExec, []byte("old"), 0o755); err != nil {
+		t.Fatalf("write old binary: %v", err)
+	}
+	if err := os.Chmod(oldDir, 0o555); err != nil { // force the migration path
+		t.Fatalf("chmod old dir: %v", err)
+	}
+	defer os.Chmod(oldDir, 0o755) //nolint:errcheck
+
+	userBin := filepath.Join(home, ".local", "bin")
+	t.Setenv("PATH", oldDir+string(os.PathListSeparator)+userBin)
+
+	dir := t.TempDir()
+	newBinary := filepath.Join(dir, "downloaded")
+	if err := os.WriteFile(newBinary, []byte("new"), 0o755); err != nil {
+		t.Fatalf("write new binary: %v", err)
+	}
+
+	result, err := New().Install(DownloadedAsset{
+		Release:    ReleaseInfo{Version: "v1.2.3"},
+		BinaryPath: newBinary,
+	}, oldExec)
+	if err != nil {
+		t.Fatalf("Install returned error: %v", err)
+	}
+	if result.ShadowedPath != oldExec {
+		t.Fatalf("ShadowedPath = %q, want %q", result.ShadowedPath, oldExec)
+	}
+	if !strings.Contains(result.ShadowedCommand, "sudo rm -f") {
+		t.Fatalf("unexpected shadow command: %q", result.ShadowedCommand)
+	}
+}
+
+func TestInstallTargetPrefersWritableCurrentDir(t *testing.T) {
+	dir := t.TempDir()
+	got, err := installTarget(filepath.Join(dir, "tide"), false)
+	if err != nil {
+		t.Fatalf("installTarget: %v", err)
+	}
+	if got != filepath.Join(dir, "tide") {
+		t.Fatalf("installTarget = %q, want the current path", got)
+	}
+}
+
+func stubHome(home string) func() {
+	prev := userHomeDir
+	userHomeDir = func() (string, error) { return home, nil }
+	return func() { userHomeDir = prev }
 }
 
 func TestIsStableVersion(t *testing.T) {

@@ -442,7 +442,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clearCachedAvailableUpdate()
 		config.Save(m.cfg) //nolint:errcheck
 		m.syncSettingsUpdateState()
-		m.setStatus("Tide updated to "+msg.Result.Version+m.styles.InlineMidDot()+"restart when ready", false)
+		if msg.Result.ShadowedPath != "" {
+			m.setStatus("Tide updated to "+msg.Result.Version+m.styles.InlineMidDot()+"restart when ready"+m.styles.InlineMidDot()+"remove "+msg.Result.ShadowedPath+" (see Settings)", true)
+		} else {
+			m.setStatus("Tide updated to "+msg.Result.Version+m.styles.InlineMidDot()+"restart when ready", false)
+		}
 		return m, m.clearStatusCmd()
 
 	case RestartedMsg:
@@ -3648,6 +3652,8 @@ func (m Model) settingsUpdateState() settingsUpdateState {
 		manualCommand:    m.effectiveManualCommand(),
 		restartable:      m.updateInstall.Restartable,
 		installedVersion: m.updateInstall.Version,
+		shadowCommand:    m.updateInstall.ShadowedCommand,
+		shadowPath:       m.updateInstall.ShadowedPath,
 	}
 }
 
