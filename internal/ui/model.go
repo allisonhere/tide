@@ -179,6 +179,10 @@ type Model struct {
 	activeTheme    int
 	styles         Styles
 	themeCursor    int
+	// omarchySig / omarchyWatching drive the "match-omarchy" theme's
+	// live-follow poll (see theme_omarchy.go).
+	omarchySig      string
+	omarchyWatching bool
 
 	// Feed manager (delegate)
 	feedManager FeedManager
@@ -268,6 +272,8 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string, preview
 		focused:               paneFeeds,
 		confirmedTheme:        themeIdx,
 		activeTheme:           themeIdx,
+		omarchySig:            omarchySignature(),
+		omarchyWatching:       isMatchOmarchy(cfg.Theme),
 		styles:                BuildStyles(merged, cfg.Display.Density),
 		feedManager:           NewFeedManager(database),
 		searchInput:           si,
@@ -301,6 +307,9 @@ func (m Model) Init() tea.Cmd {
 		if cmd := m.maybeCheckForUpdatesCmd(false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	}
+	if isMatchOmarchy(m.cfg.Theme) {
+		cmds = append(cmds, omarchyWatchCmd())
 	}
 	return tea.Batch(cmds...)
 }
@@ -355,6 +364,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
+
+	case omarchyThemeTickMsg:
+		return m.handleOmarchyThemeTick()
 
 	case StatusClearMsg:
 		m.statusMsg = ""
@@ -1398,6 +1410,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case overlayThemePicker:
 		prevTheme := m.activeTheme
+		var themeCmd tea.Cmd
 		switch {
 		case keyMatches(msg, m.keys.Up):
 			if m.themeCursor > 0 {
@@ -1409,7 +1422,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case keyMatches(msg, m.keys.Down):
-			if m.themeCursor < len(BuiltinThemes)-1 {
+			if m.themeCursor < len(PickableThemes())-1 {
 				m.themeCursor++
 				m.activeTheme = m.themeCursor
 				m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density)
@@ -1420,8 +1433,9 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case keyMatches(msg, m.keys.Confirm):
 			m.confirmedTheme = m.themeCursor
 			m.overlay = overlayNone
-			m.cfg.Theme = BuiltinThemes[m.confirmedTheme].Name
+			m.cfg.Theme = pickableThemeNameAt(m.confirmedTheme)
 			config.Save(m.cfg)
+			themeCmd = m.startOmarchyWatchIfNeeded()
 			if len(m.filteredArticles) > 0 {
 				m.setViewportArticle(m.filteredArticles[m.articleCursor])
 			}
@@ -1434,9 +1448,9 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if m.activeTheme != prevTheme {
-			return m, setTermBgCmd(m.styles.Theme.Bg)
+			return m, tea.Batch(themeCmd, setTermBgCmd(m.styles.Theme.Bg))
 		}
-		return m, nil
+		return m, themeCmd
 
 	case overlayFeedManager:
 		return m.handleFeedManager(msg)
@@ -2944,8 +2958,9 @@ func overlayOnBase(base, box string, width, height int, bg lipgloss.Color) strin
 
 func (m Model) renderThemePicker(width int, chrome managerChrome) string {
 	labelW := max(1, width-2) // minus the 2-cell rail
-	rows := make([]string, 0, len(BuiltinThemes))
-	for i, t := range BuiltinThemes {
+	pt := PickableThemes()
+	rows := make([]string, 0, len(pt))
+	for i, t := range pt {
 		selected := i == m.themeCursor
 		label := lipgloss.NewStyle().
 			Background(chrome.baseBg).
