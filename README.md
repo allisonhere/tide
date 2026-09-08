@@ -22,7 +22,9 @@ The reusable themed UI toolkit derived from Tide is available as
 - Optional actionable links in content pane (Settings → Display)
 - **Optional article images in the content pane** (Kitty graphics; Settings → Display; off by default) — text wraps beside the image, `i` toggles per article, clean text-only fallback everywhere else
 - AI summaries with copy and save-to-Markdown actions
-- 19 built-in themes, including customizable VT52 and VT100 palettes
+- 19 built-in themes, including customizable VT52 and VT100 palettes, plus
+  `match-omarchy` which follows your current [Omarchy](https://omarchy.org)
+  desktop theme (contrast-corrected, updates live)
 - Terminal background sync (OSC 11)
 
 ## Themes
@@ -46,6 +48,11 @@ The reusable themed UI toolkit derived from Tide is available as
 - `lavender-fields-forever`
 - `vt100`
 - `vt52`
+- `match-omarchy` — follows the current [Omarchy](https://omarchy.org) desktop
+  theme, remapped and contrast-corrected to the same readability bar as the
+  built-ins. Works for light and dark Omarchy themes and repaints within a
+  couple of seconds when you switch your desktop theme. Falls back to
+  `catppuccin-mocha` when Omarchy isn't installed.
 
 ## Installation
 
