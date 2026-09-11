@@ -3,6 +3,13 @@
 ## Current branch: feat/article-images
 
 ## What's working
+- Toggleable pane header bars (`Settings → Display → Pane header bars`, on by
+  default): hiding them restores one row in each pane and moves the focused
+  pane's title and shortcuts to the status bar.
+- In-app updates show download/install progress and retain the completion modal
+  after a successful install. Choosing restart records the installed binary,
+  exits Tide cleanly, and re-execs only after Bubble Tea restores the terminal
+  and Tide releases its database.
 - Optional article images in the Content pane via the Kitty graphics protocol (`Settings → Display → Article images`, off by default): conservative terminal detection (Kitty/Ghostty/WezTerm/Konsole) with cell-pixel-size query, lazy fetch with disk cache under `~/.cache/rss/images/`, aspect-preserving resize capped at ~12 rows. Wide panes place the image top-left with the article metadata block (feed name, author, N min read, updated date, #tags, read/saved state) in the column to its right; the body always flows full-width below the image. Narrow panes / scrolled-away use a full-width band with the metadata stacked below it. The metadata block only appears alongside a lead image — the plain reading view keeps its compact header. The Kitty escape sequence rides the Bubble Tea `View()` frame (single writer, no side channel) so it cannot be chopped and never overwrites the image. `i` toggles per article; cleanup on scroll/resize/overlay/theme/article-change/quit. Clean text-only fallback on unsupported terminals. Isolated in `internal/image/`; `TIDE_IMAGE_DEBUG=<file>` logs the lifecycle and `go run ./cmd/imgcheck [feed-url]` tests each stage in isolation.
 - Article metadata now parsed and persisted: author, categories/tags, and a distinct updated date (`gofeed` for local feeds, Google Reader `author`/`user/-/label/*` for remote). New `articles` columns `author`, `categories`, `updated_at` via schema migration v10; existing rows backfill on the next refresh.
 - Feed manager overlay: add / edit / delete / import OPML / export OPML
