@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"runtime/debug"
 	"strings"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -20,12 +21,27 @@ import (
 var version = "dev"
 
 func main() {
+	code, restartExec := run()
+	if restartExec != "" {
+		argv := append([]string{restartExec}, os.Args[1:]...)
+		if err := syscall.Exec(restartExec, argv, os.Environ()); err != nil {
+			fmt.Fprintln(os.Stderr, "restart failed:", err)
+			os.Exit(1)
+		}
+	}
+	os.Exit(code)
+}
+
+// run owns resources that must be released before an in-app update restart.
+// main re-execs only after this function returns, once Bubble Tea has restored
+// the terminal and Tide has closed its database and reset terminal colors.
+func run() (code int, restartExec string) {
 	previewManualUpdate := false
 	for _, a := range os.Args[1:] {
 		switch strings.TrimSpace(a) {
 		case "--version", "-version", "-v":
 			fmt.Printf("tide %s\n", resolvedVersion())
-			return
+			return 0, ""
 		case "--preview-manual-update":
 			previewManualUpdate = true
 		}
@@ -34,7 +50,7 @@ func main() {
 	database, err := db.Open()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error opening database:", err)
-		os.Exit(1)
+		return 1, ""
 	}
 	defer database.Close()
 
@@ -78,15 +94,20 @@ func main() {
 			p.Kill()
 			cleanupImages()
 			fmt.Fprintln(os.Stderr, "panic:", r)
-			os.Exit(1)
+			code = 1
 		}
 	}()
 
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	if err != nil {
 		cleanupImages()
 		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		return 1, ""
 	}
+	if model, ok := finalModel.(ui.Model); ok {
+		restartExec = model.RestartExecPath()
+	}
+	return 0, restartExec
 }
 
 func resolvedVersion() string {

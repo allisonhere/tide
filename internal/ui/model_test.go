@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -426,10 +427,14 @@ func TestUpdateProgressTickAdvancesAndFinalizes(t *testing.T) {
 	}
 	next, cmd = got.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
-		t.Fatal("expected enter on restart prompt to start Tide again")
+		t.Fatal("expected enter on restart prompt to quit for a clean restart")
 	}
-	if restarted := next.(Model); restarted.overlay != overlayUpdateConfirm {
-		t.Fatalf("expected restart prompt to stay open until restart succeeds, got %v", restarted.overlay)
+	restarted := next.(Model)
+	if got := restarted.RestartExecPath(); got != "/tmp/tide" {
+		t.Fatalf("expected restart path to be recorded, got %q", got)
+	}
+	if msg := cmd(); fmt.Sprintf("%T", msg) != "tea.QuitMsg" {
+		t.Fatalf("expected clean quit command for restart, got %T", msg)
 	}
 }
 

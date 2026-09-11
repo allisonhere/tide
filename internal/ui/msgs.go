@@ -105,9 +105,6 @@ type UpdateInstalledMsg struct {
 // in the update overlay. It is time-driven, not byte-driven.
 type UpdateProgressTickMsg struct{}
 
-type RestartedMsg struct {
-	Err error
-}
 type AISummaryFetchedMsg struct {
 	ArticleID int64
 	Summary   string

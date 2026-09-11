@@ -228,6 +228,10 @@ type Model struct {
 	updateProgress     int
 	updateInstallReady bool
 	updateInstallErr   error
+	// restartExecPath asks main to replace Tide only after Bubble Tea has
+	// restored the terminal; spawning from the live TUI makes both processes
+	// compete for the terminal.
+	restartExecPath string
 
 	// Dev-only: launch with Settings > Updates showing the manual-install preview; avoids persisting demo update state.
 	previewManualUpdateUI bool
@@ -238,6 +242,10 @@ type Model struct {
 	summaryGenerating bool
 	summaryErr        string
 }
+
+// RestartExecPath returns the installed binary main should exec after Tide has
+// shut down cleanly, or an empty string when no restart was requested.
+func (m Model) RestartExecPath() string { return m.restartExecPath }
 
 func NewModel(database *db.DB, cfg config.Config, currentVersion string, previewManualUpdate bool) Model {
 	merged, themeIdx := MergedThemeFromConfig(cfg)
@@ -462,13 +470,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.finalizeUpdateInstall()
 		}
 		return m, nil
-
-	case RestartedMsg:
-		if msg.Err != nil {
-			m.setStatus(msg.Err.Error(), true)
-			return m, m.clearStatusCmd()
-		}
-		return m, m.quitCmd()
 
 	case FeedsLoadedMsg:
 		// Reloads preserve the user's sidebar intent, unless a save flow requested a specific feed selection. -allie
@@ -1480,7 +1481,8 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.updateState == updateStateInstalled {
 			switch {
 			case keyMatches(msg, m.keys.Confirm) && m.updateInstall.Restartable && m.updateInstall.ExecutablePath != "":
-				return m, restartProcessCmd(m.updateInstall.ExecutablePath)
+				m.restartExecPath = m.updateInstall.ExecutablePath
+				return m, tea.Quit
 			case keyMatches(msg, m.keys.Confirm), keyMatches(msg, m.keys.Cancel):
 				m.overlay = overlayNone
 			}
@@ -1574,8 +1576,9 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case settingsActionDismissVersion:
 		return m, m.dismissAvailableUpdate()
 	case settingsActionRestartAfterUpdate:
-		if m.updateInstall.Restartable {
-			return m, restartProcessCmd(m.updateInstall.ExecutablePath)
+		if m.updateInstall.Restartable && m.updateInstall.ExecutablePath != "" {
+			m.restartExecPath = m.updateInstall.ExecutablePath
+			return m, tea.Quit
 		}
 		return m, nil
 	case settingsActionOpenRepo, settingsActionOpenIssues:
@@ -3547,19 +3550,6 @@ func (m *Model) clearStatusCmd() tea.Cmd {
 	return tea.Tick(4*time.Second, func(time.Time) tea.Msg {
 		return StatusClearMsg{}
 	})
-}
-
-func restartProcessCmd(executablePath string) tea.Cmd {
-	return func() tea.Msg {
-		cmd := exec.Command(executablePath, os.Args[1:]...)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Start(); err != nil {
-			return RestartedMsg{Err: fmt.Errorf("restart Tide: %w", err)}
-		}
-		return RestartedMsg{}
-	}
 }
 
 func (m Model) openBrowserCmd(url string) tea.Cmd {

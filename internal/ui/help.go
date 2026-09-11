@@ -104,6 +104,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 		{
 			name: "App",
 			entries: []entry{
+				{"Updates", "after installation, choose restart in the completion modal or Settings → Updates"},
 				bind(keys.ThemePicker),
 				bind(keys.Settings),
 				bind(keys.UpdateInstall),

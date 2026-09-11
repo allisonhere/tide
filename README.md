@@ -14,6 +14,9 @@ Pane header bars can now be toggled in **Settings → Display** (or with
 hidden, Tide gives each pane back a row and shows the focused pane’s title and
 shortcuts in the status bar.
 
+After a successful in-app update, Tide now keeps the completion modal open and
+can restart cleanly into the installed binary after restoring the terminal.
+
 ## Features
 
 - Three-pane layout: feeds, articles, content
