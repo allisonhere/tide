@@ -206,8 +206,10 @@ type Model struct {
 	// lastSourceSync rate-limits the remote source's background sync, which has
 	// no per-feed fetch time to key off.
 	lastSourceSync time.Time
-	spinner        spinner.Model
-	mdConverter    *md.Converter
+	// lastPrune is when retention last swept; see retention.go.
+	lastPrune   time.Time
+	spinner     spinner.Model
+	mdConverter *md.Converter
 
 	// Startup selection is deferred until FeedsLoadedMsg so feed-manager saves can select rows after reload. -allie
 	firstLoad           bool  // true until the initial FeedsLoadedMsg is processed
@@ -626,6 +628,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case autoRefreshTickMsg:
 		return m, m.handleAutoRefreshTick()
+
+	case ArticlesPrunedMsg:
+		return m, m.handleArticlesPruned(msg)
 
 	case FeedRefreshedMsg:
 		delete(m.refreshing, msg.FeedID)
@@ -1242,6 +1247,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, m.keys.Settings):
 		m.settings = newSettings(m.cfg, m.settingsUpdateState())
+		m.settings.setStorageState(m.settingsStorageState())
 		m.overlay = overlaySettings
 		return m, nil
 
@@ -3898,6 +3904,20 @@ func (m Model) effectiveManualCommand() string {
 	return update.SuggestedManualInstallScript
 }
 
+// settingsStorageState reads the database's current size for the Feeds section.
+// It is sampled when Settings opens rather than watched: it is a display line,
+// and a COUNT on every frame would not earn its keep.
+func (m Model) settingsStorageState() settingsStorageState {
+	if m.db == nil {
+		return settingsStorageState{}
+	}
+	count, err := m.db.ArticleCount()
+	if err != nil {
+		return settingsStorageState{}
+	}
+	return settingsStorageState{articles: count, bytes: m.db.FileSize()}
+}
+
 func (m Model) settingsUpdateState() settingsUpdateState {
 	lastChecked := time.Time{}
 	if m.cfg.Updates.LastCheckedUnix > 0 {
@@ -3945,6 +3965,7 @@ func (m *Model) applyManualUpdatePreview() {
 	}
 	m.cfg.Updates.LastCheckedUnix = now.Unix()
 	m.settings = newSettings(m.cfg, m.settingsUpdateState())
+	m.settings.setStorageState(m.settingsStorageState())
 	m.settings.setFocusedPane(settingsPaneDetail)
 	m.settings.setActiveSection(ssUpdates)
 	m.settings.setFocusedField(sfUpdateManualCommand)

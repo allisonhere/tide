@@ -16,6 +16,13 @@ capped at four at a time, so a large library no longer opens a socket per feed
 the moment Tide starts, and each feed's own last-fetched time decides when it is
 due — restarting does not re-fetch what was just refreshed.
 
+Articles can now expire. **Settings → Feeds → Delete read after (days)** (or
+`feed.retention_days`) drops read articles once they pass that age, and the
+Feeds section shows how much the database currently holds. It is **off by
+default** — an upgrade will not quietly delete a library you already have — and
+even when on it never touches starred articles, articles with a saved AI
+summary, or anything still unread.
+
 Each pane is now drawn in its own frame, with square or rounded corners, and the
 frame follows the focused pane. Turn it off in **Settings → Display** (or with
 `display.show_pane_borders` in `config.toml`) to go back to plain divider lines
@@ -51,6 +58,7 @@ press Enter to restart or Esc to continue and restart later.
   `match-omarchy` which follows your current [Omarchy](https://omarchy.org)
   desktop theme (contrast-corrected, updates live)
 - Background refresh on a configurable interval, with fetches queued rather than fired all at once
+- Optional retention: expire read articles after N days, never touching starred, summarized or unread ones
 - Terminal background sync (OSC 11)
 
 ## Themes
@@ -302,6 +310,7 @@ density = "compact"
 [feed]
 max_body_mib = 10
 refresh_interval_minutes = 30   # 0 disables the background refresh
+retention_days = 0              # 0 keeps every article forever
 
 [ai]
 provider = "ollama" # openai | claude | gemini | ollama | ""

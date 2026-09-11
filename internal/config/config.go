@@ -52,6 +52,11 @@ type FeedConfig struct {
 	// RefreshIntervalMinutes is how often feeds are re-fetched in the
 	// background. 0 disables the background refresh, leaving f / F.
 	RefreshIntervalMinutes int `toml:"refresh_interval_minutes"`
+	// RetentionDays is how long a read article is kept before it is deleted.
+	// 0 keeps everything forever, which is the default: an upgrade should not
+	// quietly delete a library someone already has. Starred articles, articles
+	// with a saved AI summary, and unread articles are never pruned.
+	RetentionDays int `toml:"retention_days"`
 }
 
 type UpdatesConfig struct {
@@ -140,6 +145,9 @@ func Load() (Config, error) {
 	// instruction, so it folds into the same off state.
 	if cfg.Feed.RefreshIntervalMinutes < 0 {
 		cfg.Feed.RefreshIntervalMinutes = 0
+	}
+	if cfg.Feed.RetentionDays < 0 {
+		cfg.Feed.RetentionDays = 0
 	}
 	if cfg.Updates.CheckIntervalHours <= 0 {
 		cfg.Updates.CheckIntervalHours = DefaultConfig().Updates.CheckIntervalHours

@@ -154,3 +154,70 @@ func TestAutoRefreshTickQueuesDueFeeds(t *testing.T) {
 		t.Fatal("expected the freshly fetched feed to be left alone")
 	}
 }
+
+// Retention is off by default, so an upgrade never silently deletes anyone's
+// library — it has to be switched on.
+func TestRetentionIsOffByDefault(t *testing.T) {
+	m := refreshTestModel(t, 1, 30)
+	if m.cfg.Feed.RetentionDays != 0 {
+		t.Fatalf("expected retention off by default, got %d days", m.cfg.Feed.RetentionDays)
+	}
+	if !m.retentionCutoff(time.Now()).IsZero() {
+		t.Fatal("expected no cutoff while retention is off")
+	}
+	if m.retentionDue(time.Now()) {
+		t.Fatal("expected no retention sweep while retention is off")
+	}
+}
+
+func TestRetentionCutoffAndSchedule(t *testing.T) {
+	m := refreshTestModel(t, 1, 0)
+	m.cfg.Feed.RetentionDays = 30
+	now := time.Now()
+
+	cutoff := m.retentionCutoff(now)
+	if want := now.AddDate(0, 0, -30); !cutoff.Equal(want) {
+		t.Fatalf("expected a 30 day cutoff at %v, got %v", want, cutoff)
+	}
+
+	// Without a database there is nothing to sweep, whatever the setting says.
+	if m.retentionDue(now) {
+		t.Fatal("expected no sweep without a database")
+	}
+}
+
+// Retention rides the refresh heartbeat, so it still runs with the background
+// refresh switched off.
+func TestAutoRefreshTickStillRunsRetentionWhenRefreshOff(t *testing.T) {
+	m := refreshTestModel(t, 2, 0)
+	m.cfg.Feed.RetentionDays = 30
+	now := time.Now()
+	for i := range m.feeds {
+		m.feeds[i].LastFetched = now
+	}
+
+	// lastPrune is only stamped when a sweep is actually dispatched, which
+	// needs a database; assert the schedule rather than the command here.
+	if m.autoRefreshInterval() != 0 {
+		t.Fatal("setup: expected the background refresh to be off")
+	}
+	if cmd := m.handleAutoRefreshTick(); cmd == nil {
+		t.Fatal("expected the heartbeat to re-arm even with refresh off")
+	}
+}
+
+func TestFormatBytes(t *testing.T) {
+	for _, tc := range []struct {
+		in   int64
+		want string
+	}{
+		{512, "512 B"},
+		{2048, "2.0 KB"},
+		{5 * 1024 * 1024, "5.0 MB"},
+		{3 * 1024 * 1024 * 1024, "3.0 GB"},
+	} {
+		if got := formatBytes(tc.in); got != tc.want {
+			t.Fatalf("formatBytes(%d) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

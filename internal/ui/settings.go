@@ -46,6 +46,7 @@ const (
 	sfBrowser
 	sfFeedMaxBody
 	sfFeedRefreshInterval
+	sfFeedRetentionDays
 	sfUpdateCheckOnStartup
 	sfUpdateCheckNow
 	sfUpdateInstallNow
@@ -191,6 +192,9 @@ type Settings struct {
 	browserInput         textinput.Model
 	feedMaxBodyInput     textinput.Model
 	refreshIntervalInput textinput.Model
+	retentionDaysInput   textinput.Model
+	// storage backs the read-only usage line in the Feeds section.
+	storage              settingsStorageState
 	updateCheckOnStartup bool
 	update               settingsUpdateState
 	action               settingsAction
@@ -279,6 +283,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		browserInput:         mkInput(cfg.Display.Browser, "xdg-open", false),
 		feedMaxBodyInput:     mkInput(strconv.Itoa(cfg.Feed.MaxBodyMiB), "10", false),
 		refreshIntervalInput: mkInput(strconv.Itoa(cfg.Feed.RefreshIntervalMinutes), "30", false),
+		retentionDaysInput:   mkInput(strconv.Itoa(cfg.Feed.RetentionDays), "0", false),
 		updateCheckOnStartup: cfg.Updates.CheckOnStartup,
 		update:               updateState,
 		providerIdx:          providerIndex(cfg.AI.Provider),
@@ -363,6 +368,10 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	if n, err := strconv.Atoi(strings.TrimSpace(s.refreshIntervalInput.Value())); err == nil && n >= 0 {
 		cfg.Feed.RefreshIntervalMinutes = n
 	}
+	// 0 here means "keep everything", so it is accepted the same way.
+	if n, err := strconv.Atoi(strings.TrimSpace(s.retentionDaysInput.Value())); err == nil && n >= 0 {
+		cfg.Feed.RetentionDays = n
+	}
 	cfg.Updates.CheckOnStartup = s.updateCheckOnStartup
 
 	cfg.AI.Provider = aiProviderIDs[s.providerIdx]
@@ -380,6 +389,24 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	cfg.AI.SavePath = strings.TrimSpace(s.savePathInput.Value())
 	cfg.AI.MarkReadOnSummarize = s.markReadOnSummarize
 	return cfg
+}
+
+// settingsStorageState is the read-only database usage shown in the Feeds
+// section, so the cost of keeping everything is visible where retention is set.
+type settingsStorageState struct {
+	articles int64
+	bytes    int64
+}
+
+func (v settingsStorageState) summary() string {
+	if v.articles == 0 && v.bytes == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s · %s", pluralArticles(v.articles), formatBytes(v.bytes))
+}
+
+func (s *Settings) setStorageState(v settingsStorageState) {
+	s.storage = v
 }
 
 func (s *Settings) setUpdateState(v settingsUpdateState) {
@@ -485,6 +512,7 @@ func (s *Settings) applyFocus() {
 	s.readingWidthInput.Blur()
 	s.feedMaxBodyInput.Blur()
 	s.refreshIntervalInput.Blur()
+	s.retentionDaysInput.Blur()
 	s.openaiInput.Blur()
 	s.claudeInput.Blur()
 	s.geminiInput.Blur()
@@ -505,6 +533,8 @@ func (s *Settings) applyFocus() {
 		s.feedMaxBodyInput.Focus()
 	case sfFeedRefreshInterval:
 		s.refreshIntervalInput.Focus()
+	case sfFeedRetentionDays:
+		s.retentionDaysInput.Focus()
 	case sfAPIKey:
 		switch s.providerIdx {
 		case 1:
@@ -556,7 +586,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		}
 		return append(fields, sfActionableLinks, sfFilterLinks, sfArticleImages, sfBrowser, sfConfirmQuit)
 	case ssFeeds:
-		return []settingsField{sfBackToSections, sfFeedRefreshInterval, sfFeedMaxBody}
+		return []settingsField{sfBackToSections, sfFeedRefreshInterval, sfFeedRetentionDays, sfFeedMaxBody}
 	case ssUpdates:
 		fields := []settingsField{sfBackToSections, sfUpdateCheckOnStartup, sfUpdateCheckNow}
 		if s.updateNowActionVisible() {
@@ -650,7 +680,7 @@ func (s Settings) isTextInput() bool {
 		return false
 	}
 	switch s.focusedField {
-	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
+	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfFeedRetentionDays, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
 		sfRetroBg, sfRetroFg, sfRetroAccent:
 		return true
 	}
@@ -669,6 +699,8 @@ func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) 
 		s.feedMaxBodyInput, cmd = s.feedMaxBodyInput.Update(msg)
 	case sfFeedRefreshInterval:
 		s.refreshIntervalInput, cmd = s.refreshIntervalInput.Update(msg)
+	case sfFeedRetentionDays:
+		s.retentionDaysInput, cmd = s.retentionDaysInput.Update(msg)
 	case sfAPIKey:
 		switch s.providerIdx {
 		case 1:
@@ -765,6 +797,8 @@ func (s Settings) focusedTextInputCursorPosition() int {
 		return s.feedMaxBodyInput.Position()
 	case sfFeedRefreshInterval:
 		return s.refreshIntervalInput.Position()
+	case sfFeedRetentionDays:
+		return s.retentionDaysInput.Position()
 	case sfAPIKey:
 		switch s.providerIdx {
 		case 1:
@@ -1209,7 +1243,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
-	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
+	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfFeedRetentionDays, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
 		sfRetroBg, sfRetroFg, sfRetroAccent:
 		// Enter advances to next field; everything else goes to the text input.
 		if keyMatches(key, keys.Enter) {
@@ -1352,7 +1386,9 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 	case ssFeeds:
 		b.addGroup("Feeds")
 		b.addInput("Refresh every (minutes)", s.refreshIntervalInput, sfFeedRefreshInterval)
+		b.addInput("Delete read after (days)", s.retentionDaysInput, sfFeedRetentionDays)
 		b.addInput("Feed max size (MiB)", s.feedMaxBodyInput, sfFeedMaxBody)
+		b.addValue("Stored", s.storage.summary(), false)
 
 	case ssUpdates:
 		b.addGroup("Updates")
@@ -1640,7 +1676,7 @@ func (s Settings) aiConnectionStatusLabel() string {
 
 func (s Settings) inputWidth(field settingsField, maxWidth int) int {
 	switch field {
-	case sfFeedMaxBody, sfFeedRefreshInterval, sfReadingWidth:
+	case sfFeedMaxBody, sfFeedRefreshInterval, sfFeedRetentionDays, sfReadingWidth:
 		return min(maxWidth, 12)
 	case sfRetroBg, sfRetroFg, sfRetroAccent:
 		return min(maxWidth, 44)
@@ -2149,6 +2185,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "larger feeds need more memory; default is 10 MiB"
 	case sfFeedRefreshInterval:
 		return "how often feeds refresh in the background; 0 = only on startup and f/F"
+	case sfFeedRetentionDays:
+		return "0 keeps everything; starred, summarized and unread articles are never deleted"
 	case sfReadingWidth:
 		return "max columns for article text; 0 = no limit (e.g. 80, 100)"
 	case sfTestAIConnection:

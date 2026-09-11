@@ -313,6 +313,38 @@ func TestSettingsLoadsAppliesAndShowsRefreshInterval(t *testing.T) {
 	}
 }
 
+func TestSettingsLoadsAppliesAndShowsRetentionDays(t *testing.T) {
+	cfg := config.DefaultConfig()
+	s := newSettings(cfg, settingsUpdateState{})
+	if got := s.retentionDaysInput.Value(); got != "0" {
+		t.Fatalf("expected retention to load as off, got %q", got)
+	}
+
+	s.retentionDaysInput.SetValue("30")
+	if got := s.ApplyTo(cfg).Feed.RetentionDays; got != 30 {
+		t.Fatalf("expected ApplyTo to save the retention window, got %d", got)
+	}
+
+	s.setActiveSection(ssFeeds)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setStorageState(settingsStorageState{articles: 1234, bytes: 5 * 1024 * 1024})
+	v := s.View(100, 30, newManagerChrome(100, CatppuccinMocha, false))
+	if !strings.Contains(v, "Delete read after") {
+		t.Fatal("expected the Feeds section to show the retention input")
+	}
+	if !strings.Contains(v, "1234 articles") || !strings.Contains(v, "5.0 MB") {
+		t.Fatalf("expected the Feeds section to show current storage use, got %q", v)
+	}
+}
+
+// With no numbers sampled the storage line has nothing to say, and addValue
+// drops empty rows rather than printing a blank one.
+func TestSettingsStorageLineHiddenWithoutStats(t *testing.T) {
+	if got := (settingsStorageState{}).summary(); got != "" {
+		t.Fatalf("expected an empty summary without stats, got %q", got)
+	}
+}
+
 func TestSettingsViewIncludesLayoutDensity(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setFocusedPane(settingsPaneDetail)

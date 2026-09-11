@@ -118,18 +118,26 @@ func (m *Model) pumpRefreshQueue() tea.Cmd {
 // is on, queues whatever has come due.
 func (m *Model) handleAutoRefreshTick() tea.Cmd {
 	cmds := []tea.Cmd{autoRefreshTickCmd()}
+	// Retention rides the same heartbeat, and runs on its own schedule whether
+	// or not the background refresh is switched on.
+	now := time.Now()
+	if m.retentionDue(now) {
+		if cmd := m.pruneArticlesCmd(now); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
 	if m.autoRefreshInterval() == 0 {
 		return tea.Batch(cmds...)
 	}
-	if due := m.dueFeeds(time.Now()); len(due) > 0 {
+	if due := m.dueFeeds(now); len(due) > 0 {
 		if cmd := m.enqueueRefresh(due, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	}
 	// A remote source has no per-feed URLs to fetch; reloading the feed list is
 	// what pulls new items from it.
-	if m.greaderClient != nil && m.sourceSyncDue(time.Now()) {
-		m.lastSourceSync = time.Now()
+	if m.greaderClient != nil && m.sourceSyncDue(now) {
+		m.lastSourceSync = now
 		cmds = append(cmds, m.loadFeedsCmd())
 	}
 	return tea.Batch(cmds...)
