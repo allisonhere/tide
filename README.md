@@ -9,6 +9,13 @@ The reusable themed UI toolkit derived from Tide is available as
 
 ## What’s new
 
+Feeds now refresh in the background on a timer — every 30 minutes by default,
+configurable in **Settings → Feeds** or with `feed.refresh_interval_minutes`
+(0 turns it off and goes back to `f` / `F` only). Fetches run through a queue
+capped at four at a time, so a large library no longer opens a socket per feed
+the moment Tide starts, and each feed's own last-fetched time decides when it is
+due — restarting does not re-fetch what was just refreshed.
+
 Each pane is now drawn in its own frame, with square or rounded corners, and the
 frame follows the focused pane. Turn it off in **Settings → Display** (or with
 `display.show_pane_borders` in `config.toml`) to go back to plain divider lines
@@ -43,6 +50,7 @@ press Enter to restart or Esc to continue and restart later.
 - 19 built-in themes, including customizable VT52 and VT100 palettes, plus
   `match-omarchy` which follows your current [Omarchy](https://omarchy.org)
   desktop theme (contrast-corrected, updates live)
+- Background refresh on a configurable interval, with fetches queued rather than fired all at once
 - Terminal background sync (OSC 11)
 
 ## Themes
@@ -293,6 +301,7 @@ density = "compact"
 
 [feed]
 max_body_mib = 10
+refresh_interval_minutes = 30   # 0 disables the background refresh
 
 [ai]
 provider = "ollama" # openai | claude | gemini | ollama | ""

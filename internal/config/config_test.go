@@ -34,6 +34,13 @@ func TestDefaultConfigDisplayDensityCompact(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigRefreshInterval(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Feed.RefreshIntervalMinutes != 30 {
+		t.Fatalf("expected a 30 minute default refresh interval, got %d", cfg.Feed.RefreshIntervalMinutes)
+	}
+}
+
 func TestNormalizePaneCorners(t *testing.T) {
 	if got := NormalizePaneCorners(""); got != "square" {
 		t.Fatalf("empty: got %q", got)

@@ -89,6 +89,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 				{"S → Display", "pane header bars: show titles and shortcuts above panes; off moves focused-pane context to the status bar"},
 				{"S → Display", "pane borders: frame each pane; off falls back to divider lines and gives every pane two more rows"},
 				{"S → Display", "pane corners: square or round frames"},
+				{"S → Feeds", "refresh every: background refresh interval in minutes; 0 = startup and f/F only"},
 				{"S → Display", "layout density: comfortable or compact (default compact)"},
 				{"S → Display", "focus line: highlight current readable content line"},
 				{"S → Display", "actionable article links: show links block and enable link navigation"},

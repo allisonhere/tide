@@ -281,6 +281,38 @@ func TestSettingsHidesPaneCornersWhenBordersOff(t *testing.T) {
 	}
 }
 
+func TestSettingsLoadsAppliesAndShowsRefreshInterval(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Feed.RefreshIntervalMinutes = 45
+	s := newSettings(cfg, settingsUpdateState{})
+	if got := s.refreshIntervalInput.Value(); got != "45" {
+		t.Fatalf("expected the configured interval to load, got %q", got)
+	}
+
+	s.refreshIntervalInput.SetValue("15")
+	if got := s.ApplyTo(cfg).Feed.RefreshIntervalMinutes; got != 15 {
+		t.Fatalf("expected ApplyTo to save the new interval, got %d", got)
+	}
+
+	// 0 is a real value here — it switches the background refresh off.
+	s.refreshIntervalInput.SetValue("0")
+	if got := s.ApplyTo(cfg).Feed.RefreshIntervalMinutes; got != 0 {
+		t.Fatalf("expected 0 to be accepted as off, got %d", got)
+	}
+
+	// Junk and negatives leave the saved value alone.
+	s.refreshIntervalInput.SetValue("-5")
+	if got := s.ApplyTo(cfg).Feed.RefreshIntervalMinutes; got != 45 {
+		t.Fatalf("expected a negative interval to be ignored, got %d", got)
+	}
+
+	s.setActiveSection(ssFeeds)
+	s.setFocusedPane(settingsPaneDetail)
+	if v := s.View(62, 30, newManagerChrome(62, CatppuccinMocha, false)); !strings.Contains(v, "Refresh every") {
+		t.Fatal("expected the Feeds section to show the refresh interval input")
+	}
+}
+
 func TestSettingsViewIncludesLayoutDensity(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setFocusedPane(settingsPaneDetail)

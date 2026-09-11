@@ -49,6 +49,9 @@ type DisplayConfig struct {
 
 type FeedConfig struct {
 	MaxBodyMiB int `toml:"max_body_mib"`
+	// RefreshIntervalMinutes is how often feeds are re-fetched in the
+	// background. 0 disables the background refresh, leaving f / F.
+	RefreshIntervalMinutes int `toml:"refresh_interval_minutes"`
 }
 
 type UpdatesConfig struct {
@@ -95,7 +98,8 @@ func DefaultConfig() Config {
 			ConfirmQuit:              true,
 		},
 		Feed: FeedConfig{
-			MaxBodyMiB: 10,
+			MaxBodyMiB:             10,
+			RefreshIntervalMinutes: 30,
 		},
 		Updates: UpdatesConfig{
 			CheckOnStartup:     true,
@@ -131,6 +135,11 @@ func Load() (Config, error) {
 	}
 	if cfg.Feed.MaxBodyMiB <= 0 {
 		cfg.Feed.MaxBodyMiB = DefaultConfig().Feed.MaxBodyMiB
+	}
+	// 0 means "no background refresh"; anything below that is a typo, not an
+	// instruction, so it folds into the same off state.
+	if cfg.Feed.RefreshIntervalMinutes < 0 {
+		cfg.Feed.RefreshIntervalMinutes = 0
 	}
 	if cfg.Updates.CheckIntervalHours <= 0 {
 		cfg.Updates.CheckIntervalHours = DefaultConfig().Updates.CheckIntervalHours

@@ -200,9 +200,14 @@ type Model struct {
 	lastFetchError *feed.FetchResult
 
 	// Async
-	refreshing  map[int64]bool
-	spinner     spinner.Model
-	mdConverter *md.Converter
+	refreshing map[int64]bool
+	// refreshQueue holds feeds waiting for a fetch slot; see refresh.go.
+	refreshQueue []refreshTarget
+	// lastSourceSync rate-limits the remote source's background sync, which has
+	// no per-feed fetch time to key off.
+	lastSourceSync time.Time
+	spinner        spinner.Model
+	mdConverter    *md.Converter
 
 	// Startup selection is deferred until FeedsLoadedMsg so feed-manager saves can select rows after reload. -allie
 	firstLoad           bool  // true until the initial FeedsLoadedMsg is processed
@@ -324,6 +329,9 @@ func (m Model) Init() tea.Cmd {
 	if isMatchOmarchy(m.cfg.Theme) {
 		cmds = append(cmds, omarchyWatchCmd())
 	}
+	// The heartbeat runs whether or not the background refresh is on, so
+	// switching it on in Settings takes effect without a restart.
+	cmds = append(cmds, autoRefreshTickCmd())
 	return tea.Batch(cmds...)
 }
 
@@ -559,13 +567,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.clearArticles()
 		}
-		// Only auto-refresh on startup — manual refresh uses f/F keys.
+		// On startup, fetch whatever is due rather than the whole library at
+		// once; the queue bounds how many run together. With the background
+		// refresh off every feed is due, which is the behaviour this has always
+		// had, minus the thundering herd.
 		if isFirstLoad {
-			for _, f := range m.feeds {
-				if m.isRemoteFeed(f.ID) {
-					continue
-				}
-				cmds = append(cmds, m.refreshFeedCmd(f.ID, f.URL, false))
+			if cmd := m.enqueueRefresh(m.dueFeeds(time.Now()), false); cmd != nil {
+				cmds = append(cmds, cmd)
 			}
 		}
 		if statusCmd != nil {
@@ -616,8 +624,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchOffset = 0
 		return m, nil
 
+	case autoRefreshTickMsg:
+		return m, m.handleAutoRefreshTick()
+
 	case FeedRefreshedMsg:
 		delete(m.refreshing, msg.FeedID)
+		// A slot just opened: let the next queued feed start.
+		pump := m.pumpRefreshQueue()
 		if msg.Err != nil {
 			r := msg.Result
 			if r != nil {
@@ -629,15 +642,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.setStatus(fmt.Sprintf("refresh failed: %s", friendly), true)
 				} else {
 					m.setStatus(fmt.Sprintf("refresh failed: %s", friendly), true)
-					return m, m.clearStatusCmd()
+					return m, tea.Batch(pump, m.clearStatusCmd())
 				}
 			} else {
 				m.setStatus(fmt.Sprintf("refresh failed: %v", msg.Err), true)
-				return m, m.clearStatusCmd()
+				return m, tea.Batch(pump, m.clearStatusCmd())
 			}
-			return m, nil
+			return m, pump
 		}
-		cmds := []tea.Cmd{}
+		cmds := []tea.Cmd{pump}
 		// Successful refreshes update storage first; the visible pane reloads from DB afterward to keep filters consistent. -allie
 		for _, a := range msg.Articles {
 			if err := m.db.UpsertArticle(a); err != nil {
@@ -1140,14 +1153,13 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case keyMatches(msg, m.keys.RefreshAll):
+		// An explicit F refreshes everything, due or not.
 		var cmds []tea.Cmd
-		for _, f := range m.feeds {
-			if m.isRemoteFeed(f.ID) {
-				continue
-			}
-			cmds = append(cmds, m.refreshFeedCmd(f.ID, f.URL, false))
+		if cmd := m.enqueueRefresh(m.feeds, false); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		if m.greaderClient != nil {
+			m.lastSourceSync = time.Now()
 			cmds = append(cmds, m.loadFeedsCmd())
 		}
 		return m, tea.Batch(cmds...)

@@ -45,6 +45,7 @@ const (
 	sfDisplayDensity
 	sfBrowser
 	sfFeedMaxBody
+	sfFeedRefreshInterval
 	sfUpdateCheckOnStartup
 	sfUpdateCheckNow
 	sfUpdateInstallNow
@@ -189,6 +190,7 @@ type Settings struct {
 	readingWidthInput    textinput.Model
 	browserInput         textinput.Model
 	feedMaxBodyInput     textinput.Model
+	refreshIntervalInput textinput.Model
 	updateCheckOnStartup bool
 	update               settingsUpdateState
 	action               settingsAction
@@ -276,6 +278,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		readingWidthInput:    mkInput(strconv.Itoa(cfg.Display.ReadingWidth), "0 (no limit)", false),
 		browserInput:         mkInput(cfg.Display.Browser, "xdg-open", false),
 		feedMaxBodyInput:     mkInput(strconv.Itoa(cfg.Feed.MaxBodyMiB), "10", false),
+		refreshIntervalInput: mkInput(strconv.Itoa(cfg.Feed.RefreshIntervalMinutes), "30", false),
 		updateCheckOnStartup: cfg.Updates.CheckOnStartup,
 		update:               updateState,
 		providerIdx:          providerIndex(cfg.AI.Provider),
@@ -354,6 +357,11 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	}
 	if n, err := strconv.Atoi(strings.TrimSpace(s.feedMaxBodyInput.Value())); err == nil && n > 0 {
 		cfg.Feed.MaxBodyMiB = n
+	}
+	// 0 is meaningful here — it switches the background refresh off — so unlike
+	// the size cap this accepts it, and only rejects negatives and junk.
+	if n, err := strconv.Atoi(strings.TrimSpace(s.refreshIntervalInput.Value())); err == nil && n >= 0 {
+		cfg.Feed.RefreshIntervalMinutes = n
 	}
 	cfg.Updates.CheckOnStartup = s.updateCheckOnStartup
 
@@ -476,6 +484,7 @@ func (s *Settings) applyFocus() {
 	s.retroAccentInput.Blur()
 	s.readingWidthInput.Blur()
 	s.feedMaxBodyInput.Blur()
+	s.refreshIntervalInput.Blur()
 	s.openaiInput.Blur()
 	s.claudeInput.Blur()
 	s.geminiInput.Blur()
@@ -494,6 +503,8 @@ func (s *Settings) applyFocus() {
 		s.readingWidthInput.Focus()
 	case sfFeedMaxBody:
 		s.feedMaxBodyInput.Focus()
+	case sfFeedRefreshInterval:
+		s.refreshIntervalInput.Focus()
 	case sfAPIKey:
 		switch s.providerIdx {
 		case 1:
@@ -545,7 +556,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		}
 		return append(fields, sfActionableLinks, sfFilterLinks, sfArticleImages, sfBrowser, sfConfirmQuit)
 	case ssFeeds:
-		return []settingsField{sfBackToSections, sfFeedMaxBody}
+		return []settingsField{sfBackToSections, sfFeedRefreshInterval, sfFeedMaxBody}
 	case ssUpdates:
 		fields := []settingsField{sfBackToSections, sfUpdateCheckOnStartup, sfUpdateCheckNow}
 		if s.updateNowActionVisible() {
@@ -639,7 +650,7 @@ func (s Settings) isTextInput() bool {
 		return false
 	}
 	switch s.focusedField {
-	case sfBrowser, sfFeedMaxBody, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
+	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
 		sfRetroBg, sfRetroFg, sfRetroAccent:
 		return true
 	}
@@ -656,6 +667,8 @@ func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) 
 		s.readingWidthInput, cmd = s.readingWidthInput.Update(msg)
 	case sfFeedMaxBody:
 		s.feedMaxBodyInput, cmd = s.feedMaxBodyInput.Update(msg)
+	case sfFeedRefreshInterval:
+		s.refreshIntervalInput, cmd = s.refreshIntervalInput.Update(msg)
 	case sfAPIKey:
 		switch s.providerIdx {
 		case 1:
@@ -750,6 +763,8 @@ func (s Settings) focusedTextInputCursorPosition() int {
 		return s.readingWidthInput.Position()
 	case sfFeedMaxBody:
 		return s.feedMaxBodyInput.Position()
+	case sfFeedRefreshInterval:
+		return s.refreshIntervalInput.Position()
 	case sfAPIKey:
 		switch s.providerIdx {
 		case 1:
@@ -1194,7 +1209,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
-	case sfBrowser, sfFeedMaxBody, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
+	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
 		sfRetroBg, sfRetroFg, sfRetroAccent:
 		// Enter advances to next field; everything else goes to the text input.
 		if keyMatches(key, keys.Enter) {
@@ -1336,6 +1351,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 
 	case ssFeeds:
 		b.addGroup("Feeds")
+		b.addInput("Refresh every (minutes)", s.refreshIntervalInput, sfFeedRefreshInterval)
 		b.addInput("Feed max size (MiB)", s.feedMaxBodyInput, sfFeedMaxBody)
 
 	case ssUpdates:
@@ -1624,7 +1640,7 @@ func (s Settings) aiConnectionStatusLabel() string {
 
 func (s Settings) inputWidth(field settingsField, maxWidth int) int {
 	switch field {
-	case sfFeedMaxBody, sfReadingWidth:
+	case sfFeedMaxBody, sfFeedRefreshInterval, sfReadingWidth:
 		return min(maxWidth, 12)
 	case sfRetroBg, sfRetroFg, sfRetroAccent:
 		return min(maxWidth, 44)
@@ -2131,6 +2147,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "leave blank to use the system default browser"
 	case sfFeedMaxBody:
 		return "larger feeds need more memory; default is 10 MiB"
+	case sfFeedRefreshInterval:
+		return "how often feeds refresh in the background; 0 = only on startup and f/F"
 	case sfReadingWidth:
 		return "max columns for article text; 0 = no limit (e.g. 80, 100)"
 	case sfTestAIConnection:
