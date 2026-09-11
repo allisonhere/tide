@@ -356,3 +356,35 @@ func equalLines(a, b []string) bool {
 	}
 	return true
 }
+
+// y copies as well as c. y is also the Yes binding, but that only ever answers
+// a confirm overlay, which never shares a key path with the main UI.
+func TestCopyKeysAreCAndY(t *testing.T) {
+	for _, k := range []rune{'c', 'y'} {
+		m := selectionModel(t, true)
+		next, _ := m.Update(press('V'))
+		m = next.(Model)
+
+		next, cmd := m.Update(press(k))
+		m = next.(Model)
+		if cmd == nil {
+			t.Fatalf("%c: expected a clipboard command", k)
+		}
+		if m.contentSelectionActive {
+			t.Fatalf("%c: expected copying to clear the selection", k)
+		}
+		if !strings.Contains(m.statusMsg, "copied") {
+			t.Fatalf("%c: expected the status line to confirm the copy, got %q", k, m.statusMsg)
+		}
+	}
+}
+
+// The quit confirm still answers y as yes — copy must not have stolen it.
+func TestYStillConfirmsQuit(t *testing.T) {
+	m := selectionModel(t, true)
+	m.overlay = overlayQuitConfirm
+
+	if _, cmd := m.Update(press('y')); cmd == nil {
+		t.Fatal("expected y to confirm the quit overlay")
+	}
+}

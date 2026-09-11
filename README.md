@@ -25,7 +25,7 @@ summary, or anything still unread.
 
 Article text can now leave Tide. In the content pane `v` starts a line
 selection anchored at the focus line (`j`/`k` extend it, `v` or `esc` cancels)
-and `V` selects the whole article; `c` copies the selection, or the whole
+and `V` selects the whole article; `c` / `y` copies the selection, or the whole
 article when nothing is selected. `L` copies the article's link from either the
 list or the content pane.
 
@@ -55,7 +55,7 @@ press Enter to restart or Esc to continue and restart later.
 - Feed manager: add, edit, delete, import/export OPML
 - Google Reader-compatible source support, including FreshRSS
 - Full-text search across stored local articles, including titles, content, and AI summaries
-- Line selection in the content pane (`v` / `V`) with copy to clipboard (`c`), plus `L` to copy an article's link
+- Line selection in the content pane (`v` / `V`) with copy to clipboard (`c` / `y`), plus `L` to copy an article's link
 - Unread-only filtering and in-article find
 - Mark read/unread, open in browser
 - Optional actionable links in content pane (Settings → Display)

@@ -96,8 +96,10 @@ var DefaultKeys = KeyMap{
 	Help:          key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 	Quit:          key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 
-	Summary:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "AI summary")),
-	CopyText:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
+	Summary: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "AI summary")),
+	// y alongside c: y is the Yes binding too, but that only ever answers a
+	// confirm overlay, which is a separate key path from the main UI.
+	CopyText:      key.NewBinding(key.WithKeys("c", "y"), key.WithHelp("c/y", "copy")),
 	SaveMD:        key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "save .md")),
 	ContentSearch: key.NewBinding(key.WithKeys("ctrl+f"), key.WithHelp("ctrl+f", "find")),
 	VisualSelect:  key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "select lines")),
