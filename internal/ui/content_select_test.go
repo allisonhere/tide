@@ -323,3 +323,36 @@ func bodyLines(s string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// The content pane indents every line by a column; that indent is layout and
+// has no business on the clipboard. Indentation the article meant survives.
+func TestCopiedTextIsDedented(t *testing.T) {
+	m := selectionModel(t, true)
+	next, _ := m.Update(press('V'))
+	m = next.(Model)
+
+	for _, line := range strings.Split(m.contentSelectionText(), "\n") {
+		if strings.HasPrefix(line, " ") {
+			t.Fatalf("expected the pane indent to be stripped, got %q", line)
+		}
+	}
+
+	if got := dedent([]string{"  alpha", "", "    indented", "  bravo"}); !equalLines(got, []string{"alpha", "", "  indented", "bravo"}) {
+		t.Fatalf("expected relative indentation to survive, got %#v", got)
+	}
+	if got := dedent([]string{"alpha", "  bravo"}); !equalLines(got, []string{"alpha", "  bravo"}) {
+		t.Fatalf("expected already-flush text to be left alone, got %#v", got)
+	}
+}
+
+func equalLines(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

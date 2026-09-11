@@ -100,7 +100,35 @@ func (m Model) contentSelectionText() string {
 	if len(lines) == 0 {
 		return ""
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(dedent(lines), "\n")
+}
+
+// dedent removes the indent the content pane adds to every line, without
+// flattening indentation the article meant — a quote or a code block keeps its
+// shape relative to the rest of the block.
+func dedent(lines []string) []string {
+	indent := -1
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		n := len(line) - len(strings.TrimLeft(line, " "))
+		if indent < 0 || n < indent {
+			indent = n
+		}
+	}
+	if indent <= 0 {
+		return lines
+	}
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		if len(line) >= indent {
+			out[i] = line[indent:]
+			continue
+		}
+		out[i] = strings.TrimLeft(line, " ")
+	}
+	return out
 }
 
 // contentCopyLabel describes what a copy just put on the clipboard, for the
