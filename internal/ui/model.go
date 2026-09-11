@@ -139,14 +139,18 @@ type Model struct {
 	contentFocusable []bool
 	// contentLines is the rendered article with its styling stripped, kept so a
 	// selection can be turned back into plain text; see content_select.go.
-	contentLines           []string
-	contentSelectionActive bool
-	contentSelectionAll    bool
-	contentSelectionAnchor int
-	contentSearchInput     textinput.Model
-	contentSearchQuery     string
-	contentSearchMatches   []int
-	contentSearchIdx       int
+	contentLines []string
+	// Selection state; see content_select.go. The column cursor only exists
+	// while a selection is open.
+	contentSelectionMode       selectionMode
+	contentSelectionAnchorLine int
+	contentSelectionAnchorCol  int
+	contentFocusCol            int
+	contentDesiredCol          int
+	contentSearchInput         textinput.Model
+	contentSearchQuery         string
+	contentSearchMatches       []int
+	contentSearchIdx           int
 
 	// Article images (see images.go). imgRenderer is always non-nil; it is a
 	// no-op until EnableImages installs a real backend at startup.
@@ -1118,12 +1122,22 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.resizeArticlePane(layoutResizeStepPercent)
 
 	case keyMatches(msg, m.keys.Left):
+		// While a selection is open, h/l are the character cursor; the pane
+		// has no column cursor at any other time, so they keep switching panes.
+		if m.focused == paneContent && m.selectionActive() {
+			m.moveSelectionCursorCol(-1)
+			return m, nil
+		}
 		if m.focused > paneFeeds {
 			return m.focusPane(m.focused - 1)
 		}
 		return m, nil
 
 	case keyMatches(msg, m.keys.Right):
+		if m.focused == paneContent && m.selectionActive() {
+			m.moveSelectionCursorCol(1)
+			return m, nil
+		}
 		if m.focused < paneContent {
 			return m.focusPane(m.focused + 1)
 		}
@@ -1152,7 +1166,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focused == paneContent {
 			// Esc backs out of a selection first; leaving the pane with lines
 			// still highlighted would strand the selection out of sight.
-			if m.contentSelectionActive {
+			if m.selectionActive() {
 				m.clearContentSelection()
 				return m, nil
 			}
@@ -1251,13 +1265,13 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, m.keys.VisualSelect):
 		if m.focused == paneContent && m.contentArticleID != 0 {
-			m.startContentSelection()
+			m.startCharSelection()
 		}
 		return m, nil
 
 	case keyMatches(msg, m.keys.VisualLine):
 		if m.focused == paneContent && m.contentArticleID != 0 {
-			m.selectAllContentLines()
+			m.startLineSelection()
 		}
 		return m, nil
 
@@ -1394,9 +1408,14 @@ func (m Model) handleUp() (tea.Model, tea.Cmd) {
 			}
 		}
 	case paneContent:
-		// While a selection is open the focus line is the selection's moving
-		// edge, so it has to move even for readers who keep the focus line off.
-		if !m.cfg.Display.FocusLine && !m.contentSelectionActive {
+		// While a selection is open the cursor is the span's moving edge, so it
+		// moves whether or not the focus-line highlight is switched on, and it
+		// visits every line rather than hopping between readable ones.
+		if m.selectionActive() {
+			m.moveSelectionCursorLine(-1)
+			return m, nil
+		}
+		if !m.cfg.Display.FocusLine {
 			m.viewport.ScrollUp(1)
 			return m, nil
 		}
@@ -1426,7 +1445,11 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 			}
 		}
 	case paneContent:
-		if !m.cfg.Display.FocusLine && !m.contentSelectionActive {
+		if m.selectionActive() {
+			m.moveSelectionCursorLine(1)
+			return m, nil
+		}
+		if !m.cfg.Display.FocusLine {
 			m.viewport.ScrollDown(1)
 			return m, nil
 		}
@@ -2031,7 +2054,7 @@ func (m Model) renderPaneHint(p pane) string {
 			pct := min(100, (m.viewport.YOffset+m.viewport.Height)*100/m.contentLineCount)
 			progress = fmt.Sprintf("%d%%  ", pct)
 		}
-		if m.contentSelectionActive {
+		if m.selectionActive() {
 			// While selecting, the pane's own keys are the only ones that matter.
 			hint = progress + m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " extend  " +
 				m.keyHint(m.keys.CopyText) + " copy  " + m.keyHint(m.keys.Back) + " cancel"
@@ -2470,7 +2493,7 @@ func (m *Model) ensureContentFocusVisible() {
 func (m Model) renderContentFocusLine(body string, width, height int, focused bool) string {
 	hasSearch := len(m.contentSearchMatches) > 0
 	hasFocus := m.cfg.Display.FocusLine && focused && m.contentLineCount > 0
-	hasSelection := m.contentSelectionActive && m.contentLineCount > 0
+	hasSelection := m.selectionActive() && m.contentLineCount > 0
 
 	if !hasSearch && !hasFocus && !hasSelection {
 		return body
@@ -2493,6 +2516,21 @@ func (m Model) renderContentFocusLine(body string, width, height int, focused bo
 		lines[viewIdx] = style.Width(width).Render(l)
 	}
 
+	// styleSpan paints part of a line, leaving the rest of its own styling
+	// alone — a character-wise selection lives inside a line, not over it.
+	styleSpan := func(lineIdx, startCol, endCol int, style lipgloss.Style) {
+		viewIdx := lineIdx - m.viewport.YOffset
+		if viewIdx < 0 || viewIdx >= height || viewIdx >= len(lines) {
+			return
+		}
+		runes := m.lineRunes(lineIdx)
+		if startCol <= 0 && endCol >= len(runes)-1 {
+			styleLine(lineIdx, style) // whole line: keep the simple path
+			return
+		}
+		lines[viewIdx] = renderSelectedSpan(lines[viewIdx], runes, startCol, endCol, style)
+	}
+
 	if hasSearch {
 		for _, matchLine := range m.contentSearchMatches {
 			styleLine(matchLine, m.styles.SearchMatch)
@@ -2503,17 +2541,18 @@ func (m Model) renderContentFocusLine(body string, width, height int, focused bo
 	}
 
 	// The selection paints after search so a highlighted match inside it does
-	// not leave a hole in the block, and before the focus line so the cursor
-	// stays visible at the selection's edge.
+	// not leave a hole in the block, and instead of the focus line, which is a
+	// reading highlight and would swallow a character-wise span whole.
 	if hasSelection {
-		if start, end, ok := m.contentSelectionRange(); ok {
-			for line := start; line <= end; line++ {
-				styleLine(line, m.styles.ContentFocusLine)
+		startLine, _, endLine, _, _ := m.selectionSpan()
+		for line := startLine; line <= endLine; line++ {
+			startCol, endCol, ok := m.selectedColumns(line)
+			if !ok {
+				continue
 			}
+			styleSpan(line, startCol, endCol, m.styles.ContentFocusLine)
 		}
-	}
-
-	if hasFocus {
+	} else if hasFocus {
 		styleLine(m.contentFocusLine, m.styles.ContentFocusLine)
 	}
 

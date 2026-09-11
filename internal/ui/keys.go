@@ -102,8 +102,8 @@ var DefaultKeys = KeyMap{
 	CopyText:      key.NewBinding(key.WithKeys("c", "y"), key.WithHelp("c/y", "copy")),
 	SaveMD:        key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "save .md")),
 	ContentSearch: key.NewBinding(key.WithKeys("ctrl+f"), key.WithHelp("ctrl+f", "find")),
-	VisualSelect:  key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "select lines")),
-	VisualLine:    key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "select all")),
+	VisualSelect:  key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "select")),
+	VisualLine:    key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "select lines")),
 	CopyLink:      key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "copy link")),
 	ToggleImage:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "show/hide image")),
 
