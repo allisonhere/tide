@@ -7,6 +7,13 @@ A terminal RSS reader built with [Bubble Tea](https://github.com/charmbracelet/b
 The reusable themed UI toolkit derived from Tide is available as
 [`tideui`](https://github.com/allisonhere/tideui).
 
+## What’s new
+
+Pane header bars can now be toggled in **Settings → Display** (or with
+`display.show_pane_headers` in `config.toml`). They are on by default; when
+hidden, Tide gives each pane back a row and shows the focused pane’s title and
+shortcuts in the status bar.
+
 ## Features
 
 - Three-pane layout: feeds, articles, content
@@ -134,6 +141,7 @@ The settings overlay uses a category list on the left and a focused detail pane 
 
 Display options:
 - Toggle Unicode icons for pane headers and item state markers
+- Toggle pane header bars; when hidden, the focused pane's title and shortcuts move to the status line
 - Switch between relative and absolute dates
 - Toggle mark-read-on-open
 - Toggle mark-read-on-focus

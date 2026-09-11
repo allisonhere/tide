@@ -26,6 +26,7 @@ type RetroTerminalTweak struct {
 
 type DisplayConfig struct {
 	Icons                    bool               `toml:"icons"`
+	ShowPaneHeaders          bool               `toml:"show_pane_headers"`
 	DateFormat               string             `toml:"date_format"` // "relative" | "absolute"
 	MarkReadOnOpen           bool               `toml:"mark_read_on_open"`
 	MarkReadOnFocus          bool               `toml:"mark_read_on_focus"`
@@ -80,6 +81,7 @@ func DefaultConfig() Config {
 		Theme: "catppuccin-mocha",
 		Display: DisplayConfig{
 			Icons:                    false,
+			ShowPaneHeaders:          true,
 			DateFormat:               "relative",
 			MarkReadOnOpen:           true,
 			FocusLine:                true,

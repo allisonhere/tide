@@ -3108,6 +3108,54 @@ func TestContentPaneUsesFullAllocatedHeight(t *testing.T) {
 	}
 }
 
+func TestHiddenPaneHeadersMoveContextToStatusBarAndRecoverRows(t *testing.T) {
+	shownCfg := config.DefaultConfig()
+	shown := NewModel(nil, shownCfg, "dev", false)
+	shown.width, shown.height = 120, 30
+
+	hiddenCfg := shownCfg
+	hiddenCfg.Display.ShowPaneHeaders = false
+	hidden := NewModel(nil, hiddenCfg, "dev", false)
+	hidden.width, hidden.height = shown.width, shown.height
+
+	if got, want := hidden.articleRowsVisible(), shown.articleRowsVisible()+1; got != want {
+		t.Fatalf("hidden Articles header: visible rows=%d, want %d", got, want)
+	}
+	if got, want := hidden.contentBodyHeight(), shown.contentBodyHeight()+1; got != want {
+		t.Fatalf("hidden Content header: body height=%d, want %d", got, want)
+	}
+
+	checks := []struct {
+		focus pane
+		title string
+		hint  string
+	}{
+		{paneFeeds, "Feeds", "toggle"},
+		{paneArticles, "Articles", "read"},
+		{paneContent, "Content", "line"},
+	}
+	for _, tc := range checks {
+		hidden.focused = tc.focus
+		status := ansi.Strip(hidden.renderStatusBar())
+		if !strings.Contains(status, tc.title) || !strings.Contains(status, tc.hint) {
+			t.Errorf("focus %v: expected title %q and hint %q in status bar, got %q", tc.focus, tc.title, tc.hint, status)
+		}
+	}
+
+	hidden.focused = paneArticles
+	if got := ansi.Strip(hidden.renderArticlesPane()); strings.Contains(got, "> Articles") {
+		t.Fatalf("hidden pane header leaked into Articles pane: %q", got)
+	}
+	hidden.focused = paneFeeds
+	if got := ansi.Strip(hidden.renderFeedsPane()); strings.Contains(got, "> Feeds") {
+		t.Fatalf("hidden pane header leaked into Feeds pane: %q", got)
+	}
+	hidden.focused = paneContent
+	if got := ansi.Strip(hidden.renderContentPane()); strings.Contains(got, "> Content") {
+		t.Fatalf("hidden pane header leaked into Content pane: %q", got)
+	}
+}
+
 func TestContentDownMovesFocusLineWithoutScrollingWhenVisible(t *testing.T) {
 	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 18})

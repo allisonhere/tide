@@ -1705,8 +1705,10 @@ func (m Model) renderFeedsPane() string {
 	w := m.feedsPaneWidth()
 	innerW := w - 1 // account for right border
 	focused := m.focused == paneFeeds
-	title := m.renderPaneHeader(paneFeeds, "Feeds", focused, innerW)
-	rows := []string{title}
+	rows := []string{}
+	if m.cfg.Display.ShowPaneHeaders {
+		rows = append(rows, m.renderPaneHeader(paneFeeds, "Feeds", focused, innerW))
+	}
 
 	for i, row := range m.sidebarRows {
 		selected := i == m.sidebarCursor
@@ -1786,15 +1788,11 @@ func (m Model) renderArticlesPane() string {
 	if focused {
 		border = border.BorderForeground(borderFocus)
 	}
-	title := "Articles"
-	if m.savedSelected() {
-		title = savedRowLabel
+	contentRows := []string{}
+	if m.cfg.Display.ShowPaneHeaders {
+		contentRows = append(contentRows, m.renderPaneHeaderWithAccent(paneArticles, m.articlesPaneTitle(), focused, w, headerActive))
 	}
-	if m.showUnreadOnly {
-		title += " (unread)"
-	}
-
-	contentRows := append([]string{m.renderPaneHeaderWithAccent(paneArticles, title, focused, w, headerActive)}, rows...)
+	contentRows = append(contentRows, rows...)
 	for viewLineCount(contentRows) < h {
 		contentRows = append(contentRows, articleRead.Width(w-2).Render(""))
 	}
@@ -1835,8 +1833,10 @@ func (m Model) renderContentPane() string {
 	body := m.renderContentFocusLine(vp.View(), w, vpH, focused)
 	body = clampView(body, w, vpH, bg)
 
-	header := m.renderPaneHeader(paneContent, "Content", focused, w)
-	content := header + "\n" + body
+	content := body
+	if m.cfg.Display.ShowPaneHeaders {
+		content = m.renderPaneHeader(paneContent, "Content", focused, w) + "\n" + body
+	}
 
 	if searching {
 		matchInfo := ""
@@ -1846,7 +1846,10 @@ func (m Model) renderContentPane() string {
 			matchInfo = "  [no matches]"
 		}
 		searchBar := m.styles.ContentBody.Width(w).Render(m.contentSearchInput.View() + matchInfo)
-		content = header + "\n" + searchBar + "\n" + body
+		content = searchBar + "\n" + body
+		if m.cfg.Display.ShowPaneHeaders {
+			content = m.renderPaneHeader(paneContent, "Content", focused, w) + "\n" + content
+		}
 	}
 
 	inner := m.styles.ContentPane.
@@ -1858,6 +1861,17 @@ func (m Model) renderContentPane() string {
 		Background(bg).
 		Width(w).Height(paneH).
 		Render(inner)
+}
+
+func (m Model) articlesPaneTitle() string {
+	title := "Articles"
+	if m.savedSelected() {
+		title = savedRowLabel
+	}
+	if m.showUnreadOnly {
+		title += " (unread)"
+	}
+	return title
 }
 
 func (m Model) renderPaneHeader(p pane, label string, focused bool, width int) string {
@@ -1938,7 +1952,7 @@ func (m Model) statusBarInlineText(style lipgloss.Style, s string) string {
 	return style.Copy().UnsetPadding().Render(s)
 }
 
-// statusBarKeyHintStrip is always shown on the status bar: main shortcuts ending with ? help.
+// statusBarKeyHintStrip is the global shortcuts ending with ? help.
 func (m Model) statusBarKeyHintStrip() string {
 	k := m.keys
 	seg := func(b key.Binding) string {
@@ -1956,6 +1970,39 @@ func (m Model) statusBarKeyHintStrip() string {
 		seg(k.Search),
 		seg(k.Help),
 	)
+}
+
+func (m Model) statusBarContextHintStrip() string {
+	if m.cfg.Display.ShowPaneHeaders {
+		return m.statusBarKeyHintStrip()
+	}
+	if m.overlay == overlayContentSearch {
+		return m.statusBarJoin(
+			m.statusBarInlineText(m.styles.StatusBar, "Find"),
+			m.styles.StatusHint.Render("type query  enter/down next  up previous  esc exit"),
+		)
+	}
+	parts := []string{
+		m.statusBarInlineText(m.styles.StatusBar, m.focusedPaneTitle()),
+		m.styles.StatusHint.Render(m.renderPaneHint(m.focused)),
+	}
+	if m.focused == paneFeeds {
+		parts = append(parts, m.statusBarKeyHintStrip())
+	}
+	return m.statusBarJoin(parts...)
+}
+
+func (m Model) focusedPaneTitle() string {
+	switch m.focused {
+	case paneFeeds:
+		return "Feeds"
+	case paneArticles:
+		return m.articlesPaneTitle()
+	case paneContent:
+		return "Content"
+	default:
+		return ""
+	}
 }
 
 func (m Model) renderArticleContent(a db.Article) string {
@@ -2448,7 +2495,7 @@ func (m Model) renderStatusBar() string {
 		if linkPart != "" {
 			parts = append(parts, linkPart)
 		}
-		parts = append(parts, m.statusBarKeyHintStrip())
+		parts = append(parts, m.statusBarContextHintStrip())
 		return style.Width(w).Render(m.statusLine(m.statusBarJoin(parts...), updateActionPart))
 	}
 
@@ -2463,7 +2510,7 @@ func (m Model) renderStatusBar() string {
 		parts = append(parts, linkPart)
 	}
 
-	if len(m.feeds) > 0 {
+	if m.cfg.Display.ShowPaneHeaders && len(m.feeds) > 0 {
 		f := m.selectedFeed()
 		if f != nil {
 			parts = append(parts, m.statusBarInlineText(sb, unescapeDisplayText(f.Title)))
@@ -2487,7 +2534,7 @@ func (m Model) renderStatusBar() string {
 		)
 	}
 
-	parts = append(parts, m.statusBarKeyHintStrip())
+	parts = append(parts, m.statusBarContextHintStrip())
 
 	return m.styles.StatusBar.Width(w).Render(m.statusLine(m.statusBarJoin(parts...), updateActionPart))
 }
@@ -4783,8 +4830,14 @@ func (m Model) articlesPaneContentHeight() int {
 }
 func (m Model) articleRowsVisible() int {
 	stride := m.styles.ListItemLineStride()
-	bodyLines := max(0, m.articlesPaneContentHeight()-1)
+	bodyLines := max(0, m.articlesPaneContentHeight()-m.paneHeaderHeight())
 	return bodyLines / stride
+}
+func (m Model) paneHeaderHeight() int {
+	if m.cfg.Display.ShowPaneHeaders {
+		return 1
+	}
+	return 0
 }
 func (m Model) contentPaneOuterHeight() int {
 	return max(3, m.mainHeight()-m.articlesPaneOuterHeight())
@@ -4793,7 +4846,7 @@ func (m Model) contentViewportHeight() int {
 	return max(1, m.contentPaneOuterHeight())
 }
 func (m Model) contentBodyHeight() int {
-	return max(1, m.contentPaneOuterHeight()-1)
+	return max(1, m.contentPaneOuterHeight()-m.paneHeaderHeight())
 }
 func (m Model) contentBodyWidth() int {
 	w := max(1, m.articlesPaneWidth()-2)

@@ -30,6 +30,7 @@ type settingsField int
 
 const (
 	sfIcons settingsField = iota
+	sfShowPaneHeaders
 	sfDateFormat
 	sfMarkReadOnOpen
 	sfMarkReadOnFocus
@@ -169,6 +170,7 @@ func providerIndex(id string) int {
 type Settings struct {
 	// Display
 	icons                bool
+	showPaneHeaders      bool
 	dateFormatIdx        int // 0=Relative, 1=Absolute, 2=None
 	markReadOnOpen       bool
 	markReadOnFocus      bool
@@ -244,6 +246,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 	_, themeIdx := ThemeByName(cfg.Theme)
 	s := Settings{
 		icons:                cfg.Display.Icons,
+		showPaneHeaders:      cfg.Display.ShowPaneHeaders,
 		themeName:            cfg.Theme,
 		themeIdx:             themeIdx,
 		retroBgInput:         mkInput(retroTweak.Bg, "optional #rrggbb", false),
@@ -304,6 +307,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 		cfg.Theme = pt[s.themeIdx].Name
 	}
 	cfg.Display.Icons = s.icons
+	cfg.Display.ShowPaneHeaders = s.showPaneHeaders
 	cfg.Display.DateFormat = strings.ToLower(dateFormatLabels[s.dateFormatIdx])
 	cfg.Display.MarkReadOnOpen = s.markReadOnOpen
 	cfg.Display.MarkReadOnFocus = s.markReadOnFocus
@@ -518,7 +522,7 @@ func (s Settings) updateNowActionVisible() bool {
 func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
-		fields := []settingsField{sfBackToSections, sfIcons, sfDateFormat, sfMarkReadOnOpen, sfMarkReadOnFocus, sfFocusLine, sfDefaultUnreadOnly, sfTheme, sfDisplayDensity, sfReadingWidth}
+		fields := []settingsField{sfBackToSections, sfIcons, sfShowPaneHeaders, sfDateFormat, sfMarkReadOnOpen, sfMarkReadOnFocus, sfFocusLine, sfDefaultUnreadOnly, sfTheme, sfDisplayDensity, sfReadingWidth}
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
@@ -881,6 +885,15 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 	case sfIcons:
 		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.icons = !s.icons
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
+	case sfShowPaneHeaders:
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.showPaneHeaders = !s.showPaneHeaders
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
 		} else if keyMatches(key, keys.Up) {
@@ -1256,6 +1269,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 	case ssDisplay:
 		b.addGroup("Display")
 		b.addToggle("Icons", s.icons, sfIcons)
+		b.addToggle("Pane header bars", s.showPaneHeaders, sfShowPaneHeaders)
 		b.addDateFormatSelector()
 		b.addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
 		b.addToggle("Mark read on focus", s.markReadOnFocus, sfMarkReadOnFocus)
@@ -2094,6 +2108,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "show the article's lead image at the top of the content pane (Kitty-capable terminals; i toggles per article)"
 	case sfFocusLine:
 		return "highlight the current readable line in the content pane"
+	case sfShowPaneHeaders:
+		return "show pane titles and shortcuts above content; when off, both move to the status line"
 	case sfUpdateManualCommand:
 		return "enter or c copies the command"
 	default:

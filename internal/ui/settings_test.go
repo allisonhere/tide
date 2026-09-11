@@ -216,6 +216,23 @@ func TestSettingsViewIncludesFocusLineToggle(t *testing.T) {
 	}
 }
 
+func TestSettingsLoadsAppliesAndShowsPaneHeaders(t *testing.T) {
+	cfg := config.DefaultConfig()
+	s := newSettings(cfg, settingsUpdateState{})
+	if !s.showPaneHeaders {
+		t.Fatal("expected settings to load enabled pane header bars")
+	}
+	s.showPaneHeaders = false
+	if next := s.ApplyTo(cfg); next.Display.ShowPaneHeaders {
+		t.Fatal("expected ApplyTo to save disabled pane header bars")
+	}
+
+	s.setFocusedPane(settingsPaneDetail)
+	if v := s.View(62, 24, newManagerChrome(62, CatppuccinMocha, false)); !strings.Contains(v, "Pane header bars") {
+		t.Fatal("expected settings view to contain pane header bars toggle")
+	}
+}
+
 func TestSettingsViewIncludesLayoutDensity(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setFocusedPane(settingsPaneDetail)

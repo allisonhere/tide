@@ -23,6 +23,9 @@ func TestDefaultConfigDisplayDensityCompact(t *testing.T) {
 	if !cfg.Display.FocusLine {
 		t.Fatal("expected focus line to default on")
 	}
+	if !cfg.Display.ShowPaneHeaders {
+		t.Fatal("expected pane header bars to default on")
+	}
 }
 
 func TestNormalizeDisplayDensity(t *testing.T) {
@@ -66,6 +69,7 @@ theme = "catppuccin-mocha"
 
 [display]
 icons = true
+show_pane_headers = false
 date_format = "relative"
 mark_read_on_open = true
 mark_read_on_focus = true
@@ -138,6 +142,9 @@ greader_password = "secret"
 	}
 	if cfg.Display.FocusLine {
 		t.Fatal("expected focus_line to load false")
+	}
+	if cfg.Display.ShowPaneHeaders {
+		t.Fatal("expected show_pane_headers to load false")
 	}
 	if cfg.Display.FeedPaneWidthPercent != 35 {
 		t.Fatalf("expected feed pane width 35, got %d", cfg.Display.FeedPaneWidthPercent)
