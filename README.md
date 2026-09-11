@@ -23,6 +23,12 @@ default** — an upgrade will not quietly delete a library you already have — 
 even when on it never touches starred articles, articles with a saved AI
 summary, or anything still unread.
 
+Article text can now leave Tide. In the content pane `v` starts a line
+selection anchored at the focus line (`j`/`k` extend it, `v` or `esc` cancels)
+and `V` selects the whole article; `c` copies the selection, or the whole
+article when nothing is selected. `L` copies the article's link from either the
+list or the content pane.
+
 Each pane is now drawn in its own frame, with square or rounded corners, and the
 frame follows the focused pane. Turn it off in **Settings → Display** (or with
 `display.show_pane_borders` in `config.toml`) to go back to plain divider lines
@@ -49,6 +55,7 @@ press Enter to restart or Esc to continue and restart later.
 - Feed manager: add, edit, delete, import/export OPML
 - Google Reader-compatible source support, including FreshRSS
 - Full-text search across stored local articles, including titles, content, and AI summaries
+- Line selection in the content pane (`v` / `V`) with copy to clipboard (`c`), plus `L` to copy an article's link
 - Unread-only filtering and in-article find
 - Mark read/unread, open in browser
 - Optional actionable links in content pane (Settings → Display)

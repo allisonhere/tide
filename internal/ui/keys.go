@@ -38,7 +38,10 @@ type KeyMap struct {
 	Summary       key.Binding // fetch/show AI summary (articles or content pane)
 	CopyText      key.Binding // copy summary to clipboard
 	SaveMD        key.Binding // save summary as .md file
-	ContentSearch key.Binding // find text in the current article
+	ContentSearch key.Binding
+	VisualSelect  key.Binding
+	VisualLine    key.Binding
+	CopyLink      key.Binding // find text in the current article
 	ToggleImage   key.Binding // show/hide the lead image for the current article
 
 	// Feed manager specific
@@ -97,6 +100,9 @@ var DefaultKeys = KeyMap{
 	CopyText:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
 	SaveMD:        key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "save .md")),
 	ContentSearch: key.NewBinding(key.WithKeys("ctrl+f"), key.WithHelp("ctrl+f", "find")),
+	VisualSelect:  key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "select lines")),
+	VisualLine:    key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "select all")),
+	CopyLink:      key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "copy link")),
 	ToggleImage:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "show/hide image")),
 
 	Add:       key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),

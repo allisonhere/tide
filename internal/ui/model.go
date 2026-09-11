@@ -130,17 +130,23 @@ type Model struct {
 	showUnreadOnly   bool
 
 	// Content pane
-	viewport             viewport.Model
-	contentLinks         []string
-	contentLinkIdx       int
-	contentArticleID     int64
-	contentFocusLine     int
-	contentLineCount     int
-	contentFocusable     []bool
-	contentSearchInput   textinput.Model
-	contentSearchQuery   string
-	contentSearchMatches []int
-	contentSearchIdx     int
+	viewport         viewport.Model
+	contentLinks     []string
+	contentLinkIdx   int
+	contentArticleID int64
+	contentFocusLine int
+	contentLineCount int
+	contentFocusable []bool
+	// contentLines is the rendered article with its styling stripped, kept so a
+	// selection can be turned back into plain text; see content_select.go.
+	contentLines           []string
+	contentSelectionActive bool
+	contentSelectionAll    bool
+	contentSelectionAnchor int
+	contentSearchInput     textinput.Model
+	contentSearchQuery     string
+	contentSearchMatches   []int
+	contentSearchIdx       int
 
 	// Article images (see images.go). imgRenderer is always non-nil; it is a
 	// no-op until EnableImages installs a real backend at startup.
@@ -1144,6 +1150,12 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, m.keys.Back):
 		if m.focused == paneContent {
+			// Esc backs out of a selection first; leaving the pane with lines
+			// still highlighted would strand the selection out of sight.
+			if m.contentSelectionActive {
+				m.clearContentSelection()
+				return m, nil
+			}
 			m.focused = paneArticles
 		}
 		return m, nil
@@ -1236,6 +1248,44 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.openSummary()
 		}
 		return m, nil
+
+	case keyMatches(msg, m.keys.VisualSelect):
+		if m.focused == paneContent && m.contentArticleID != 0 {
+			m.startContentSelection()
+		}
+		return m, nil
+
+	case keyMatches(msg, m.keys.VisualLine):
+		if m.focused == paneContent && m.contentArticleID != 0 {
+			m.selectAllContentLines()
+		}
+		return m, nil
+
+	case keyMatches(msg, m.keys.CopyText):
+		if m.focused != paneContent || m.contentArticleID == 0 {
+			return m, nil
+		}
+		text := m.contentSelectionText()
+		if text == "" {
+			m.setStatus("nothing to copy", false)
+			return m, m.clearStatusCmd()
+		}
+		label := m.contentCopyLabel()
+		m.clearContentSelection()
+		m.setStatus("copied "+label, false)
+		return m, tea.Batch(copyToClipboardCmd(text), m.clearStatusCmd())
+
+	case keyMatches(msg, m.keys.CopyLink):
+		if m.focused == paneFeeds {
+			return m, nil
+		}
+		_, link, ok := m.currentArticleLink()
+		if !ok {
+			m.setStatus("this article has no link", false)
+			return m, m.clearStatusCmd()
+		}
+		m.setStatus("copied link", false)
+		return m, tea.Batch(copyToClipboardCmd(link), m.clearStatusCmd())
 
 	case keyMatches(msg, m.keys.ContentSearch):
 		if m.focused == paneContent && m.contentArticleID != 0 {
@@ -1344,7 +1394,9 @@ func (m Model) handleUp() (tea.Model, tea.Cmd) {
 			}
 		}
 	case paneContent:
-		if !m.cfg.Display.FocusLine {
+		// While a selection is open the focus line is the selection's moving
+		// edge, so it has to move even for readers who keep the focus line off.
+		if !m.cfg.Display.FocusLine && !m.contentSelectionActive {
 			m.viewport.ScrollUp(1)
 			return m, nil
 		}
@@ -1374,7 +1426,7 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 			}
 		}
 	case paneContent:
-		if !m.cfg.Display.FocusLine {
+		if !m.cfg.Display.FocusLine && !m.contentSelectionActive {
 			m.viewport.ScrollDown(1)
 			return m, nil
 		}
@@ -1979,8 +2031,15 @@ func (m Model) renderPaneHint(p pane) string {
 			pct := min(100, (m.viewport.YOffset+m.viewport.Height)*100/m.contentLineCount)
 			progress = fmt.Sprintf("%d%%  ", pct)
 		}
+		if m.contentSelectionActive {
+			// While selecting, the pane's own keys are the only ones that matter.
+			hint = progress + m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " extend  " +
+				m.keyHint(m.keys.CopyText) + " copy  " + m.keyHint(m.keys.Back) + " cancel"
+			break
+		}
 		hint = progress + m.keyHint(m.keys.Up) + "/" + m.keyHint(m.keys.Down) + " line  " +
-			m.keyHint(m.keys.OpenBrowser) + " open  " + m.keyHint(m.keys.ContentSearch) + " find  " +
+			m.keyHint(m.keys.OpenBrowser) + " open  " + m.keyHint(m.keys.VisualSelect) + " select  " +
+			m.keyHint(m.keys.CopyText) + " copy  " + m.keyHint(m.keys.ContentSearch) + " find  " +
 			m.keyHint(m.keys.Back) + " back"
 		if m.actionableLinksEnabled() && len(m.contentLinks) > 0 {
 			hint += "  " + m.keyHint(m.keys.PrevLink) + "/" + m.keyHint(m.keys.NextLink) + " links"
@@ -2307,18 +2366,23 @@ func (m *Model) setViewportArticle(a db.Article) {
 	m.contentSearchMatches = collectSearchMatches(content, m.contentSearchQuery)
 	m.viewport.SetContent(content)
 	m.contentArticleID = a.ID
-	m.contentLineCount = strings.Count(content, "\n") + 1
+	m.contentLines = strings.Split(ansi.Strip(content), "\n")
+	m.contentLineCount = len(m.contentLines)
 	m.contentFocusable = articleFocusableLines(content)
 	m.contentFocusLine = clamp(m.contentFocusLine, 0, max(0, m.contentLineCount-1))
 	if !sameArticle {
 		m.contentFocusLine = firstFocusableLine(m.contentFocusable)
 		m.viewport.GotoTop()
+		// A selection belongs to the article it was made in.
+		m.clearContentSelection()
 	}
 	m.ensureContentFocusVisible()
 }
 
 func (m *Model) clearViewportArticle() {
 	m.viewport.SetContent("")
+	m.contentLines = nil
+	m.clearContentSelection()
 	m.contentLinks = nil
 	m.contentLinkIdx = -1
 	m.contentArticleID = 0
@@ -2406,8 +2470,9 @@ func (m *Model) ensureContentFocusVisible() {
 func (m Model) renderContentFocusLine(body string, width, height int, focused bool) string {
 	hasSearch := len(m.contentSearchMatches) > 0
 	hasFocus := m.cfg.Display.FocusLine && focused && m.contentLineCount > 0
+	hasSelection := m.contentSelectionActive && m.contentLineCount > 0
 
-	if !hasSearch && !hasFocus {
+	if !hasSearch && !hasFocus && !hasSelection {
 		return body
 	}
 	if width <= 0 || height <= 0 {
@@ -2434,6 +2499,17 @@ func (m Model) renderContentFocusLine(body string, width, height int, focused bo
 		}
 		if m.contentSearchIdx >= 0 && m.contentSearchIdx < len(m.contentSearchMatches) {
 			styleLine(m.contentSearchMatches[m.contentSearchIdx], m.styles.ContentFocusLine)
+		}
+	}
+
+	// The selection paints after search so a highlighted match inside it does
+	// not leave a hole in the block, and before the focus line so the cursor
+	// stays visible at the selection's edge.
+	if hasSelection {
+		if start, end, ok := m.contentSelectionRange(); ok {
+			for line := start; line <= end; line++ {
+				styleLine(line, m.styles.ContentFocusLine)
+			}
 		}
 	}
 
