@@ -1802,6 +1802,9 @@ func (m Model) renderArticlesPane() string {
 		age := m.formatTime(a.PublishedAt)
 
 		dot := m.articleRowPrefix(a.Read)
+		if i == m.articleCursor {
+			dot = m.articleRowCursorPrefix()
+		}
 		style := articleRead
 		if !a.Read {
 			style = articleUnread
@@ -4783,6 +4786,18 @@ func (m Model) articleRowPrefix(read bool) string {
 		return "· "
 	}
 	return "● "
+}
+
+// articleRowCursorPrefix marks the selected row in place of its read/unread
+// dot, so the cursor stays legible when the articles pane is not focused and
+// its row highlight is dimmed — the same job feedRowPrefix does in the sidebar.
+// Two cells wide, like every other row prefix, and it degrades to ASCII
+// wherever the dots do.
+func (m Model) articleRowCursorPrefix() string {
+	if m.styles.PlainUI || !m.iconsEnabled() {
+		return "> "
+	}
+	return "→ "
 }
 
 // emptyArticlesHint explains an empty article pane. The Saved view gets its own

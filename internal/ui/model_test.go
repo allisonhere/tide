@@ -994,7 +994,10 @@ func TestIconsToggleChangesRenderedPaneMarkers(t *testing.T) {
 	m = m2.(Model)
 	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = m2.(Model)
+	// The first row holds the cursor, whose arrow marker replaces the row's
+	// read/unread dot — the two rows under test need to keep theirs.
 	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: []db.Article{
+		{ID: 3, FeedID: 1, Title: "Selected Article", PublishedAt: unixTestTime(1710000200), Read: false},
 		{ID: 1, FeedID: 1, Title: "Unread Article", PublishedAt: unixTestTime(1710000000), Read: false},
 		{ID: 2, FeedID: 1, Title: "Read Article", PublishedAt: unixTestTime(1710000100), Read: true},
 	}})
@@ -1014,6 +1017,9 @@ func TestIconsToggleChangesRenderedPaneMarkers(t *testing.T) {
 	}
 	if !containsString(view, "·   Read Article") {
 		t.Fatalf("expected read article marker when icons are enabled: %q", view)
+	}
+	if !containsString(view, "→   Selected Article") {
+		t.Fatalf("expected cursor arrow on the selected row when icons are enabled: %q", view)
 	}
 }
 
@@ -4305,5 +4311,89 @@ func TestSettingsSaveResizesContentViewportForPaneBorders(t *testing.T) {
 	}
 	if m.viewport.Width != m.contentBodyWidth() {
 		t.Fatalf("expected viewport resized to %d columns, got %d", m.contentBodyWidth(), m.viewport.Width)
+	}
+}
+
+// articleRowsModel renders three articles with a known read/unread mix so the
+// row prefixes can be read straight out of the articles pane.
+func articleRowsModel(t *testing.T, icons bool) Model {
+	t.Helper()
+	cfg := config.DefaultConfig()
+	cfg.Display.Icons = icons
+	m := NewModel(nil, cfg, "v1.0.0", false)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = next.(Model)
+	next, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{{ID: 1, Title: "Feed One", URL: "https://example.com/1"}}})
+	m = next.(Model)
+	next, _ = m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: []db.Article{
+		{ID: 1, FeedID: 1, Title: "First article"},
+		{ID: 2, FeedID: 1, Title: "Second article"},
+		{ID: 3, FeedID: 1, Title: "Third article", Read: true},
+	}})
+	return next.(Model)
+}
+
+func articleRowLine(t *testing.T, m Model, title string) string {
+	t.Helper()
+	for _, line := range strings.Split(ansi.Strip(m.renderArticlesPane()), "\n") {
+		if strings.Contains(line, title) {
+			return line
+		}
+	}
+	t.Fatalf("no article row found for %q", title)
+	return ""
+}
+
+// The selected row carries a right arrow in place of its read/unread dot, so
+// the cursor is readable even when the pane is unfocused and its highlight dim.
+func TestArticleCursorRowIsMarkedWithArrow(t *testing.T) {
+	m := articleRowsModel(t, true)
+	m.articleCursor = 1
+
+	if got := articleRowLine(t, m, "Second article"); !strings.Contains(got, "→") {
+		t.Fatalf("expected the selected row to carry the cursor arrow, got %q", got)
+	}
+	if got := articleRowLine(t, m, "First article"); strings.Contains(got, "→") {
+		t.Fatalf("expected unselected rows to keep their dot, got %q", got)
+	}
+	if got := articleRowLine(t, m, "Third article"); strings.Contains(got, "→") {
+		t.Fatalf("expected unselected rows to keep their dot, got %q", got)
+	}
+
+	// It follows the cursor rather than sticking to a row.
+	m.articleCursor = 2
+	if got := articleRowLine(t, m, "Third article"); !strings.Contains(got, "→") {
+		t.Fatalf("expected the arrow to follow the cursor, got %q", got)
+	}
+	if got := articleRowLine(t, m, "Second article"); strings.Contains(got, "→") {
+		t.Fatalf("expected the previous row to give the arrow back, got %q", got)
+	}
+}
+
+// The arrow degrades wherever the read/unread dots do, and it stays two cells
+// wide either way so the title column does not shift under the cursor.
+func TestArticleCursorArrowDegradesAndKeepsRowWidth(t *testing.T) {
+	plain := articleRowsModel(t, false) // icons off
+	plain.articleCursor = 1
+	if got := articleRowLine(t, plain, "Second article"); !strings.Contains(got, "> ") {
+		t.Fatalf("expected an ASCII cursor marker with icons off, got %q", got)
+	}
+
+	vt52 := articleRowsModel(t, true)
+	vt52.styles = BuildStyles(VT52, "compact", "square")
+	vt52.articleCursor = 1
+	if got := vt52.articleRowCursorPrefix(); got != "> " {
+		t.Fatalf("expected the plain theme to use an ASCII cursor marker, got %q", got)
+	}
+
+	m := articleRowsModel(t, true)
+	m.articleCursor = 1
+	selected := articleRowLine(t, m, "Second article")
+	unselected := articleRowLine(t, m, "First article")
+	if lipgloss.Width(selected) != lipgloss.Width(unselected) {
+		t.Fatalf("cursor row is %d cells wide, other rows %d", lipgloss.Width(selected), lipgloss.Width(unselected))
+	}
+	if a, b := strings.Index(selected, "Second"), strings.Index(unselected, "First"); a != b {
+		t.Fatalf("expected the title column to stay put, got %d vs %d", a, b)
 	}
 }

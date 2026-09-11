@@ -27,6 +27,7 @@ press Enter to restart or Esc to continue and restart later.
 ## Features
 
 - Three-pane layout: feeds, articles, content, with optional per-pane borders (Settings → Display)
+- Cursor markers in both list panes: the selected feed and the selected article are arrow-marked, so the cursor stays readable in an unfocused pane
 - Status bar reminders: feed manager, settings, search, and help keys (`m` · `S` · `/` · `?`)
 - Comfortable or compact list spacing (Settings → Display; configurable in `config.toml`)
 - Live theme switching with full preview
