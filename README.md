@@ -9,41 +9,45 @@ The reusable themed UI toolkit derived from Tide is available as
 
 ## What’s new
 
-Feeds now refresh in the background on a timer — every 30 minutes by default,
-configurable in **Settings → Feeds** or with `feed.refresh_interval_minutes`
-(0 turns it off and goes back to `f` / `F` only). Fetches run through a queue
-capped at four at a time, so a large library no longer opens a socket per feed
-the moment Tide starts, and each feed's own last-fetched time decides when it is
-due — restarting does not re-fetch what was just refreshed.
+**Feeds refresh on their own.** Every 30 minutes by default — **Settings → Feeds
+→ Refresh every (minutes)**, or `feed.refresh_interval_minutes`; `0` turns it off
+and goes back to `f` / `F` only. Fetches run through a queue capped at four at a
+time, so a large library no longer opens a socket per feed the moment Tide
+starts, and each feed's own last-fetched time decides when it is due — restarting
+does not re-fetch what was just refreshed.
 
-Articles can now expire. **Settings → Feeds → Delete read after (days)** (or
-`feed.retention_days`) drops read articles once they pass that age, and the
+**Articles can expire.** **Settings → Feeds → Delete read after (days)**
+(`feed.retention_days`) drops read articles once they pass that age, and the
 Feeds section shows how much the database currently holds. It is **off by
 default** — an upgrade will not quietly delete a library you already have — and
 even when on it never touches starred articles, articles with a saved AI
 summary, or anything still unread.
 
-Article text can now leave Tide. The content pane has vim-style visual
-selection: `v` selects character-wise and `V` line-wise, both anchored where the
-cursor is; `h`/`l` move by character, `j`/`k` by line, the other visual key
-switches mode, and the same key again — or `esc` — cancels. `c` / `y` copies the
-selection, or the whole article when nothing is selected, and `L` copies the
-article's link from either the list or the content pane.
+**Vim-style selection in the content pane.** `v` selects character-wise and `V`
+line-wise, both anchored where the cursor is; `h`/`l` move by character, `j`/`k`
+by line, the other visual key switches mode, and the same key again — or `esc` —
+cancels. `c` / `y` copies the selection, or the whole article when nothing is
+selected. `L` copies the article's link from either the list or the content pane.
 
-Each pane is now drawn in its own frame, with square or rounded corners, and the
-frame follows the focused pane. Turn it off in **Settings → Display** (or with
-`display.show_pane_borders` in `config.toml`) to go back to plain divider lines
-and hand every pane two more rows of content; `display.pane_corners` picks
-`square` or `round`.
+**Panes have borders.** Each pane is drawn in its own frame, square or rounded,
+and the frame follows focus. Turn it off in **Settings → Display**
+(`display.show_pane_borders`) to go back to plain divider lines and hand every
+pane two more rows of content; `display.pane_corners` picks `square` or `round`.
 
-Pane header bars can now be toggled in **Settings → Display** (or with
-`display.show_pane_headers` in `config.toml`). They are on by default; when
-hidden, Tide gives each pane back a row and shows the focused pane’s title and
-shortcuts in the status bar.
+**The selected article is arrow-marked.** The article list marks its cursor with
+`→` in place of the read/unread dot, the way the feeds pane already did, so the
+selection stays readable in an unfocused pane.
 
-After a successful in-app update, Tide now keeps the completion modal open and
-can restart cleanly into the installed binary after restoring the terminal;
-press Enter to restart or Esc to continue and restart later.
+**Settings keeps your place.** Saving settings used to drop the sidebar back on
+`Saved` and the article list back at the top. It now returns to the feed, article
+and scroll position you left, and no longer resets a live `u` unread-only toggle
+unless you changed that setting yourself.
+
+Earlier: pane header bars are toggleable in **Settings → Display**
+(`display.show_pane_headers`); when hidden, the focused pane's title and
+shortcuts move to the status bar. After a successful in-app update Tide keeps the
+completion modal open and can restart cleanly into the installed binary — press
+Enter to restart, Esc to restart later.
 
 ## Features
 
@@ -55,6 +59,8 @@ press Enter to restart or Esc to continue and restart later.
 - Theme-aware dialogs and overlays
 - Feed manager: add, edit, delete, import/export OPML
 - Google Reader-compatible source support, including FreshRSS
+- Background refresh on a configurable interval, with fetches queued rather than fired all at once
+- Optional retention: expire read articles after N days, never touching starred, summarized or unread ones
 - Full-text search across stored local articles, including titles, content, and AI summaries
 - Vim-style visual selection in the content pane (`v` character-wise, `V` line-wise) with copy to clipboard (`c` / `y`), plus `L` to copy an article's link
 - Unread-only filtering and in-article find
@@ -65,8 +71,6 @@ press Enter to restart or Esc to continue and restart later.
 - 19 built-in themes, including customizable VT52 and VT100 palettes, plus
   `match-omarchy` which follows your current [Omarchy](https://omarchy.org)
   desktop theme (contrast-corrected, updates live)
-- Background refresh on a configurable interval, with fetches queued rather than fired all at once
-- Optional retention: expire read articles after N days, never touching starred, summarized or unread ones
 - Terminal background sync (OSC 11)
 
 ## Themes
@@ -193,6 +197,17 @@ Display options:
 - Toggle the quit confirmation
 
 Feed options:
+- **Refresh every (minutes):** how often feeds re-fetch in the background. `0`
+  disables it, leaving the startup fetch and `f` / `F`. Fetching is queued at
+  four feeds at a time, and each feed's stored last-fetched time decides when it
+  is due, so feeds spread themselves across the interval instead of moving in
+  lockstep
+- **Delete read after (days):** retention. `0` keeps everything (the default).
+  Starred articles, articles with a saved AI summary, and unread articles are
+  never deleted at any age, and neither are articles a feed served without a
+  publication date
+- Shows the current article count and database size, so the cost of keeping
+  everything is visible next to the setting that changes it
 - Set the maximum feed body size accepted during parsing
 
 Update options:
@@ -405,8 +420,39 @@ Pushing the tag starts the GitHub Actions release workflow. CI tests again, buil
 | `Ctrl+F` | Find text in the current article; `Enter`/`↓` selects the next match and `↑` the previous match |
 | `i` | Show/hide the lead image for the current article (only when **Article images** is on and the focus is in the Content pane) |
 | `/` | Search titles, content, and summaries across all stored local articles |
+| `v` | Character-wise selection in the content pane |
+| `V` | Line-wise selection in the content pane |
+| `c` / `y` | Copy the selection, or the whole article when nothing is selected |
+| `L` | Copy the article's link |
 
 Search results are ranked by relevance and include their source feed and a matching excerpt. Press `Enter` to jump to a result. Google Reader-compatible articles are loaded from the remote service rather than stored locally, so they are not included in library search.
+
+### Selecting And Copying
+
+The content pane has vim-style visual selection. `v` starts a character-wise
+selection and `V` a line-wise one, both anchored where the cursor is:
+
+| Key | Action |
+|-----|--------|
+| `h` / `l` | Move the cursor by character |
+| `j` / `k` | Move the cursor by line |
+| `v` / `V` | Switch between character-wise and line-wise, keeping the anchor |
+| `v` / `V` again, or `Esc` | Cancel the selection |
+| `c` / `y` | Copy the selection |
+
+The cursor only exists while a selection is open — at any other time `h`/`l` go
+on switching panes. During a selection `j`/`k` move a line at a time rather than
+hopping between readable lines, and the column is sticky in vim's sense: drop
+onto a short line and back off it and the cursor returns to where `h`/`l` put it.
+
+With nothing selected, `c` / `y` copies the whole article, so the common case
+does not need visual mode. Line-wise copies arrive flush — the pane's left indent
+is layout rather than article text, so it is stripped, while indentation the
+article meant keeps its shape. Character-wise copies exactly the characters
+covered.
+
+`L` copies the current article's link, and works in the article list as well as
+the content pane.
 
 ### Saved
 
@@ -450,10 +496,15 @@ When `Display → Actionable article links` is enabled, the content pane renders
 ### Feeds
 | Key | Action |
 |-----|--------|
-| `f` | Refresh feed |
-| `F` / `I` | Refresh all |
+| `f` | Refresh the selected feed |
+| `F` / `I` | Refresh every feed, due or not |
 | `m` | Feed manager |
 | `a` | Add a feed or GReader source from anywhere |
+
+Feeds also refresh on their own; see **Settings → Feeds → Refresh every
+(minutes)**. Manual and background fetches share one queue, capped at four at a
+time, so pressing `F` during a background refresh cannot stack duplicate fetches
+for the same feed.
 
 ### Feed Manager
 | Key | Action |
