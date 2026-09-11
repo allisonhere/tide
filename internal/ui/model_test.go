@@ -397,7 +397,7 @@ func TestUpdateProgressTickAdvancesAndFinalizes(t *testing.T) {
 		updateInfo:         update.ReleaseInfo{Version: "v1.1.0"},
 		updateProgress:     90,
 		updateInstallReady: true,
-		updateInstall:      update.InstallResult{Version: "v1.1.0", Restartable: true},
+		updateInstall:      update.InstallResult{Version: "v1.1.0", Restartable: true, ExecutablePath: "/tmp/tide"},
 		styles:             BuildStyles(GruvboxLight, "comfortable"),
 	}
 
@@ -408,17 +408,28 @@ func TestUpdateProgressTickAdvancesAndFinalizes(t *testing.T) {
 		t.Fatalf("mid-progress tick: progress=%d overlay=%v cmd=%v", got.updateProgress, got.overlay, cmd != nil)
 	}
 
-	// Next tick fills the bar; the ready install is finalized and the overlay closes.
+	// Next tick fills the bar; the ready install is finalized and prompts for restart.
 	next, _ = got.Update(UpdateProgressTickMsg{})
 	got = next.(Model)
 	if got.updateProgress != 100 {
 		t.Fatalf("expected progress 100, got %d", got.updateProgress)
 	}
-	if got.overlay != overlayNone {
-		t.Fatalf("expected overlay to close after finalize, got %v", got.overlay)
+	if got.overlay != overlayUpdateConfirm {
+		t.Fatalf("expected restart prompt after finalize, got overlay %v", got.overlay)
 	}
 	if got.updateState != updateStateInstalled {
 		t.Fatalf("expected installed state after finalize, got %v", got.updateState)
+	}
+	view := ansi.Strip(got.renderUpdateConfirmOverlay(72, newManagerChrome(72, CatppuccinMocha, false)))
+	if !strings.Contains(view, "Restart Tide now?") {
+		t.Fatalf("expected restart prompt after install, got %q", view)
+	}
+	next, cmd = got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected enter on restart prompt to start Tide again")
+	}
+	if restarted := next.(Model); restarted.overlay != overlayUpdateConfirm {
+		t.Fatalf("expected restart prompt to stay open until restart succeeds, got %v", restarted.overlay)
 	}
 }
 

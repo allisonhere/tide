@@ -306,7 +306,7 @@ Tide can check GitHub releases for a newer version and install the matching bina
 - Manual checks and installs live in the `UPDATES` section of Settings (`S`)
 - Tide never downloads or installs an update until you explicitly choose `Update now`
 - While the download and install run, the update overlay shows a progress bar
-- After a successful install, Tide offers `Restart now`
+- After a successful install, Tide keeps the update modal open and asks whether to restart now
 - Updates replace the binary in place. If its directory is not writable, Tide
   migrates the install to `~/.local/bin/tide` instead — no `sudo`. When an older
   copy is still earlier on your `PATH`, Settings shows a one-time

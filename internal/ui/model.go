@@ -1477,6 +1477,15 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSettings(msg)
 
 	case overlayUpdateConfirm:
+		if m.updateState == updateStateInstalled {
+			switch {
+			case keyMatches(msg, m.keys.Confirm) && m.updateInstall.Restartable && m.updateInstall.ExecutablePath != "":
+				return m, restartProcessCmd(m.updateInstall.ExecutablePath)
+			case keyMatches(msg, m.keys.Confirm), keyMatches(msg, m.keys.Cancel):
+				m.overlay = overlayNone
+			}
+			return m, nil
+		}
 		if m.updateInProgress() {
 			// No cancelling a download/install mid-flight; wait it out.
 			return m, nil
@@ -2908,6 +2917,28 @@ func (m Model) renderSummaryOverlay(width, height int, chrome managerChrome) str
 }
 
 func (m Model) renderUpdateConfirmOverlay(width int, chrome managerChrome) string {
+	if m.updateState == updateStateInstalled {
+		bodyLines := []string{"Tide updated to " + m.updateInstall.Version + "."}
+		canRestart := m.updateInstall.Restartable && m.updateInstall.ExecutablePath != ""
+		if canRestart {
+			bodyLines = append(bodyLines, "", "Restart Tide now?")
+		} else {
+			bodyLines = append(bodyLines, "", "Restart Tide when you're ready.")
+		}
+		if shadowed := strings.TrimSpace(m.updateInstall.ShadowedPath); shadowed != "" {
+			bodyLines = append(bodyLines, "", shadowed+" is still earlier on PATH.", "Remove it so Tide starts this version; see Settings > Updates.")
+		}
+		body := lipgloss.NewStyle().
+			Background(chrome.baseBg).
+			Foreground(chrome.text).
+			Width(width).
+			Padding(1, 2, 0, 2).
+			Render(strings.Join(bodyLines, "\n"))
+		if canRestart {
+			return lipgloss.JoinVertical(lipgloss.Left, body, renderSoftHints(width, chrome, "enter", "restart", "esc", "close"))
+		}
+		return lipgloss.JoinVertical(lipgloss.Left, body, renderSoftHints(width, chrome, "enter/esc", "close"))
+	}
 	if m.updateInProgress() {
 		verb := "Downloading"
 		if m.updateState == updateStateInstalling {
@@ -3286,13 +3317,13 @@ func (m *Model) beginUpdateDownload() tea.Cmd {
 // download/install outcome. Called once the bar has filled and the install
 // result (or an error) is in hand.
 func (m Model) finalizeUpdateInstall() (Model, tea.Cmd) {
-	m.overlay = overlayNone
 	m.updateInstallReady = false
 	m.downloadedUpdate = nil
 	err := m.updateInstallErr
 	m.updateInstallErr = nil
 
 	if err != nil {
+		m.overlay = overlayNone
 		m.updateState = updateStateError
 		m.updateErr = err.Error()
 		m.syncSettingsUpdateState()
@@ -3300,6 +3331,7 @@ func (m Model) finalizeUpdateInstall() (Model, tea.Cmd) {
 		return m, m.clearStatusCmd()
 	}
 	if m.updateInstall.RequiresManual {
+		m.overlay = overlayNone
 		m.updateState = updateStateNeedsElevation
 		m.syncSettingsUpdateState()
 		m.setStatus("update downloaded; admin permission required", true)
