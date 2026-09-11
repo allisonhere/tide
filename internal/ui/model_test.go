@@ -4032,3 +4032,121 @@ func TestFormatArticleBodyStripsEmailInvisibles(t *testing.T) {
 		}
 	}
 }
+
+// settingsPositionModel is a main-UI model parked on the second feed with a
+// list of articles, ready to be sent through the settings overlay.
+func settingsPositionModel(t *testing.T) Model {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", false)
+	m.width, m.height = 100, 30
+	m.styles = BuildStyles(CatppuccinMocha, "comfortable")
+	m.folders = []db.Folder{{ID: 10, Name: "Tech"}}
+	m.feeds = []db.Feed{
+		{ID: 1, Title: "Feed One", URL: "https://example.com/1", FolderID: 10},
+		{ID: 2, Title: "Feed Two", URL: "https://example.com/2", FolderID: 10},
+	}
+	m.sidebarRows = []sidebarRow{
+		{kind: rowKindSaved},
+		{kind: rowKindFolder, folderID: 10},
+		{kind: rowKindFeed, feedID: 1},
+		{kind: rowKindFeed, feedID: 2},
+	}
+	m.sidebarCursor = 3
+	m.articles = []db.Article{
+		{ID: 101, FeedID: 2, Title: "First"},
+		{ID: 102, FeedID: 2, Title: "Second"},
+		{ID: 103, FeedID: 2, Title: "Third"},
+	}
+	m.applyFilter()
+	m.articleCursor = 2
+	return m
+}
+
+// Saving settings reloads the feed tree, but it must not double as a
+// navigation: the sidebar row and the article under the cursor are where the
+// user left them, not reset to the top of the list.
+func TestSettingsSaveKeepsSidebarAndArticlePosition(t *testing.T) {
+	m := settingsPositionModel(t)
+	m.settings = newSettings(m.cfg, m.settingsUpdateState())
+	m.settings.setFocusedPane(settingsPaneSidebar)
+	m.overlay = overlaySettings
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+
+	if m.overlay != overlayNone {
+		t.Fatalf("expected settings overlay to close on save, got %v", m.overlay)
+	}
+	if m.sidebarCursor != 3 {
+		t.Fatalf("expected sidebar cursor to stay on the selected feed (3), got %d", m.sidebarCursor)
+	}
+	if m.restoreArticleID != 103 {
+		t.Fatalf("expected article 103 queued for restore, got %d", m.restoreArticleID)
+	}
+}
+
+// The reload that follows the save lands as ArticlesLoadedMsg; the cursor has
+// to find its article again even if the list came back in a different shape.
+func TestArticlesLoadedRestoresQueuedArticleCursor(t *testing.T) {
+	m := settingsPositionModel(t)
+	m.restoreArticleID = 103
+
+	next, _ := m.Update(ArticlesLoadedMsg{FeedID: 2, Articles: []db.Article{
+		{ID: 104, FeedID: 2, Title: "Newly fetched"},
+		{ID: 101, FeedID: 2, Title: "First"},
+		{ID: 102, FeedID: 2, Title: "Second"},
+		{ID: 103, FeedID: 2, Title: "Third"},
+	}})
+	m = next.(Model)
+
+	if m.articleCursor != 3 {
+		t.Fatalf("expected cursor restored to article 103 at index 3, got %d", m.articleCursor)
+	}
+	if m.restoreArticleID != 0 {
+		t.Fatal("expected restore request to be consumed")
+	}
+	if m.contentArticleID != 103 {
+		t.Fatalf("expected content pane to show article 103, got %d", m.contentArticleID)
+	}
+}
+
+// A restored cursor below the fold has to drag the list window with it,
+// otherwise the selection renders off-screen.
+func TestArticlesLoadedScrollsRestoredCursorIntoView(t *testing.T) {
+	m := settingsPositionModel(t)
+	m.restoreArticleID = 159
+	loaded := make([]db.Article, 0, 60)
+	for i := 0; i < 60; i++ {
+		loaded = append(loaded, db.Article{ID: int64(100 + i), FeedID: 2, Title: fmt.Sprintf("Article %d", i)})
+	}
+
+	next, _ := m.Update(ArticlesLoadedMsg{FeedID: 2, Articles: loaded})
+	m = next.(Model)
+
+	visible := max(1, m.articleRowsVisible())
+	if m.articleCursor != 59 {
+		t.Fatalf("expected cursor restored to index 59, got %d", m.articleCursor)
+	}
+	if m.articleCursor < m.listOffset || m.articleCursor >= m.listOffset+visible {
+		t.Fatalf("expected cursor %d inside window [%d,%d)", m.articleCursor, m.listOffset, m.listOffset+visible)
+	}
+}
+
+// Unread-only is a live toggle out in the list; a settings save that never
+// touched the default must leave it alone.
+func TestSettingsSaveKeepsLiveUnreadOnlyToggle(t *testing.T) {
+	m := settingsPositionModel(t)
+	m.cfg.Display.DefaultUnreadOnly = true
+	m.showUnreadOnly = false
+	m.settings = newSettings(m.cfg, m.settingsUpdateState())
+	m.settings.setFocusedPane(settingsPaneSidebar)
+	m.overlay = overlaySettings
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+
+	if m.showUnreadOnly {
+		t.Fatal("expected settings save to leave the live unread-only toggle off")
+	}
+}

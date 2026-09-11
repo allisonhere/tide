@@ -173,6 +173,11 @@ type Model struct {
 	// pendingArticleID is the article to select once its feed finishes loading,
 	// set when opening a search result from another feed.
 	pendingArticleID int64
+	// restoreArticleID is the article to put the cursor back on after a reload
+	// that is not a navigation — returning from Settings, say. Unlike
+	// pendingArticleID it never touches the unread filter: if the article is
+	// filtered out, the cursor simply stays where clamping left it.
+	restoreArticleID int64
 
 	// Theme
 	confirmedTheme int
@@ -584,6 +589,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.listOffset = 0
 			// A search result queued an article to open once its feed loaded.
 			m.selectPendingArticle()
+			m.restoreArticleCursor()
+			m.ensureArticleCursorVisible()
 			var cmd tea.Cmd
 			if len(m.filteredArticles) > 0 {
 				m.setViewportArticle(m.filteredArticles[m.articleCursor])
@@ -1595,8 +1602,16 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if done {
 		if m.settings.shouldSave {
+			prevUnreadOnlyDefault := m.cfg.Display.DefaultUnreadOnly
 			m.cfg = m.settings.ApplyTo(m.cfg)
-			m.showUnreadOnly = m.cfg.Display.DefaultUnreadOnly
+			if m.cfg.Display.DefaultUnreadOnly != prevUnreadOnlyDefault {
+				// Only follow the default when it actually changed in this
+				// visit; otherwise a save for some unrelated setting would
+				// undo whatever the user toggled with u out in the list.
+				m.showUnreadOnly = m.cfg.Display.DefaultUnreadOnly
+				m.applyFilter()
+				m.articleCursor = clamp(m.articleCursor, 0, max(0, len(m.filteredArticles)-1))
+			}
 			merged, _ := MergedThemeFromConfig(m.cfg)
 			m.styles = BuildStyles(merged, m.cfg.Display.Density)
 			if ThemeUsesASCII(merged.Name) {
@@ -1616,9 +1631,13 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.clearViewportArticle()
 			}
 			m.overlay = overlayNone
-			m.sidebarCursor = 0
-			m.articleCursor = 0
-			m.clearArticles()
+			// The reload behind a settings save is a refresh, not a
+			// navigation: leave sidebarCursor alone so FeedsLoadedMsg restores
+			// the same row, and queue the current article so the list cursor
+			// and content scroll land back where the user left them. -allie
+			if len(m.filteredArticles) > 0 {
+				m.restoreArticleID = m.filteredArticles[m.articleCursor].ID
+			}
 			return m, m.loadFeedsCmd()
 		}
 		m.overlay = overlayNone
@@ -3183,6 +3202,33 @@ func (m *Model) selectPendingArticle() {
 	if idx := m.indexOfFilteredArticle(id); idx >= 0 {
 		m.articleCursor = idx
 	}
+}
+
+// restoreArticleCursor moves the cursor back to the article queued by a
+// non-navigating reload, if it is still in the filtered list. Unlike
+// selectPendingArticle it leaves the unread filter as it is — the reload may be
+// the one that just applied a new filter setting.
+func (m *Model) restoreArticleCursor() {
+	if m.restoreArticleID == 0 {
+		return
+	}
+	id := m.restoreArticleID
+	m.restoreArticleID = 0
+	if idx := m.indexOfFilteredArticle(id); idx >= 0 {
+		m.articleCursor = idx
+	}
+}
+
+// ensureArticleCursorVisible scrolls the article list just far enough that the
+// cursor sits inside the rendered window.
+func (m *Model) ensureArticleCursorVisible() {
+	visible := max(1, m.articleRowsVisible())
+	if m.articleCursor < m.listOffset {
+		m.listOffset = m.articleCursor
+	} else if m.articleCursor >= m.listOffset+visible {
+		m.listOffset = m.articleCursor - visible + 1
+	}
+	m.listOffset = clamp(m.listOffset, 0, max(0, len(m.filteredArticles)-1))
 }
 
 // articlesLoadIsCurrent reports whether an ArticlesLoadedMsg belongs to what
