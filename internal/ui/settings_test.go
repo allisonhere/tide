@@ -210,7 +210,7 @@ func TestSettingsLoadsAndAppliesFocusLine(t *testing.T) {
 func TestSettingsViewIncludesFocusLineToggle(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setFocusedPane(settingsPaneDetail)
-	v := s.View(62, 24, newManagerChrome(62, CatppuccinMocha, false))
+	v := s.View(62, 40, newManagerChrome(62, CatppuccinMocha, false))
 	if !strings.Contains(v, "Focus line") {
 		t.Fatal("expected settings view to contain focus line toggle")
 	}
@@ -233,10 +233,58 @@ func TestSettingsLoadsAppliesAndShowsPaneHeaders(t *testing.T) {
 	}
 }
 
+func TestSettingsLoadsAppliesAndShowsPaneBorders(t *testing.T) {
+	cfg := config.DefaultConfig()
+	s := newSettings(cfg, settingsUpdateState{})
+	if !s.showPaneBorders {
+		t.Fatal("expected settings to load enabled pane borders")
+	}
+	if s.paneCornersIdx != 0 {
+		t.Fatalf("expected square pane corners to load as index 0, got %d", s.paneCornersIdx)
+	}
+
+	s.showPaneBorders = false
+	if next := s.ApplyTo(cfg); next.Display.ShowPaneBorders {
+		t.Fatal("expected ApplyTo to save disabled pane borders")
+	}
+
+	s.showPaneBorders = true
+	s.paneCornersIdx = 1
+	if next := s.ApplyTo(cfg); next.Display.PaneCorners != "round" {
+		t.Fatalf("expected ApplyTo to save round pane corners, got %q", next.Display.PaneCorners)
+	}
+
+	s.setFocusedPane(settingsPaneDetail)
+	v := s.View(62, 44, newManagerChrome(62, CatppuccinMocha, false))
+	if !strings.Contains(v, "Pane borders") {
+		t.Fatal("expected settings view to contain pane borders toggle")
+	}
+	if !strings.Contains(v, "Pane corners") {
+		t.Fatal("expected settings view to contain pane corners selector")
+	}
+}
+
+// The corner picker is meaningless with borders off, so it only appears when
+// there is a frame to shape.
+func TestSettingsHidesPaneCornersWhenBordersOff(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Display.ShowPaneBorders = false
+	s := newSettings(cfg, settingsUpdateState{})
+	s.setFocusedPane(settingsPaneDetail)
+
+	v := s.View(62, 44, newManagerChrome(62, CatppuccinMocha, false))
+	if !strings.Contains(v, "Pane borders") {
+		t.Fatal("expected settings view to still contain the pane borders toggle")
+	}
+	if strings.Contains(v, "Pane corners") {
+		t.Fatal("expected pane corners selector to be hidden while borders are off")
+	}
+}
+
 func TestSettingsViewIncludesLayoutDensity(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setFocusedPane(settingsPaneDetail)
-	v := s.View(62, 30, newManagerChrome(62, CatppuccinMocha, false))
+	v := s.View(62, 44, newManagerChrome(62, CatppuccinMocha, false))
 	if !strings.Contains(v, "Layout density") {
 		t.Fatal("expected settings view to contain layout density label")
 	}

@@ -135,7 +135,7 @@ func TestAllThemesPassContrastChecks(t *testing.T) {
 	for _, theme := range BuiltinThemes {
 		theme := theme
 		t.Run(theme.Name, func(t *testing.T) {
-			styles := BuildStyles(theme, "comfortable")
+			styles := BuildStyles(theme, "comfortable", "square")
 			for _, check := range contrastChecks {
 				fg := check.fg(styles)
 				bg := check.bg(styles)
@@ -157,7 +157,7 @@ func TestAllThemesContentFocusLineBackgroundIsVisible(t *testing.T) {
 	for _, theme := range BuiltinThemes {
 		theme := theme
 		t.Run(theme.Name, func(t *testing.T) {
-			styles := BuildStyles(theme, "comfortable")
+			styles := BuildStyles(theme, "comfortable", "square")
 			focusBg := styleColor(styles.ContentFocusLine.GetBackground())
 			if focusBg == "" {
 				t.Fatal("content focus line background is unset")
@@ -176,7 +176,7 @@ func TestAllThemesContrastReport(t *testing.T) {
 		t.Skip("only runs with -v")
 	}
 	for _, theme := range BuiltinThemes {
-		styles := BuildStyles(theme, "comfortable")
+		styles := BuildStyles(theme, "comfortable", "square")
 		t.Logf("── %s ──", theme.Name)
 		for _, check := range contrastChecks {
 			fg := check.fg(styles)

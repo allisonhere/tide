@@ -247,10 +247,11 @@ func TestImageDrawOrigin_MatchesLayout(t *testing.T) {
 	m.width, m.height = 160, 50
 
 	x, y := m.imageDrawOrigin()
-	// x: feeds pane width, +1 for the 1-space body indent, +1 for 1-based cols.
-	wantX := m.feedsPaneWidth() + 2
-	// y: articles pane height rows, +1 content header, +imageBodyTopLine, +1 for 1-based.
-	wantY := m.articlesPaneOuterHeight() + 1 + imageBodyTopLine + 1
+	// x: feeds pane width, +1 content frame column, +1 body indent, +1 for 1-based cols.
+	wantX := m.feedsPaneWidth() + 3
+	// y: articles pane height rows, +1 content frame row, +1 pane header,
+	// +imageBodyTopLine, +1 for 1-based.
+	wantY := m.articlesPaneOuterHeight() + 2 + imageBodyTopLine + 1
 	if x != wantX || y != wantY {
 		t.Fatalf("imageDrawOrigin() = (%d,%d), want (%d,%d)", x, y, wantX, wantY)
 	}

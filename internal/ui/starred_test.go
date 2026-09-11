@@ -23,7 +23,7 @@ func newStarModel() Model {
 	m := Model{
 		width:  100,
 		height: 30,
-		styles: BuildStyles(CatppuccinMocha, "comfortable"),
+		styles: BuildStyles(CatppuccinMocha, "comfortable", "square"),
 		keys:   DefaultKeys,
 		cfg:    config.DefaultConfig(),
 		feeds:  []db.Feed{{ID: 1, Title: "Feed One", URL: "https://example.com/feed"}},
@@ -471,7 +471,7 @@ func TestStarredRowOccupiesOneRowInEveryDensity(t *testing.T) {
 	for _, density := range []string{"compact", "comfortable"} {
 		t.Run(density, func(t *testing.T) {
 			m := newStarModel()
-			m.styles = BuildStyles(CatppuccinMocha, density)
+			m.styles = BuildStyles(CatppuccinMocha, density, "square")
 			m.articles[0].Title = "Saved title"
 			m.articles[1].Title = "Plain title"
 			m.applyFilter()
@@ -525,7 +525,7 @@ func TestRetroTerminalThemesDropStarAccentAndTint(t *testing.T) {
 			}
 
 			m := newStarModel()
-			m.styles = BuildStyles(theme, "comfortable")
+			m.styles = BuildStyles(theme, "comfortable", "square")
 			unread, read, selected, _, _, _ := m.articleRowStyles()
 			_ = unread
 			tinted := applyArticleRowState(read, selected, true, false, theme)

@@ -233,13 +233,15 @@ func (m Model) imageShouldShow() bool {
 }
 
 // imageDrawOrigin returns the absolute 1-based (col, row) of the image's
-// top-left cell. The ContentPane style carries no border/padding, so geometry
-// is: feeds pane width + 1 body indent for the column; articles pane height + 1
-// content header + imageBodyTopLine for the row (valid while viewport.YOffset
-// == 0, which imageShouldShow guarantees).
+// top-left cell. The ContentPane style carries no padding of its own, so the
+// geometry is: feeds pane width + the content pane's left frame column + 1 body
+// indent for the column; articles pane height + the content pane's top frame
+// row + the pane header + imageBodyTopLine for the row (valid while
+// viewport.YOffset == 0, which imageShouldShow guarantees).
 func (m Model) imageDrawOrigin() (int, int) {
-	x := m.feedsPaneWidth() + 1 + 1 // +indent, +1 for 1-based
-	y := m.articlesPaneOuterHeight() + 1 + imageBodyTopLine + 1
+	frame := m.paneBorderSize()
+	x := m.feedsPaneWidth() + frame + 1 + 1 // +frame, +indent, +1 for 1-based
+	y := m.articlesPaneOuterHeight() + frame + m.paneHeaderHeight() + imageBodyTopLine + 1
 	return x, y
 }
 

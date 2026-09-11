@@ -31,6 +31,8 @@ type settingsField int
 const (
 	sfIcons settingsField = iota
 	sfShowPaneHeaders
+	sfShowPaneBorders
+	sfPaneCorners
 	sfDateFormat
 	sfMarkReadOnOpen
 	sfMarkReadOnFocus
@@ -135,6 +137,7 @@ type settingsSectionBody struct {
 
 var (
 	layoutDensityLabels   = []string{"Comfortable", "Compact"}
+	paneCornersLabels     = []string{"Square", "Round"}
 	dateFormatLabels      = []string{"Relative", "Absolute", "None"}
 	aiProviderLabels      = []string{"none", "OpenAI", "Claude", "Gemini", "Ollama"}
 	aiProviderIDs         = []string{"", "openai", "claude", "gemini", "ollama"}
@@ -171,6 +174,8 @@ type Settings struct {
 	// Display
 	icons                bool
 	showPaneHeaders      bool
+	showPaneBorders      bool
+	paneCornersIdx       int // 0 = square, 1 = round
 	dateFormatIdx        int // 0=Relative, 1=Absolute, 2=None
 	markReadOnOpen       bool
 	markReadOnFocus      bool
@@ -236,6 +241,10 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 	if config.NormalizeDisplayDensity(cfg.Display.Density) == "compact" {
 		layoutIdx = 1
 	}
+	paneCornersIdx := 0
+	if config.NormalizePaneCorners(cfg.Display.PaneCorners) == "round" {
+		paneCornersIdx = 1
+	}
 	var retroTweak config.RetroTerminalTweak
 	switch cfg.Theme {
 	case ThemeNameVT52:
@@ -247,6 +256,8 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 	s := Settings{
 		icons:                cfg.Display.Icons,
 		showPaneHeaders:      cfg.Display.ShowPaneHeaders,
+		showPaneBorders:      cfg.Display.ShowPaneBorders,
+		paneCornersIdx:       paneCornersIdx,
 		themeName:            cfg.Theme,
 		themeIdx:             themeIdx,
 		retroBgInput:         mkInput(retroTweak.Bg, "optional #rrggbb", false),
@@ -308,6 +319,12 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	}
 	cfg.Display.Icons = s.icons
 	cfg.Display.ShowPaneHeaders = s.showPaneHeaders
+	cfg.Display.ShowPaneBorders = s.showPaneBorders
+	if s.paneCornersIdx == 1 {
+		cfg.Display.PaneCorners = "round"
+	} else {
+		cfg.Display.PaneCorners = "square"
+	}
 	cfg.Display.DateFormat = strings.ToLower(dateFormatLabels[s.dateFormatIdx])
 	cfg.Display.MarkReadOnOpen = s.markReadOnOpen
 	cfg.Display.MarkReadOnFocus = s.markReadOnFocus
@@ -522,7 +539,7 @@ func (s Settings) updateNowActionVisible() bool {
 func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
-		fields := []settingsField{sfBackToSections, sfIcons, sfShowPaneHeaders, sfDateFormat, sfMarkReadOnOpen, sfMarkReadOnFocus, sfFocusLine, sfDefaultUnreadOnly, sfTheme, sfDisplayDensity, sfReadingWidth}
+		fields := []settingsField{sfBackToSections, sfIcons, sfShowPaneHeaders, sfShowPaneBorders, sfPaneCorners, sfDateFormat, sfMarkReadOnOpen, sfMarkReadOnFocus, sfFocusLine, sfDefaultUnreadOnly, sfTheme, sfDisplayDensity, sfReadingWidth}
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
@@ -760,7 +777,7 @@ func (s Settings) focusedTextInputCursorPosition() int {
 
 func (s Settings) isPickerField() bool {
 	switch s.focusedField {
-	case sfProvider, sfDisplayDensity, sfTheme, sfDateFormat:
+	case sfProvider, sfDisplayDensity, sfTheme, sfDateFormat, sfPaneCorners:
 		return true
 	}
 	return false
@@ -897,6 +914,29 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
 		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
+	case sfShowPaneBorders:
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.showPaneBorders = !s.showPaneBorders
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
+	case sfPaneCorners:
+		switch {
+		case keyMatches(key, keys.Left):
+			s.paneCornersIdx = (s.paneCornersIdx + len(paneCornersLabels) - 1) % len(paneCornersLabels)
+			s.setFocusedField(sfPaneCorners)
+		case keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) || keyMatches(key, keys.Right):
+			s.paneCornersIdx = (s.paneCornersIdx + 1) % len(paneCornersLabels)
+			s.setFocusedField(sfPaneCorners)
+		case keyMatches(key, keys.Down):
+			s.setFocusedField(s.nextField())
+		case keyMatches(key, keys.Up):
 			s.setFocusedField(s.prevField())
 		}
 
@@ -1270,6 +1310,10 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		b.addGroup("Display")
 		b.addToggle("Icons", s.icons, sfIcons)
 		b.addToggle("Pane header bars", s.showPaneHeaders, sfShowPaneHeaders)
+		b.addToggle("Pane borders", s.showPaneBorders, sfShowPaneBorders)
+		if s.showPaneBorders {
+			b.addPaneCornersSelector()
+		}
 		b.addDateFormatSelector()
 		b.addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
 		b.addToggle("Mark read on focus", s.markReadOnFocus, sfMarkReadOnFocus)
@@ -1471,6 +1515,15 @@ func (b *settingsFormBuilder) addDensitySelector() {
 	b.markAnchor(sfDisplayDensity)
 	b.addLine(b.s.renderDensitySelector(b.width, b.chrome))
 	if hint := b.s.fieldHint(sfDisplayDensity); hint != "" {
+		b.addHint(hint)
+	}
+	b.addBlank()
+}
+
+func (b *settingsFormBuilder) addPaneCornersSelector() {
+	b.markAnchor(sfPaneCorners)
+	b.addLine(b.s.renderPaneCornersSelector(b.width, b.chrome))
+	if hint := b.s.fieldHint(sfPaneCorners); hint != "" {
 		b.addHint(hint)
 	}
 	b.addBlank()
@@ -2049,6 +2102,14 @@ func (s Settings) renderDensitySelector(width int, chrome managerChrome) string 
 	return renderSoftRow("Layout density", focused, renderSettingsPicker(pickerW, name, focused, chrome), width, labelW, chrome)
 }
 
+func (s Settings) renderPaneCornersSelector(width int, chrome managerChrome) string {
+	focused := s.focusedField == sfPaneCorners
+	name := paneCornersLabels[s.paneCornersIdx]
+	labelW := formLabelWidth(width)
+	pickerW := max(1, width-labelW-2) // minus the 2-cell focus rail
+	return renderSoftRow("Pane corners", focused, renderSettingsPicker(pickerW, name, focused, chrome), width, labelW, chrome)
+}
+
 func (s Settings) renderThemeSelector(width int, chrome managerChrome) string {
 	focused := s.focusedField == sfTheme
 	name := pickableThemeNameAt(s.themeIdx)
@@ -2110,6 +2171,10 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "highlight the current readable line in the content pane"
 	case sfShowPaneHeaders:
 		return "show pane titles and shortcuts above content; when off, both move to the status line"
+	case sfShowPaneBorders:
+		return "frame each pane; when off, panes are separated by single divider lines and gain two rows"
+	case sfPaneCorners:
+		return "square or rounded corners on pane frames"
 	case sfUpdateManualCommand:
 		return "enter or c copies the command"
 	default:

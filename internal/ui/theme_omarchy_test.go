@@ -48,7 +48,7 @@ func TestOmarchyThemePassesContrastChecks(t *testing.T) {
 			if theme.Name != ThemeNameMatchOmarchy {
 				t.Fatalf("name = %q", theme.Name)
 			}
-			styles := BuildStyles(theme, "comfortable")
+			styles := BuildStyles(theme, "comfortable", "square")
 			for _, check := range contrastChecks {
 				fg := check.fg(styles)
 				bg := check.bg(styles)

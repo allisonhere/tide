@@ -26,6 +26,27 @@ func TestDefaultConfigDisplayDensityCompact(t *testing.T) {
 	if !cfg.Display.ShowPaneHeaders {
 		t.Fatal("expected pane header bars to default on")
 	}
+	if !cfg.Display.ShowPaneBorders {
+		t.Fatal("expected pane borders to default on")
+	}
+	if cfg.Display.PaneCorners != "square" {
+		t.Fatalf("expected default pane corners square, got %q", cfg.Display.PaneCorners)
+	}
+}
+
+func TestNormalizePaneCorners(t *testing.T) {
+	if got := NormalizePaneCorners(""); got != "square" {
+		t.Fatalf("empty: got %q", got)
+	}
+	if got := NormalizePaneCorners("ROUND"); got != "round" {
+		t.Fatalf("round: got %q", got)
+	}
+	if got := NormalizePaneCorners(" round "); got != "round" {
+		t.Fatalf("padded round: got %q", got)
+	}
+	if got := NormalizePaneCorners("bevelled"); got != "square" {
+		t.Fatalf("unknown: got %q", got)
+	}
 }
 
 func TestNormalizeDisplayDensity(t *testing.T) {
@@ -70,6 +91,8 @@ theme = "catppuccin-mocha"
 [display]
 icons = true
 show_pane_headers = false
+show_pane_borders = false
+pane_corners = "ROUND"
 date_format = "relative"
 mark_read_on_open = true
 mark_read_on_focus = true
@@ -145,6 +168,12 @@ greader_password = "secret"
 	}
 	if cfg.Display.ShowPaneHeaders {
 		t.Fatal("expected show_pane_headers to load false")
+	}
+	if cfg.Display.ShowPaneBorders {
+		t.Fatal("expected show_pane_borders to load false")
+	}
+	if cfg.Display.PaneCorners != "round" {
+		t.Fatalf("expected pane_corners to load normalized to round, got %q", cfg.Display.PaneCorners)
 	}
 	if cfg.Display.FeedPaneWidthPercent != 35 {
 		t.Fatalf("expected feed pane width 35, got %d", cfg.Display.FeedPaneWidthPercent)

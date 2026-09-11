@@ -12,6 +12,9 @@ type Styles struct {
 	PlainUI bool
 	// Density is normalized ("comfortable" | "compact") and matches config.Display.Density.
 	Density string
+	// RoundedCorners draws pane frames with rounded corners instead of square
+	// ones, per config.Display.PaneCorners.
+	RoundedCorners bool
 
 	// Pane containers
 	FeedsPane          lipgloss.Style
@@ -93,6 +96,29 @@ func lipOverlayBorder(plain bool) lipgloss.Border {
 	return lipgloss.RoundedBorder()
 }
 
+// paneFrameBorder picks the pane border glyph set: rounded corners when
+// requested, falling back to ASCII for the plain vt52 theme either way.
+func paneFrameBorder(plainUI, rounded bool) lipgloss.Border {
+	if rounded {
+		return lipOverlayBorder(plainUI)
+	}
+	return lipPaneBorder(plainUI)
+}
+
+// PaneFrame returns a full 4-sided border box for a pane, colored to signal
+// whether that pane currently has focus.
+func (s Styles) PaneFrame(focused bool) lipgloss.Style {
+	style := lipgloss.NewStyle().
+		Background(s.Theme.Bg).
+		BorderBackground(s.Theme.Bg).
+		Border(paneFrameBorder(s.PlainUI, s.RoundedCorners)).
+		AlignVertical(lipgloss.Top)
+	if focused {
+		return style.BorderForeground(accentReadableOn(s.Theme.BorderFocus, s.Theme.Bg, paneFocusMinContrast))
+	}
+	return style.BorderForeground(s.Theme.Border)
+}
+
 // lipInputAccentBorder returns a thick left accent bar (Unicode) or ASCII pipe.
 func lipInputAccentBorder(plain bool) lipgloss.Border {
 	if plain {
@@ -101,9 +127,10 @@ func lipInputAccentBorder(plain bool) lipgloss.Border {
 	return lipgloss.ThickBorder()
 }
 
-func BuildStyles(t Theme, density string) Styles {
+func BuildStyles(t Theme, density string, paneCorners string) Styles {
 	plainUI := t.Name == ThemeNameVT52
 	d := config.NormalizeDisplayDensity(density)
+	roundedCorners := config.NormalizePaneCorners(paneCorners) == "round"
 	listPad := func(s lipgloss.Style) lipgloss.Style {
 		if d == "compact" {
 			return s
@@ -164,9 +191,10 @@ func BuildStyles(t Theme, density string) Styles {
 	contentFocusBg := focusLineBg(t)
 
 	return Styles{
-		Theme:   t,
-		PlainUI: plainUI,
-		Density: d,
+		Theme:          t,
+		PlainUI:        plainUI,
+		RoundedCorners: roundedCorners,
+		Density:        d,
 
 		FeedsPane: paneBase.
 			Border(lipPaneBorder(plainUI), false, true, false, false).

@@ -9,6 +9,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// paneFocusMinContrast is the contrast floor for the focused-pane border —
+// deliberately higher than the app's general 4.5 text-readability bar so the
+// focus highlight remains the strongest-contrast element in the UI.
+const paneFocusMinContrast = 7.0
+
 // hexToRGB parses a #rrggbb color into [0,1] float components.
 func hexToRGB(c lipgloss.Color) (r, g, b float64, ok bool) {
 	s := strings.TrimPrefix(string(c), "#")

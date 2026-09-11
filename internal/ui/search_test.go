@@ -15,7 +15,7 @@ func searchModel(t *testing.T) Model {
 	t.Helper()
 	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", false)
 	m.width, m.height = 100, 30
-	m.styles = BuildStyles(CatppuccinMocha, "comfortable")
+	m.styles = BuildStyles(CatppuccinMocha, "comfortable", "square")
 	m.folders = []db.Folder{{ID: 10, Name: "Tech"}}
 	m.feeds = []db.Feed{
 		{ID: 1, Title: "Feed One", URL: "https://example.com/1", FolderID: 10},

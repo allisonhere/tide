@@ -27,7 +27,9 @@ type RetroTerminalTweak struct {
 type DisplayConfig struct {
 	Icons                    bool               `toml:"icons"`
 	ShowPaneHeaders          bool               `toml:"show_pane_headers"`
-	DateFormat               string             `toml:"date_format"` // "relative" | "absolute"
+	ShowPaneBorders          bool               `toml:"show_pane_borders"`
+	PaneCorners              string             `toml:"pane_corners"` // "square" | "round"
+	DateFormat               string             `toml:"date_format"`  // "relative" | "absolute"
 	MarkReadOnOpen           bool               `toml:"mark_read_on_open"`
 	MarkReadOnFocus          bool               `toml:"mark_read_on_focus"`
 	FocusLine                bool               `toml:"focus_line"`
@@ -82,6 +84,8 @@ func DefaultConfig() Config {
 		Display: DisplayConfig{
 			Icons:                    false,
 			ShowPaneHeaders:          true,
+			ShowPaneBorders:          true,
+			PaneCorners:              "square",
 			DateFormat:               "relative",
 			MarkReadOnOpen:           true,
 			FocusLine:                true,
@@ -132,6 +136,7 @@ func Load() (Config, error) {
 		cfg.Updates.CheckIntervalHours = DefaultConfig().Updates.CheckIntervalHours
 	}
 	cfg.Display.Density = NormalizeDisplayDensity(cfg.Display.Density)
+	cfg.Display.PaneCorners = NormalizePaneCorners(cfg.Display.PaneCorners)
 	if cfg.Display.FeedPaneWidthPercent <= 0 {
 		cfg.Display.FeedPaneWidthPercent = DefaultConfig().Display.FeedPaneWidthPercent
 	}
@@ -155,6 +160,17 @@ func NormalizeDisplayDensity(s string) string {
 		return "comfortable"
 	default:
 		return "compact"
+	}
+}
+
+// NormalizePaneCorners returns "square" or "round" for the pane border glyph
+// set. Empty or unrecognized values default to "square".
+func NormalizePaneCorners(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "round":
+		return "round"
+	default:
+		return "square"
 	}
 }
 

@@ -287,7 +287,7 @@ func NewModel(database *db.DB, cfg config.Config, currentVersion string, preview
 		activeTheme:           themeIdx,
 		omarchySig:            omarchySignature(),
 		omarchyWatching:       isMatchOmarchy(cfg.Theme),
-		styles:                BuildStyles(merged, cfg.Display.Density),
+		styles:                BuildStyles(merged, cfg.Display.Density, cfg.Display.PaneCorners),
 		feedManager:           NewFeedManager(database),
 		searchInput:           si,
 		spinner:               sp,
@@ -1424,7 +1424,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.themeCursor > 0 {
 				m.themeCursor--
 				m.activeTheme = m.themeCursor
-				m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density)
+				m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density, m.cfg.Display.PaneCorners)
 				if len(m.filteredArticles) > 0 {
 					m.setViewportArticle(m.filteredArticles[m.articleCursor])
 				}
@@ -1433,7 +1433,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.themeCursor < len(PickableThemes())-1 {
 				m.themeCursor++
 				m.activeTheme = m.themeCursor
-				m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density)
+				m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density, m.cfg.Display.PaneCorners)
 				if len(m.filteredArticles) > 0 {
 					m.setViewportArticle(m.filteredArticles[m.articleCursor])
 				}
@@ -1449,7 +1449,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case keyMatches(msg, m.keys.Cancel):
 			m.activeTheme = m.confirmedTheme
-			m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density)
+			m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density, m.cfg.Display.PaneCorners)
 			m.overlay = overlayNone
 			if len(m.filteredArticles) > 0 {
 				m.setViewportArticle(m.filteredArticles[m.articleCursor])
@@ -1552,7 +1552,7 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	_, cfgThemeIdx := ThemeByName(m.cfg.Theme)
 	previewingTheme := m.settings.themeIdx != cfgThemeIdx
 	if tickChanged && !done {
-		m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.settings.themeIdx), m.cfg.Display.Density)
+		m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.settings.themeIdx), m.cfg.Display.Density, m.cfg.Display.PaneCorners)
 		if len(m.filteredArticles) > 0 {
 			m.setViewportArticle(m.filteredArticles[m.articleCursor])
 		}
@@ -1613,7 +1613,7 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.articleCursor = clamp(m.articleCursor, 0, max(0, len(m.filteredArticles)-1))
 			}
 			merged, _ := MergedThemeFromConfig(m.cfg)
-			m.styles = BuildStyles(merged, m.cfg.Display.Density)
+			m.styles = BuildStyles(merged, m.cfg.Display.Density, m.cfg.Display.PaneCorners)
 			if ThemeUsesASCII(merged.Name) {
 				m.spinner.Spinner = spinner.Line
 			} else {
@@ -1625,8 +1625,11 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			summarizer, _ := ai.New(m.cfg.AI)
 			m.summarizer = summarizer
 			m.resetSourceClient()
+			// Pane borders, pane headers and reading width all move the
+			// content viewport's own geometry, so rebuild it at the new size
+			// rather than only re-rendering the article into the old one.
 			if len(m.filteredArticles) > 0 {
-				m.setViewportArticle(m.filteredArticles[m.articleCursor])
+				m.resetContentViewportForLayout()
 			} else {
 				m.clearViewportArticle()
 			}
@@ -1643,7 +1646,7 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.overlay = overlayNone
 		if previewingTheme {
 			merged, _ := MergedThemeFromConfig(m.cfg)
-			m.styles = BuildStyles(merged, m.cfg.Display.Density)
+			m.styles = BuildStyles(merged, m.cfg.Display.Density, m.cfg.Display.PaneCorners)
 			if len(m.filteredArticles) > 0 {
 				m.setViewportArticle(m.filteredArticles[m.articleCursor])
 			}
@@ -1733,8 +1736,7 @@ func (m Model) View() string {
 // ── Pane renderers ────────────────────────────────────────────────────────────
 
 func (m Model) renderFeedsPane() string {
-	w := m.feedsPaneWidth()
-	innerW := w - 1 // account for right border
+	innerW := m.feedsPaneContentWidth()
 	focused := m.focused == paneFeeds
 	rows := []string{}
 	if m.cfg.Display.ShowPaneHeaders {
@@ -1765,23 +1767,30 @@ func (m Model) renderFeedsPane() string {
 		footer = fmt.Sprintf("  %d folders%s%d feeds", len(m.folders), m.styles.InlineMidDot(), len(m.feeds))
 	}
 	footer = m.styles.ArticleRead.Width(innerW).Render(footer)
-	bodyHeight := max(0, m.mainHeight()-1)
+	bodyHeight := max(0, m.feedsPaneContentHeight()-1) // the footer owns the last line
 	for viewLineCount(rows) < bodyHeight {
 		rows = append(rows, m.styles.FeedItem.Width(innerW).Render(""))
 	}
 	rows = append(rows, footer)
 
+	content := strings.Join(rows, "\n")
+	if m.cfg.Display.ShowPaneBorders {
+		return m.styles.PaneFrame(focused).
+			Width(innerW).
+			Height(m.feedsPaneContentHeight()).
+			Render(content)
+	}
+
 	border := m.styles.FeedsPane
 	if focused {
 		border = border.BorderForeground(m.styles.Theme.BorderFocus)
 	}
-
-	content := strings.Join(rows, "\n")
-	return border.Width(innerW).Height(m.mainHeight()).Render(content)
+	return border.Width(innerW).Height(m.feedsPaneContentHeight()).Render(content)
 }
 
 func (m Model) renderArticlesPane() string {
 	w := m.articlesPaneWidth()
+	rowW := m.articlesPaneContentWidth()
 	h := m.articlesPaneContentHeight()
 	articleUnread, articleRead, articleSelected, headerActive, borderColor, borderFocus := m.articleRowStyles()
 
@@ -1798,16 +1807,16 @@ func (m Model) renderArticlesPane() string {
 			style = articleUnread
 		}
 		style = applyArticleRowState(style, articleSelected, a.Starred, i == m.articleCursor, m.styles.Theme)
-		left, star, right := articleRowSegments(dot, m.articleRowStar(a.Starred), unescapeDisplayText(a.Title), age, w-2)
+		left, star, right := articleRowSegments(dot, m.articleRowStar(a.Starred), unescapeDisplayText(a.Title), age, rowW)
 
 		// Style the star as its own segment so it can carry the accent without
 		// its reset stripping the rest of the row (see articleRowSegments).
 		// Every segment repeats the row style, so the resets are harmless.
 		if accent := starColor(m.styles.Theme); a.Starred && accent != "" && !m.styles.PlainUI {
-			rows = append(rows, renderStyledArticleRow(style, accent, left, star, right, w-2))
+			rows = append(rows, renderStyledArticleRow(style, accent, left, star, right, rowW))
 			continue
 		}
-		rows = append(rows, style.Width(w-2).Render(left+star+right))
+		rows = append(rows, style.Width(rowW).Render(left+star+right))
 	}
 
 	if len(m.filteredArticles) == 0 {
@@ -1815,17 +1824,24 @@ func (m Model) renderArticlesPane() string {
 	}
 
 	focused := m.focused == paneArticles
-	border := m.styles.ArticlesPane
-	if focused {
-		border = border.BorderForeground(borderFocus)
+	// A framed pane fills its box exactly; a borderless one keeps the header
+	// spanning the full pane width above the inset rows.
+	paneW := w
+	if m.cfg.Display.ShowPaneBorders {
+		paneW = rowW
 	}
 	contentRows := []string{}
 	if m.cfg.Display.ShowPaneHeaders {
-		contentRows = append(contentRows, m.renderPaneHeaderWithAccent(paneArticles, m.articlesPaneTitle(), focused, w, headerActive))
+		contentRows = append(contentRows, m.renderPaneHeaderWithAccent(paneArticles, m.articlesPaneTitle(), focused, paneW, headerActive))
 	}
 	contentRows = append(contentRows, rows...)
 	for viewLineCount(contentRows) < h {
-		contentRows = append(contentRows, articleRead.Width(w-2).Render(""))
+		contentRows = append(contentRows, articleRead.Width(rowW).Render(""))
+	}
+	content := strings.Join(contentRows, "\n")
+
+	if m.cfg.Display.ShowPaneBorders {
+		return m.styles.PaneFrame(focused).Width(paneW).Height(h).Render(content)
 	}
 
 	bg := m.styles.Theme.Bg
@@ -1840,12 +1856,13 @@ func (m Model) renderArticlesPane() string {
 		}())).
 		BorderBackground(bg).
 		Width(w).Height(h).
-		Render(strings.Join(contentRows, "\n"))
+		Render(content)
 }
 
 func (m Model) renderContentPane() string {
-	w := m.articlesPaneWidth()
+	w := m.contentPaneContentWidth()
 	paneH := m.contentPaneOuterHeight()
+	innerH := max(1, paneH-2*m.paneBorderSize())
 	bodyH := m.contentBodyHeight()
 	bg := m.styles.Theme.Bg
 
@@ -1883,14 +1900,18 @@ func (m Model) renderContentPane() string {
 		}
 	}
 
+	if m.cfg.Display.ShowPaneBorders {
+		return m.styles.PaneFrame(focused).Width(w).Height(innerH).Render(content)
+	}
+
 	inner := m.styles.ContentPane.
 		Width(w).
-		Height(paneH).
+		Height(innerH).
 		Render(content)
 
 	return lipgloss.NewStyle().
 		Background(bg).
-		Width(w).Height(paneH).
+		Width(w).Height(innerH).
 		Render(inner)
 }
 
@@ -2064,7 +2085,7 @@ func (m Model) renderArticleContent(a db.Article) string {
 	// with the article.
 	region := m.applyLeadLayout(a, body)
 
-	return fillViewWidth(title+"\n"+meta+"\n\n"+region, m.articlesPaneWidth(), m.styles.Theme.Bg)
+	return fillViewWidth(title+"\n"+meta+"\n\n"+region, m.contentPaneContentWidth(), m.styles.Theme.Bg)
 }
 
 // imageBodyTopLine is the 0-based line index within the Content viewport where
@@ -4893,7 +4914,39 @@ func (m Model) mainHeight() int        { return m.height - 1 }
 func (m Model) articlesPaneOuterHeight() int {
 	return m.articlePaneHeightForPercent(m.articlePaneHeightPercent())
 }
+
+// paneBorderSize is the cells one side of a pane frame occupies: 1 with pane
+// borders on, 0 with them off. A frame eats into the pane's own content box
+// rather than growing it, so the outer layout — pane widths, the height split,
+// the resize percentages — is identical in both modes and none of that math
+// needs to know whether borders are drawn.
+func (m Model) paneBorderSize() int {
+	if m.cfg.Display.ShowPaneBorders {
+		return 1
+	}
+	return 0
+}
+
+// feedsPaneContentWidth is the width inside the feeds pane: the pane minus its
+// frame, or minus the single divider column that stands in for one.
+func (m Model) feedsPaneContentWidth() int {
+	if m.cfg.Display.ShowPaneBorders {
+		return max(1, m.feedsPaneWidth()-2)
+	}
+	return max(1, m.feedsPaneWidth()-1)
+}
+func (m Model) feedsPaneContentHeight() int {
+	return max(1, m.mainHeight()-2*m.paneBorderSize())
+}
+
+// articlesPaneContentWidth is the width of one article row. Borderless panes
+// inset their rows by the two columns a frame would have occupied, so a row
+// comes out the same width either way.
+func (m Model) articlesPaneContentWidth() int { return max(1, m.articlesPaneWidth()-2) }
 func (m Model) articlesPaneContentHeight() int {
+	if m.cfg.Display.ShowPaneBorders {
+		return max(2, m.articlesPaneOuterHeight()-2)
+	}
 	return max(2, m.articlesPaneOuterHeight()-1)
 }
 func (m Model) articleRowsVisible() int {
@@ -4910,14 +4963,17 @@ func (m Model) paneHeaderHeight() int {
 func (m Model) contentPaneOuterHeight() int {
 	return max(3, m.mainHeight()-m.articlesPaneOuterHeight())
 }
+func (m Model) contentPaneContentWidth() int {
+	return max(1, m.articlesPaneWidth()-2*m.paneBorderSize())
+}
 func (m Model) contentViewportHeight() int {
-	return max(1, m.contentPaneOuterHeight())
+	return max(1, m.contentPaneOuterHeight()-2*m.paneBorderSize())
 }
 func (m Model) contentBodyHeight() int {
-	return max(1, m.contentPaneOuterHeight()-m.paneHeaderHeight())
+	return max(1, m.contentPaneOuterHeight()-2*m.paneBorderSize()-m.paneHeaderHeight())
 }
 func (m Model) contentBodyWidth() int {
-	w := max(1, m.articlesPaneWidth()-2)
+	w := max(1, m.contentPaneContentWidth()-2)
 	if cap := m.cfg.Display.ReadingWidth; cap > 0 && cap < w {
 		return cap
 	}

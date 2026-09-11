@@ -197,7 +197,7 @@ func (m Model) handleOmarchyThemeTick() (tea.Model, tea.Cmd) {
 	}
 	m.omarchySig = sig
 	merged, _ := MergedThemeFromConfig(m.cfg)
-	m.styles = BuildStyles(merged, m.cfg.Display.Density)
+	m.styles = BuildStyles(merged, m.cfg.Display.Density, m.cfg.Display.PaneCorners)
 	if len(m.filteredArticles) > 0 {
 		m.setViewportArticle(m.filteredArticles[m.articleCursor])
 	}

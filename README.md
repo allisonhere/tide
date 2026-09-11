@@ -9,6 +9,12 @@ The reusable themed UI toolkit derived from Tide is available as
 
 ## What’s new
 
+Each pane is now drawn in its own frame, with square or rounded corners, and the
+frame follows the focused pane. Turn it off in **Settings → Display** (or with
+`display.show_pane_borders` in `config.toml`) to go back to plain divider lines
+and hand every pane two more rows of content; `display.pane_corners` picks
+`square` or `round`.
+
 Pane header bars can now be toggled in **Settings → Display** (or with
 `display.show_pane_headers` in `config.toml`). They are on by default; when
 hidden, Tide gives each pane back a row and shows the focused pane’s title and
@@ -20,7 +26,7 @@ press Enter to restart or Esc to continue and restart later.
 
 ## Features
 
-- Three-pane layout: feeds, articles, content
+- Three-pane layout: feeds, articles, content, with optional per-pane borders (Settings → Display)
 - Status bar reminders: feed manager, settings, search, and help keys (`m` · `S` · `/` · `?`)
 - Comfortable or compact list spacing (Settings → Display; configurable in `config.toml`)
 - Live theme switching with full preview
@@ -146,6 +152,7 @@ The settings overlay uses a category list on the left and a focused detail pane 
 Display options:
 - Toggle Unicode icons for pane headers and item state markers
 - Toggle pane header bars; when hidden, the focused pane's title and shortcuts move to the status line
+- Toggle pane borders, and pick square or rounded corners for the frames
 - Switch between relative and absolute dates
 - Toggle mark-read-on-open
 - Toggle mark-read-on-focus
@@ -265,6 +272,9 @@ theme = "catppuccin-mocha"
 
 [display]
 icons = false
+show_pane_headers = true
+show_pane_borders = true
+pane_corners = "square"   # or "round"
 date_format = "relative"
 mark_read_on_open = true
 mark_read_on_focus = false

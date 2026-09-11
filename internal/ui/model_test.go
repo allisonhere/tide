@@ -192,7 +192,7 @@ func TestLongStatusMessageDoesNotChangeViewHeight(t *testing.T) {
 func TestStatusBarShowsUpdateCheckActivity(t *testing.T) {
 	m := Model{
 		width:       80,
-		styles:      BuildStyles(CatppuccinMocha, "comfortable"),
+		styles:      BuildStyles(CatppuccinMocha, "comfortable", "square"),
 		updateState: updateStateChecking,
 		spinner:     spinner.New(),
 	}
@@ -206,7 +206,7 @@ func TestStatusBarShowsUpdateCheckActivity(t *testing.T) {
 func TestStatusBarOmitsUInstallWhenManualInstallRequired(t *testing.T) {
 	m := Model{
 		width:           80,
-		styles:          BuildStyles(CatppuccinMocha, "comfortable"),
+		styles:          BuildStyles(CatppuccinMocha, "comfortable", "square"),
 		updateState:     updateStateAvailable,
 		updateInfo:      update.ReleaseInfo{Version: "v1.1.0"},
 		updateInstall:   update.InstallResult{ManualCommand: "sudo true"},
@@ -225,7 +225,7 @@ func TestStatusBarOmitsUInstallWhenManualInstallRequired(t *testing.T) {
 func TestStatusBarKeepsUpdateAvailableVisibleWithLongFeedTitle(t *testing.T) {
 	m := Model{
 		width:       48,
-		styles:      BuildStyles(CatppuccinMocha, "comfortable"),
+		styles:      BuildStyles(CatppuccinMocha, "comfortable", "square"),
 		updateState: updateStateAvailable,
 		updateInfo:  update.ReleaseInfo{Version: "v1.1.0"},
 		feeds: []db.Feed{
@@ -247,7 +247,7 @@ func TestStatusBarKeepsUpdateAvailableVisibleWithLongFeedTitle(t *testing.T) {
 func TestStatusMessageStillIncludesAvailableUpdateHint(t *testing.T) {
 	m := Model{
 		width:       80,
-		styles:      BuildStyles(CatppuccinMocha, "comfortable"),
+		styles:      BuildStyles(CatppuccinMocha, "comfortable", "square"),
 		updateState: updateStateAvailable,
 		updateInfo:  update.ReleaseInfo{Version: "v1.1.0", Summary: "Faster update flow."},
 		statusMsg:   "saved settings",
@@ -265,7 +265,7 @@ func TestStatusMessageStillIncludesAvailableUpdateHint(t *testing.T) {
 func TestStatusBarShowsUpdateSummaryWhenAvailable(t *testing.T) {
 	m := Model{
 		width:       96,
-		styles:      BuildStyles(CatppuccinMocha, "comfortable"),
+		styles:      BuildStyles(CatppuccinMocha, "comfortable", "square"),
 		updateState: updateStateAvailable,
 		updateInfo:  update.ReleaseInfo{Version: "v1.1.0", Summary: "Faster update flow."},
 	}
@@ -282,7 +282,7 @@ func TestStatusBarShowsUpdateSummaryWhenAvailable(t *testing.T) {
 func TestStatusBarAlwaysShowsGlobalKeyHints(t *testing.T) {
 	m := Model{
 		width:         120,
-		styles:        BuildStyles(CatppuccinMocha, "comfortable"),
+		styles:        BuildStyles(CatppuccinMocha, "comfortable", "square"),
 		keys:          DefaultKeys,
 		feeds:         []db.Feed{{ID: 1, Title: "Example", URL: "https://example.com/feed", UnreadCount: 1}},
 		sidebarRows:   []sidebarRow{{kind: rowKindFeed, feedID: 1}},
@@ -399,7 +399,7 @@ func TestUpdateProgressTickAdvancesAndFinalizes(t *testing.T) {
 		updateProgress:     90,
 		updateInstallReady: true,
 		updateInstall:      update.InstallResult{Version: "v1.1.0", Restartable: true, ExecutablePath: "/tmp/tide"},
-		styles:             BuildStyles(GruvboxLight, "comfortable"),
+		styles:             BuildStyles(GruvboxLight, "comfortable", "square"),
 	}
 
 	// One tick short of full: advances, keeps the overlay, re-arms the tick.
@@ -841,7 +841,7 @@ func TestFeedSelectionChangeWithArticlesKeepsFrameStable(t *testing.T) {
 }
 
 func TestBuildStylesUsesThemeOverlayColors(t *testing.T) {
-	styles := BuildStyles(CatppuccinMocha, "comfortable")
+	styles := BuildStyles(CatppuccinMocha, "comfortable", "square")
 	wantBg := adjustLightness(CatppuccinMocha.Bg, 0.06)
 
 	if got := styles.Overlay.GetBackground(); got != wantBg {
@@ -856,8 +856,8 @@ func TestBuildStylesUsesThemeOverlayColors(t *testing.T) {
 }
 
 func TestBuildStylesListStrideReflectsDensity(t *testing.T) {
-	comfort := BuildStyles(CatppuccinMocha, "comfortable")
-	compact := BuildStyles(CatppuccinMocha, "compact")
+	comfort := BuildStyles(CatppuccinMocha, "comfortable", "square")
+	compact := BuildStyles(CatppuccinMocha, "compact", "square")
 	if comfort.ListItemLineStride() <= compact.ListItemLineStride() {
 		t.Fatalf("expected comfortable list stride > compact, got %d vs %d",
 			comfort.ListItemLineStride(), compact.ListItemLineStride())
@@ -870,7 +870,7 @@ func TestBuildStylesListStrideReflectsDensity(t *testing.T) {
 }
 
 func TestBuildStylesUsesDistinctHelpSectionSurface(t *testing.T) {
-	styles := BuildStyles(CatppuccinMocha, "comfortable")
+	styles := BuildStyles(CatppuccinMocha, "comfortable", "square")
 	overlayBg := terminalColorAsColor(styles.Overlay.GetBackground())
 	sectionBg := terminalColorAsColor(styles.HelpSection.GetBackground())
 
@@ -886,7 +886,7 @@ func TestBuildStylesUsesDistinctHelpSectionSurface(t *testing.T) {
 }
 
 func TestHelpStylesShareSectionSurfaceBackground(t *testing.T) {
-	styles := BuildStyles(CatppuccinMocha, "comfortable")
+	styles := BuildStyles(CatppuccinMocha, "comfortable", "square")
 	sectionBg := string(terminalColorAsColor(styles.HelpSection.GetBackground()))
 
 	if sectionBg == "" {
@@ -905,7 +905,7 @@ func TestHelpStylesShareSectionSurfaceBackground(t *testing.T) {
 
 func TestRenderHelpRowsFitViewportWidth(t *testing.T) {
 	width := 100
-	view := renderHelp(width, BuildStyles(CatppuccinMocha, "comfortable"), DefaultKeys)
+	view := renderHelp(width, BuildStyles(CatppuccinMocha, "comfortable", "square"), DefaultKeys)
 	for i, line := range strings.Split(view, "\n") {
 		if got := lipgloss.Width(line); got > width {
 			t.Fatalf("line %d exceeds help width: got %d want <= %d in %q", i+1, got, width, ansi.Strip(line))
@@ -914,7 +914,7 @@ func TestRenderHelpRowsFitViewportWidth(t *testing.T) {
 }
 
 func TestRenderHelpDocumentsDisplayFocusLine(t *testing.T) {
-	view := ansi.Strip(renderHelp(100, BuildStyles(CatppuccinMocha, "comfortable"), DefaultKeys))
+	view := ansi.Strip(renderHelp(100, BuildStyles(CatppuccinMocha, "comfortable", "square"), DefaultKeys))
 	if !strings.Contains(view, "focus line") {
 		t.Fatalf("expected help to document Display focus line setting, got %q", view)
 	}
@@ -924,7 +924,7 @@ func TestRenderHelpDocumentsDisplayFocusLine(t *testing.T) {
 }
 
 func TestRenderHelpDocumentsCurrentSearchKeys(t *testing.T) {
-	view := ansi.Strip(renderHelp(100, BuildStyles(CatppuccinMocha, "comfortable"), DefaultKeys))
+	view := ansi.Strip(renderHelp(100, BuildStyles(CatppuccinMocha, "comfortable", "square"), DefaultKeys))
 	for _, want := range []string{
 		"search titles, content, and summaries across stored local feeds",
 		"ctrl+f",
@@ -941,7 +941,7 @@ func TestRenderHelpDocumentsCurrentSearchKeys(t *testing.T) {
 }
 
 func TestRenderHelpDocumentsPaneResizeKeys(t *testing.T) {
-	view := ansi.Strip(renderHelp(100, BuildStyles(CatppuccinMocha, "comfortable"), DefaultKeys))
+	view := ansi.Strip(renderHelp(100, BuildStyles(CatppuccinMocha, "comfortable", "square"), DefaultKeys))
 	if !strings.Contains(view, "shift+←/shift+→") {
 		t.Fatalf("expected help to document horizontal pane resize keys, got %q", view)
 	}
@@ -966,7 +966,7 @@ func TestResetHelpViewportUsesFullOverlayWidth(t *testing.T) {
 	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
 	m.width = 120
 	m.height = 30
-	m.styles = BuildStyles(CatppuccinMocha, "comfortable")
+	m.styles = BuildStyles(CatppuccinMocha, "comfortable", "square")
 
 	m.resetHelpVP()
 
@@ -3086,7 +3086,7 @@ func TestContentPaneClampsViewportOutputToPaneSize(t *testing.T) {
 	m2, _ = m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: articles})
 	m = m2.(Model)
 
-	w := m.articlesPaneWidth()
+	w := m.contentPaneContentWidth()
 	bodyH := m.contentBodyHeight()
 	bg := m.styles.Theme.Bg
 
@@ -3096,9 +3096,16 @@ func TestContentPaneClampsViewportOutputToPaneSize(t *testing.T) {
 	vp.Style = lipgloss.NewStyle().Background(bg)
 	wantBody := clampView(vp.View(), w, bodyH, bg)
 
-	got := m.renderContentPane()
-	if !strings.Contains(got, wantBody) {
-		t.Fatalf("expected content pane to include clamped viewport body")
+	// A pane frame wraps every body line in border cells, so compare line by
+	// line rather than looking for the block verbatim.
+	got := ansi.Strip(m.renderContentPane())
+	for _, line := range strings.Split(ansi.Strip(wantBody), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !strings.Contains(got, strings.TrimRight(line, " ")) {
+			t.Fatalf("expected content pane to include clamped viewport line %q", line)
+		}
 	}
 }
 
@@ -3119,8 +3126,9 @@ func TestContentPaneUsesFullAllocatedHeight(t *testing.T) {
 	if gotH := len(lines); gotH != m.contentPaneOuterHeight() {
 		t.Fatalf("expected content pane height %d, got %d", m.contentPaneOuterHeight(), gotH)
 	}
-	if got := m.contentBodyHeight(); got != m.contentPaneOuterHeight()-1 {
-		t.Fatalf("expected content body height to fill pane below header, got %d want %d", got, m.contentPaneOuterHeight()-1)
+	// The body takes every row the frame and the header do not.
+	if got := m.contentBodyHeight(); got+m.paneHeaderHeight()+2*m.paneBorderSize() != m.contentPaneOuterHeight() {
+		t.Fatalf("expected content body height to fill the pane below header and frame, got %d in a pane of %d", got, m.contentPaneOuterHeight())
 	}
 }
 
@@ -3239,7 +3247,7 @@ func TestContentFocusLineStartsAtFirstBodyLine(t *testing.T) {
 
 func TestContentDownScrollsOneLineOnlyWhenFocusMovesPastBottom(t *testing.T) {
 	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", false)
-	m2, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 18})
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 22})
 	m = m2.(Model)
 	m.focused = paneContent
 	m.setViewportArticle(db.Article{
@@ -3335,7 +3343,7 @@ func TestRenderArticleContentFillsPaneWidth(t *testing.T) {
 	m := Model{
 		width:  120,
 		height: 30,
-		styles: BuildStyles(GruvboxLight, "comfortable"),
+		styles: BuildStyles(GruvboxLight, "comfortable", "square"),
 	}
 
 	got := m.renderArticleContent(db.Article{
@@ -3356,7 +3364,7 @@ func TestRenderArticleContentUsesOneCharacterLeftMargin(t *testing.T) {
 	m := Model{
 		width:  120,
 		height: 30,
-		styles: BuildStyles(GruvboxLight, "comfortable"),
+		styles: BuildStyles(GruvboxLight, "comfortable", "square"),
 	}
 
 	got := m.renderArticleContent(db.Article{
@@ -3381,7 +3389,7 @@ func TestRenderArticleContentKeepsHeaderSingleLineWithinMargins(t *testing.T) {
 	m := Model{
 		width:  70,
 		height: 30,
-		styles: BuildStyles(GruvboxLight, "comfortable"),
+		styles: BuildStyles(GruvboxLight, "comfortable", "square"),
 	}
 
 	publishedAt := unixTestTime(1710000000)
@@ -3420,7 +3428,7 @@ func TestRenderArticleContentStripsInvisibleTitleCharacters(t *testing.T) {
 	m := Model{
 		width:  70,
 		height: 30,
-		styles: BuildStyles(GruvboxLight, "comfortable"),
+		styles: BuildStyles(GruvboxLight, "comfortable", "square"),
 	}
 
 	got := m.renderArticleContent(db.Article{
@@ -3466,7 +3474,7 @@ func TestThemePickerUsesFullWidthChromeRows(t *testing.T) {
 		width:       120,
 		height:      30,
 		themeCursor: 7,
-		styles:      BuildStyles(GruvboxLight, "comfortable"),
+		styles:      BuildStyles(GruvboxLight, "comfortable", "square"),
 	}
 
 	chrome := newManagerChrome(40, m.styles.Theme, false)
@@ -3650,7 +3658,7 @@ func TestRetroTerminalThemesIgnoreFolderAccents(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := Model{
-				styles:  BuildStyles(tc.theme, "comfortable"),
+				styles:  BuildStyles(tc.theme, "comfortable", "square"),
 				focused: paneFeeds,
 				folders: []db.Folder{{ID: 10, Name: "Tech", Color: "#f7768e"}},
 				feeds:   []db.Feed{{ID: 1, Title: "Feed One", URL: "https://example.com/1", FolderID: 10, UnreadCount: 3}},
@@ -3688,7 +3696,7 @@ func TestRetroTerminalThemesIgnoreFolderAccents(t *testing.T) {
 }
 
 func TestSidebarSelectedStyleUsesFilledBackground(t *testing.T) {
-	m := Model{styles: BuildStyles(CatppuccinMocha, "comfortable"), focused: paneFeeds}
+	m := Model{styles: BuildStyles(CatppuccinMocha, "comfortable", "square"), focused: paneFeeds}
 
 	selected := m.sidebarSelectedStyle("")
 	if got := selected.GetBackground(); got == CatppuccinMocha.Bg {
@@ -3700,7 +3708,7 @@ func TestSidebarSelectedStyleUsesFilledBackground(t *testing.T) {
 }
 
 func TestSidebarSelectedStyleSoftensWhenFeedsPaneUnfocused(t *testing.T) {
-	m := Model{styles: BuildStyles(CatppuccinMocha, "comfortable"), focused: paneArticles}
+	m := Model{styles: BuildStyles(CatppuccinMocha, "comfortable", "square"), focused: paneArticles}
 
 	selected := m.sidebarSelectedStyle("")
 	if got := selected.GetBackground(); got != m.styles.FeedItemSelectedUnfocused.GetBackground() {
@@ -3712,7 +3720,7 @@ func TestSidebarSelectedStyleSoftensWhenFeedsPaneUnfocused(t *testing.T) {
 }
 
 func TestSidebarSelectedStyleUsesFolderAccentAsFocusedBackground(t *testing.T) {
-	m := Model{styles: BuildStyles(CatppuccinMocha, "comfortable"), focused: paneFeeds}
+	m := Model{styles: BuildStyles(CatppuccinMocha, "comfortable", "square"), focused: paneFeeds}
 
 	selected := m.sidebarSelectedStyle(lipgloss.Color("#f7768e"))
 	if got := selected.GetBackground(); got != lipgloss.Color("#f7768e") {
@@ -4040,7 +4048,7 @@ func settingsPositionModel(t *testing.T) Model {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	m := NewModel(nil, config.DefaultConfig(), "v1.0.0", false)
 	m.width, m.height = 100, 30
-	m.styles = BuildStyles(CatppuccinMocha, "comfortable")
+	m.styles = BuildStyles(CatppuccinMocha, "comfortable", "square")
 	m.folders = []db.Folder{{ID: 10, Name: "Tech"}}
 	m.feeds = []db.Feed{
 		{ID: 1, Title: "Feed One", URL: "https://example.com/1", FolderID: 10},
@@ -4148,5 +4156,154 @@ func TestSettingsSaveKeepsLiveUnreadOnlyToggle(t *testing.T) {
 
 	if m.showUnreadOnly {
 		t.Fatal("expected settings save to leave the live unread-only toggle off")
+	}
+}
+
+// borderedLayoutModel renders the main three-pane view at a fixed size with
+// pane borders on or off, so the two geometries can be compared directly.
+func borderedLayoutModel(t *testing.T, borders bool) Model {
+	t.Helper()
+	cfg := config.DefaultConfig()
+	cfg.Display.ShowPaneBorders = borders
+	m := NewModel(nil, cfg, "v1.0.0", false)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 74, Height: 22})
+	m = next.(Model)
+	next, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{
+		{ID: 1, Title: "Feed One", URL: "https://example.com/1"},
+		{ID: 2, Title: "Feed Two", URL: "https://example.com/2"},
+	}})
+	m = next.(Model)
+	next, _ = m.Update(ArticlesLoadedMsg{FeedID: 1, Articles: []db.Article{
+		{ID: 1, FeedID: 1, Title: "First article here", Content: "body text one"},
+		{ID: 2, FeedID: 1, Title: "Second article", Content: "body text two"},
+	}})
+	return next.(Model)
+}
+
+// A pane frame is drawn inside the pane's existing box, so turning borders on
+// must not move a single cell of the outer layout.
+func TestPaneBordersPreserveOverallViewGeometry(t *testing.T) {
+	for _, borders := range []bool{true, false} {
+		m := borderedLayoutModel(t, borders)
+		lines := strings.Split(ansi.Strip(m.View()), "\n")
+		if len(lines) != m.height {
+			t.Fatalf("borders=%v: expected %d rendered lines, got %d", borders, m.height, len(lines))
+		}
+		for i, line := range lines {
+			if w := lipgloss.Width(line); w != m.width {
+				t.Fatalf("borders=%v: line %d is %d cells wide, want %d: %q", borders, i, w, m.width, line)
+			}
+		}
+	}
+}
+
+// The frame has to come out of the pane's own content box: two rows and two
+// columns per pane, and no more.
+func TestPaneBordersCostTwoRowsAndColumnsPerPane(t *testing.T) {
+	on := borderedLayoutModel(t, true)
+	off := borderedLayoutModel(t, false)
+
+	if got, want := on.feedsPaneContentWidth(), off.feedsPaneContentWidth()-1; got != want {
+		// Borderless feeds already spend one column on the divider.
+		t.Fatalf("feeds content width: got %d, want %d", got, want)
+	}
+	if got, want := on.feedsPaneContentHeight(), off.feedsPaneContentHeight()-2; got != want {
+		t.Fatalf("feeds content height: got %d, want %d", got, want)
+	}
+	if got, want := on.articlesPaneContentHeight(), off.articlesPaneContentHeight()-1; got != want {
+		// Borderless articles already spend one row on the divider.
+		t.Fatalf("articles content height: got %d, want %d", got, want)
+	}
+	if got, want := on.contentPaneContentWidth(), off.contentPaneContentWidth()-2; got != want {
+		t.Fatalf("content pane width: got %d, want %d", got, want)
+	}
+	if got, want := on.contentBodyHeight(), off.contentBodyHeight()-2; got != want {
+		t.Fatalf("content body height: got %d, want %d", got, want)
+	}
+	// The outer geometry the splitters work in is untouched.
+	if on.feedsPaneWidth() != off.feedsPaneWidth() || on.articlesPaneOuterHeight() != off.articlesPaneOuterHeight() {
+		t.Fatal("expected pane borders to leave the outer pane geometry alone")
+	}
+}
+
+func TestPaneBordersDrawFramesInBothCornerStyles(t *testing.T) {
+	square := borderedLayoutModel(t, true)
+	if view := ansi.Strip(square.View()); !strings.Contains(view, "┌") || !strings.Contains(view, "┘") {
+		t.Fatal("expected square pane frames to draw box corners")
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Display.PaneCorners = "round"
+	round := NewModel(nil, cfg, "v1.0.0", false)
+	next, _ := round.Update(tea.WindowSizeMsg{Width: 74, Height: 22})
+	round = next.(Model)
+	if view := ansi.Strip(round.View()); !strings.Contains(view, "╭") || !strings.Contains(view, "╯") {
+		t.Fatal("expected round pane corners to draw rounded box corners")
+	}
+
+	off := borderedLayoutModel(t, false)
+	if view := ansi.Strip(off.View()); strings.Contains(view, "┌") || strings.Contains(view, "╭") {
+		t.Fatal("expected borderless panes to draw dividers only")
+	}
+}
+
+// Kitty graphics are placed at absolute cell coordinates, so the content pane's
+// frame has to shift the image origin with it.
+func TestImageDrawOriginFollowsPaneFrame(t *testing.T) {
+	on := borderedLayoutModel(t, true)
+	off := borderedLayoutModel(t, false)
+
+	onX, onY := on.imageDrawOrigin()
+	offX, offY := off.imageDrawOrigin()
+	if onX != offX+1 {
+		t.Fatalf("expected bordered image origin one column right, got %d vs %d", onX, offX)
+	}
+	if onY != offY+1 {
+		t.Fatalf("expected bordered image origin one row down, got %d vs %d", onY, offY)
+	}
+}
+
+// The pane header is a row inside the content pane, so hiding it lifts the
+// image with it — the origin used to assume the header was always there.
+func TestImageDrawOriginFollowsPaneHeader(t *testing.T) {
+	shown := borderedLayoutModel(t, true)
+	hiddenCfg := shown.cfg
+	hiddenCfg.Display.ShowPaneHeaders = false
+	hidden := shown
+	hidden.cfg = hiddenCfg
+
+	_, shownY := shown.imageDrawOrigin()
+	_, hiddenY := hidden.imageDrawOrigin()
+	if hiddenY != shownY-1 {
+		t.Fatalf("expected hidden pane headers to lift the image one row, got %d vs %d", hiddenY, shownY)
+	}
+}
+
+// Pane borders change how much room the content viewport has, so the save has
+// to resize the viewport itself — re-rendering the article into a stale one
+// leaves the body clipped to the old geometry.
+func TestSettingsSaveResizesContentViewportForPaneBorders(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := borderedLayoutModel(t, false)
+	if m.viewport.Height != m.contentBodyHeight() {
+		t.Fatalf("setup: viewport height %d != body height %d", m.viewport.Height, m.contentBodyHeight())
+	}
+
+	m.settings = newSettings(m.cfg, m.settingsUpdateState())
+	m.settings.showPaneBorders = true
+	m.settings.setFocusedPane(settingsPaneSidebar)
+	m.overlay = overlaySettings
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+
+	if !m.cfg.Display.ShowPaneBorders {
+		t.Fatal("expected settings save to enable pane borders")
+	}
+	if m.viewport.Height != m.contentBodyHeight() {
+		t.Fatalf("expected viewport resized to %d rows, got %d", m.contentBodyHeight(), m.viewport.Height)
+	}
+	if m.viewport.Width != m.contentBodyWidth() {
+		t.Fatalf("expected viewport resized to %d columns, got %d", m.contentBodyWidth(), m.viewport.Width)
 	}
 }
