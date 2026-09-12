@@ -528,3 +528,6 @@ for the same feed.
 | `q` | Quit |
 
 The same **`m`**, **`S`**, **`/`**, and **`?`** shortcuts are repeated on the **status bar** (bottom line) whenever the main reader is visible.
+
+
+![TIDE logo](images/TIDE-small.png)
