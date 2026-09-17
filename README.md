@@ -102,6 +102,21 @@ Enter to restart, Esc to restart later.
 
 ## Installation
 
+### Arch Linux
+
+Tide is on the AUR as [`tide-bin`](https://aur.archlinux.org/packages/tide-bin),
+which packages the official release binary:
+
+```bash
+yay -S tide-bin
+# or
+paru -S tide-bin
+```
+
+Updates then arrive with `pacman -Syu` along with everything else.
+
+### Everywhere else
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/allisonhere/tide/main/install.sh | sh
 ```
