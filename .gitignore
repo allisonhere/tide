@@ -17,3 +17,6 @@ kitty-graphics-plan.md
 
 # diagnostic build artifact (go build ./cmd/imgcheck)
 /imgcheck
+
+# Local release builds (deploy.sh)
+dist/
