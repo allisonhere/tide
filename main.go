@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,11 @@ import (
 )
 
 var version = "dev"
+
+// changelog is shown in Settings → Changelog, so it always matches this build.
+//
+//go:embed CHANGELOG.md
+var changelog string
 
 func main() {
 	code, restartExec := run()
@@ -68,6 +74,7 @@ func run() (code int, restartExec string) {
 		defer fmt.Print(resetBG)
 	}
 	feed.SetMaxFeedBodyBytes(cfg.Feed.MaxBodyMiB << 20)
+	ui.SetChangelog(changelog)
 
 	// --preview-manual-update: open Settings on Updates with a demo manual-install command (dev UI).
 	model := ui.NewModel(database, cfg, resolvedVersion(), previewManualUpdate)

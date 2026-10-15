@@ -86,6 +86,7 @@ const (
 	ssDisplay settingsSection = iota
 	ssFeeds
 	ssUpdates
+	ssChangelog
 	ssAI
 	ssAbout
 	settingsSectionCount
@@ -155,6 +156,7 @@ var (
 		"DISPLAY",
 		"FEEDS",
 		"UPDATES",
+		"CHANGELOG",
 		"AI",
 		"ABOUT",
 	}
@@ -227,6 +229,8 @@ type Settings struct {
 	activeSection      settingsSection
 	focusedPane        settingsPaneFocus
 	sectionField       [settingsSectionCount]settingsField
+	changelogScroll    int               // first visible line of Settings → Changelog
+	changelog          *changelogMetrics // recorded by the draw; see changelogMetrics
 	focusedField       settingsField
 	aboutGradientFrame int
 	aiValidatePending  bool
@@ -315,15 +319,17 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		activeSection:        ssDisplay,
 		focusedPane:          settingsPaneSidebar,
 		sectionField: [settingsSectionCount]settingsField{
-			ssDisplay: sfBackToSections,
-			ssFeeds:   sfBackToSections,
-			ssUpdates: sfBackToSections,
-			ssAI:      sfBackToSections,
-			ssAbout:   sfBackToSections,
+			ssDisplay:   sfBackToSections,
+			ssFeeds:     sfBackToSections,
+			ssUpdates:   sfBackToSections,
+			ssChangelog: sfBackToSections,
+			ssAI:        sfBackToSections,
+			ssAbout:     sfBackToSections,
 		},
 		focusedField: sfBackToSections,
 	}
 	s.omarchyBarWas = s.omarchyBar
+	s.changelog = &changelogMetrics{}
 	s.syncMaskedEchoChars()
 	s.applyFocus()
 	return s
@@ -488,6 +494,9 @@ func (s *Settings) setActiveSection(section settingsSection) {
 	if section != ssAbout {
 		s.aboutGradientFrame = 0
 	}
+	if section != ssChangelog {
+		s.changelogScroll = 0
+	}
 	s.ensureSectionFieldVisible(section)
 	s.focusedField = s.sectionField[section]
 	s.applyFocus()
@@ -644,6 +653,8 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		}
 		fields = append(fields, sfTestAIConnection, sfSavePath, sfMarkReadOnSummarize)
 		return fields
+	case ssChangelog:
+		return []settingsField{sfBackToSections}
 	case ssAbout:
 		return []settingsField{sfBackToSections, sfAboutRepo, sfAboutIssues}
 	default:
@@ -954,6 +965,10 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 
 	if !s.isTextInput() && !s.isPickerField() && keyMatches(key, keys.Left) {
 		s.setFocusedPane(settingsPaneSidebar)
+		return s, nil, false
+	}
+
+	if s.activeSection == ssChangelog && s.handleChangelogKey(key.String()) {
 		return s, nil, false
 	}
 
@@ -1365,6 +1380,9 @@ func (s Settings) viewSectionPane(width, height int, chrome managerChrome) strin
 	titleRow = padStyled(titleRow, width, chrome.baseBg)
 	headingGap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	bodyHeight := max(1, height-2)
+	if s.activeSection == ssChangelog && s.changelog != nil {
+		s.changelog.page, s.changelog.total = bodyHeight, len(body.lines)
+	}
 	section := lipgloss.JoinVertical(lipgloss.Left, titleRow, headingGap, s.scrollSectionBody(body, width, bodyHeight, chrome))
 	return lipgloss.NewStyle().Width(width).Height(height).Background(chrome.baseBg).Render(section)
 }
@@ -1374,7 +1392,9 @@ func (s Settings) scrollSectionBody(body settingsSectionBody, width, height int,
 		return clampView("", width, height, chrome.baseBg)
 	}
 	offset := 0
-	if anchor, ok := body.anchors[s.focusedField]; ok {
+	if s.activeSection == ssChangelog {
+		offset = clamp(s.changelogScroll, 0, max(0, len(body.lines)-height))
+	} else if anchor, ok := body.anchors[s.focusedField]; ok {
 		offset = settingsScrollOffset(len(body.lines), anchor, height)
 	}
 	end := min(len(body.lines), offset+height)
@@ -1391,6 +1411,9 @@ func settingsScrollOffset(totalLines, anchorLine, height int) int {
 }
 
 func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSectionBody {
+	if s.activeSection == ssChangelog {
+		return s.renderChangelogSection(width, chrome)
+	}
 	if s.activeSection == ssAbout {
 		body := s.renderAboutSection(width, chrome)
 		body = s.prependBackLink(body, width, chrome)
@@ -1771,6 +1794,14 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 			"←/→", "change",
 			"↑/↓", "field",
 			"tab", "next",
+			"esc", "categories",
+		)
+	}
+	if s.activeSection == ssChangelog {
+		return renderSoftHints(width, chrome,
+			"↑/↓", "scroll",
+			"space", "page",
+			"home/end", "top/bottom",
 			"esc", "categories",
 		)
 	}

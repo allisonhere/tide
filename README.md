@@ -64,6 +64,7 @@ Enter to restart, Esc to restart later.
 - Full-text search across stored local articles, including titles, content, and AI summaries
 - Vim-style visual selection in the content pane (`v` character-wise, `V` line-wise) with copy to clipboard (`c` / `y`), plus `L` to copy an article's link
 - Unread-only filtering and in-article find
+- **Settings → Changelog**: release notes inside the app, bundled with the build so they work offline
 - **All Unread** and per-folder views that merge articles across your local feeds
 - Headless `tide --refresh`, `--unread-count` and `--bar` (unread count for the Omarchy bar or Waybar)
 - Mark read/unread, open in browser
