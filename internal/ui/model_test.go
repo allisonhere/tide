@@ -636,7 +636,9 @@ func TestLocalReadArticlesDisappearAfterRefreshReload(t *testing.T) {
 		t.Fatalf("MarkRead returned error: %v", err)
 	}
 
-	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
+	cfg := config.DefaultConfig()
+	cfg.Display.DefaultUnreadOnly = true
+	m := NewModel(database, cfg, "v1.0.0", false)
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = m2.(Model)
 	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{{ID: feedID, Title: "Local Feed", URL: "https://example.com/feed.xml"}}})
@@ -3026,6 +3028,112 @@ func TestUnreadOnlyToggleClearsContentWhenNoArticlesRemain(t *testing.T) {
 	}
 	if got := m.viewport.View(); strings.Contains(got, "stale content") || strings.Contains(got, "Read Article") {
 		t.Fatalf("expected empty content pane after unread-only filter removes all articles, got %q", got)
+	}
+}
+
+// seedReadAndUnreadFeed stores a local feed holding one read article (ID 1,
+// newest) and one unread article (ID 2).
+func seedReadAndUnreadFeed(t *testing.T, database *db.DB) int64 {
+	t.Helper()
+	feedID, err := database.AddFeed("https://example.com/feed.xml", "Local Feed", "desc")
+	if err != nil {
+		t.Fatalf("AddFeed returned error: %v", err)
+	}
+	for _, article := range []db.Article{
+		{FeedID: feedID, GUID: "old-news", Title: "Old News", Link: "https://example.com/read", Content: "one", PublishedAt: unixTestTime(1710000100)},
+		{FeedID: feedID, GUID: "fresh", Title: "Fresh", Link: "https://example.com/fresh", Content: "two", PublishedAt: unixTestTime(1710000000)},
+	} {
+		if err := database.UpsertArticle(article); err != nil {
+			t.Fatalf("UpsertArticle returned error: %v", err)
+		}
+	}
+	if err := database.MarkRead(1, true); err != nil {
+		t.Fatalf("MarkRead returned error: %v", err)
+	}
+	return feedID
+}
+
+func TestFeedArticlesLoadFollowsUnreadOnly(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+	feedID := seedReadAndUnreadFeed(t, database)
+
+	m := NewModel(database, config.DefaultConfig(), "v1.0.0", false)
+	m.showUnreadOnly = false
+	if got := m.loadFeedArticlesCmd(feedID)().(ArticlesLoadedMsg); len(got.Articles) != 2 {
+		t.Fatalf("expected read and unread articles with unread-only off, got %d", len(got.Articles))
+	}
+	m.showUnreadOnly = true
+	got := m.loadFeedArticlesCmd(feedID)().(ArticlesLoadedMsg)
+	if len(got.Articles) != 1 || got.Articles[0].GUID != "fresh" {
+		t.Fatalf("expected only the unread article with unread-only on, got %+v", got.Articles)
+	}
+}
+
+func TestUnreadOnlyToggleFromSidebarReloadsReadArticles(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	database, err := db.Open()
+	if err != nil {
+		t.Skip("cannot open DB:", err)
+	}
+	defer database.Close()
+	feedID := seedReadAndUnreadFeed(t, database)
+
+	cfg := config.DefaultConfig()
+	cfg.Display.DefaultUnreadOnly = true
+	m := NewModel(database, cfg, "v1.0.0", false)
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = m2.(Model)
+	m2, _ = m.Update(FeedsLoadedMsg{Feeds: []db.Feed{{ID: feedID, Title: "Local Feed", URL: "https://example.com/feed.xml"}}})
+	m = m2.(Model)
+	m.selectSidebarFeed(feedID)
+	m2, _ = m.Update(m.loadFeedArticlesCmd(feedID)())
+	m = m2.(Model)
+	if len(m.filteredArticles) != 1 {
+		t.Fatalf("expected one unread article loaded, got %d", len(m.filteredArticles))
+	}
+	m.focused = paneFeeds
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	m = next.(Model)
+	if m.showUnreadOnly {
+		t.Fatal("expected u to turn unread-only off with the sidebar focused")
+	}
+	if cmd == nil {
+		t.Fatal("expected u to reload the feed")
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("expected batch command, got %T", msg)
+	}
+	var reload *ArticlesLoadedMsg
+	for _, sub := range batch {
+		if sub == nil {
+			continue
+		}
+		if got, ok := sub().(ArticlesLoadedMsg); ok {
+			reload = &got
+			break
+		}
+	}
+	if reload == nil {
+		t.Fatal("expected the toggle to reload the feed's articles")
+	}
+
+	m2, _ = m.Update(*reload)
+	m = m2.(Model)
+	if len(m.filteredArticles) != 2 {
+		t.Fatalf("expected read articles shown after toggle, got %d", len(m.filteredArticles))
+	}
+	if got := m.filteredArticles[m.articleCursor].GUID; got != "fresh" {
+		t.Fatalf("expected cursor to stay on the article it was on, got %q", got)
 	}
 }
 

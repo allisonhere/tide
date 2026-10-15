@@ -575,7 +575,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clearArticles()
 			return m, nil
 		} else if selected := m.selectedFeed(); selected != nil {
-			cmds = append(cmds, m.loadUnreadArticlesCmd(selected.ID))
+			cmds = append(cmds, m.loadFeedArticlesCmd(selected.ID))
 		} else {
 			m.clearArticles()
 		}
@@ -703,7 +703,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if selected := m.selectedFeed(); selected != nil && msg.FeedID == selected.ID {
-			cmds = append(cmds, m.loadUnreadArticlesCmd(msg.FeedID))
+			cmds = append(cmds, m.loadFeedArticlesCmd(msg.FeedID))
 		}
 		cmds = append(cmds, m.loadFeedsCmd())
 		cmds = append(cmds, m.clearStatusCmd())
@@ -1076,9 +1076,6 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case keyMatches(msg, m.keys.UnreadOnly):
-		if m.focused == paneFeeds {
-			return m, nil
-		}
 		// Preserve the current article when the filter toggles, falling back only if that article disappears. -allie
 		m.showUnreadOnly = !m.showUnreadOnly
 		var currentID int64
@@ -1100,6 +1097,17 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setViewportArticle(m.filteredArticles[m.articleCursor])
 		} else {
 			m.clearViewportArticle()
+		}
+		// A local feed loaded in unread-only mode holds no read rows, so
+		// showing all articles needs a reload; keep the cursor on the
+		// current article across it.
+		if !m.showUnreadOnly && !m.savedSelected() {
+			if feed := m.selectedFeed(); feed != nil {
+				if len(m.filteredArticles) > 0 {
+					m.restoreArticleID = m.filteredArticles[m.articleCursor].ID
+				}
+				return m, tea.Batch(m.loadFeedArticlesCmd(feed.ID), m.clearStatusCmd())
+			}
 		}
 		return m, m.clearStatusCmd()
 
@@ -1177,7 +1185,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, m.keys.Refresh):
 		if selected := m.selectedFeed(); selected != nil {
 			if m.isRemoteFeed(selected.ID) {
-				return m, tea.Batch(m.loadFeedsCmd(), m.loadUnreadArticlesCmd(selected.ID))
+				return m, tea.Batch(m.loadFeedsCmd(), m.loadFeedArticlesCmd(selected.ID))
 			}
 			return m, m.refreshFeedCmd(selected.ID, selected.URL, true)
 		}
@@ -1465,7 +1473,7 @@ func (m Model) loadSidebarSelection() (tea.Model, tea.Cmd) {
 		return m, m.loadSavedArticlesCmd()
 	}
 	if selected := m.selectedFeed(); selected != nil {
-		return m, m.loadUnreadArticlesCmd(selected.ID)
+		return m, m.loadFeedArticlesCmd(selected.ID)
 	}
 	m.clearArticles()
 	return m, nil
@@ -1783,7 +1791,7 @@ func (m Model) handleFeedManager(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.overlay = overlayNone
 		if browseFeedID != 0 && m.selectSidebarFeed(browseFeedID) {
 			m.clearArticles()
-			return m, m.loadUnreadArticlesCmd(browseFeedID)
+			return m, m.loadFeedArticlesCmd(browseFeedID)
 		}
 		if editable {
 			return m, m.loadFeedsCmd()
@@ -3431,8 +3439,11 @@ func (m *Model) loadArticlesCmd(feedID int64) tea.Cmd {
 	}
 }
 
-func (m *Model) loadUnreadArticlesCmd(feedID int64) tea.Cmd {
-	if m.isRemoteFeed(feedID) {
+// loadFeedArticlesCmd loads a feed for the article pane. With unread-only on,
+// local feeds fetch just their unread rows; otherwise the whole feed is loaded
+// so read articles can be shown.
+func (m *Model) loadFeedArticlesCmd(feedID int64) tea.Cmd {
+	if !m.showUnreadOnly || m.isRemoteFeed(feedID) {
 		return m.loadArticlesCmd(feedID)
 	}
 	return func() tea.Msg {
