@@ -2885,7 +2885,8 @@ func (m Model) renderOverlay(base string) string {
 		box = renderSoftPanelBox(inner, winW, "tide", "summary", chrome)
 	}
 
-	return overlayOnBase(base, box, m.width, m.height, m.styles.Theme.Bg)
+	// The VT52 theme is plain ASCII, where a blended-color shadow looks wrong.
+	return overlayOnBase(base, box, m.width, m.height, m.styles.Theme.Bg, m.cfg.Display.Shadow && !m.styles.PlainUI)
 }
 
 func renderChromeOverlayBox(inner string, width int, chrome managerChrome, border lipgloss.Color) string {
@@ -3194,7 +3195,9 @@ func (m Model) renderUpdateConfirmOverlay(width int, chrome managerChrome) strin
 	return lipgloss.JoinVertical(lipgloss.Left, body, note, hints)
 }
 
-func overlayOnBase(base, box string, width, height int, bg lipgloss.Color) string {
+// overlayOnBase centers box over base. With shadow set, a drop shadow is
+// blended into the base behind the box first.
+func overlayOnBase(base, box string, width, height int, bg lipgloss.Color, shadow bool) string {
 	base = clampView(base, width, height, bg)
 
 	boxLines := strings.Split(box, "\n")
@@ -3216,6 +3219,10 @@ func overlayOnBase(base, box string, width, height int, bg lipgloss.Color) strin
 		overlayY = 0
 	}
 	rightStart := overlayX + boxW
+
+	if shadow {
+		base = blendShadowRect(base, overlayX+shadowOffsetX, overlayY+shadowOffsetY, boxW, boxH, width, height, bg, shadowColor(bg))
+	}
 
 	baseLines := strings.Split(base, "\n")
 	for len(baseLines) < height {

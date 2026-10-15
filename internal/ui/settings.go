@@ -38,6 +38,7 @@ const (
 	sfIcons settingsField = iota
 	sfShowPaneHeaders
 	sfShowPaneBorders
+	sfShadow
 	sfPaneCorners
 	sfDateFormat
 	sfMarkReadOnOpen
@@ -193,6 +194,7 @@ type Settings struct {
 	markReadOnFocus   bool
 	focusLine         bool
 	defaultUnreadOnly bool
+	shadow            bool
 	// omarchyBar is whether Tide's unread count should sit in the Omarchy bar.
 	// It is read from the bar's own config rather than Tide's, and only offered
 	// where that bar runs; saving applies a change to the bar config directly.
@@ -293,6 +295,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		markReadOnFocus:      cfg.Display.MarkReadOnFocus,
 		focusLine:            cfg.Display.FocusLine,
 		defaultUnreadOnly:    cfg.Display.DefaultUnreadOnly,
+		shadow:               cfg.Display.Shadow,
 		omarchyBarAvailable:  omarchy.BarAvailable(),
 		omarchyBar:           omarchy.BarModuleInstalled(),
 		actionableLinks:      cfg.Display.ActionableLinks,
@@ -363,6 +366,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	cfg.Display.MarkReadOnFocus = s.markReadOnFocus
 	cfg.Display.FocusLine = s.focusLine
 	cfg.Display.DefaultUnreadOnly = s.defaultUnreadOnly
+	cfg.Display.Shadow = s.shadow
 	cfg.Display.ActionableLinks = s.actionableLinks
 	cfg.Display.FilterLinks = s.filterLinks
 	cfg.Display.ArticleImages = s.articleImages
@@ -618,7 +622,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
 		return append(fields,
-			sfShowPaneHeaders, sfShowPaneBorders, sfPaneCorners,
+			sfShowPaneHeaders, sfShowPaneBorders, sfPaneCorners, sfShadow,
 			sfReadingWidth, sfFocusLine, sfActionableLinks, sfFilterLinks, sfArticleImages,
 			sfDefaultUnreadOnly, sfMarkReadOnOpen, sfMarkReadOnFocus, sfBrowser, sfConfirmQuit)
 	case ssFeeds:
@@ -1115,6 +1119,15 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
+	case sfShadow:
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.shadow = !s.shadow
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
 	case sfOmarchyBar:
 		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.omarchyBar = !s.omarchyBar
@@ -1441,6 +1454,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		if s.showPaneBorders {
 			b.addPaneCornersSelector()
 		}
+		b.addToggle("Modal drop shadow", s.shadow, sfShadow)
 		b.addGroup("Reading")
 		b.addInput("Reading width (columns)", s.readingWidthInput, sfReadingWidth)
 		b.addToggle("Focus line", s.focusLine, sfFocusLine)
@@ -2288,6 +2302,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "0 keeps everything; starred, summarized and unread articles are never deleted"
 	case sfFeedMuteKeywords:
 		return "comma-separated; new articles whose title contains one arrive already read"
+	case sfShadow:
+		return "darken the area just behind dialogs so they stand out from the panes; not used on the VT52 theme"
 	case sfOmarchyBar:
 		return "adds or removes Tide's unread count in the bar when you save; click it to open Tide"
 	case sfReadingWidth:

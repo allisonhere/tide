@@ -29,6 +29,7 @@ type DisplayConfig struct {
 	ShowPaneHeaders          bool               `toml:"show_pane_headers"`
 	ShowPaneBorders          bool               `toml:"show_pane_borders"`
 	PaneCorners              string             `toml:"pane_corners"` // "square" | "round"
+	Shadow                   bool               `toml:"shadow"`       // drop shadow behind modal overlays
 	DateFormat               string             `toml:"date_format"`  // "relative" | "absolute"
 	MarkReadOnOpen           bool               `toml:"mark_read_on_open"`
 	MarkReadOnFocus          bool               `toml:"mark_read_on_focus"`
@@ -97,6 +98,7 @@ func DefaultConfig() Config {
 			ShowPaneHeaders:          true,
 			ShowPaneBorders:          true,
 			PaneCorners:              "square",
+			Shadow:                   true,
 			DateFormat:               "relative",
 			MarkReadOnOpen:           true,
 			FocusLine:                true,

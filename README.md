@@ -52,6 +52,7 @@ Enter to restart, Esc to restart later.
 ## Features
 
 - Three-pane layout: feeds, articles, content, with optional per-pane borders (Settings → Display)
+- Dialogs float over the panes with a drop shadow that adapts to the theme, light or dark (Settings → Display → Panes; `display.shadow`)
 - Cursor markers in both list panes: the selected feed and the selected article are arrow-marked, so the cursor stays readable in an unfocused pane
 - Status bar reminders: feed manager, settings, search, and help keys (`m` · `S` · `/` · `?`)
 - Comfortable or compact list spacing (Settings → Display; configurable in `config.toml`)
@@ -380,6 +381,7 @@ icons = false
 show_pane_headers = true
 show_pane_borders = true
 pane_corners = "square"   # or "round"
+shadow = true             # drop shadow behind dialogs
 date_format = "relative"
 mark_read_on_open = true
 mark_read_on_focus = false
