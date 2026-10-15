@@ -15,7 +15,7 @@
 # redraw, not exit mid-frame. Every step reports its own status instead.
 set -uo pipefail
 
-DEPLOY_SCRIPT_VERSION="2.0.0"
+DEPLOY_SCRIPT_VERSION="2.2.0"
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$PROJECT_DIR/$(basename "${BASH_SOURCE[0]}")"
@@ -45,6 +45,9 @@ BUILD_TARGETS=(
 # workflow publishes; "generated" leaves the notes to GitHub; "auto" picks
 # changelog when CHANGELOG.md exists.
 RELEASE_NOTES="auto"
+# "name:path" for each extra file the PKGBUILD downloads from the tag. Each is
+# hashed at the tag and passed to render-pkgbuild.sh as --sha256-<name>.
+AUR_TAG_FILES=()
 BUILD_NOTE=""          # a line shown by the local build, if the app needs one
 APP_GLYPH="≋"
 ACCENT_RGB="94;196;215"   # the banner's gradient runs from ACCENT_RGB…
@@ -88,17 +91,21 @@ asset_name() { printf '%s-%s-%s.tar.gz' "$BINARY_NAME" "$1" "$2"; }
 # ── Command line ─────────────────────────────────────────────────────────────
 
 DRY_RUN=0
+PRESET_VERSION=""
 MODE="console"
 SYNC_TARGETS=()
 
 usage() {
   cat <<'USAGE'
-Usage: ./deploy.sh [--dry-run]
+Usage: ./deploy.sh [--dry-run] [--release vX.Y.Z]
        ./deploy.sh --check
        ./deploy.sh --sync DIR [DIR...]
 
   -n, --dry-run   Rehearse: no commit, push, tag, or file is written.
                   Toggle it from inside the console with `d`.
+      --release vX.Y.Z
+                  Start the console with this version chosen, as if it had
+                  been picked with Bump: build, notes and tag all use it.
       --check     Print the release-readiness checklist and exit:
                   0 when nothing fails, 1 otherwise. No terminal needed.
       --sync      Copy this console into other Tide repositories, each of
@@ -111,6 +118,14 @@ parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
       -n | --dry-run) DRY_RUN=1 ;;
+      --release)
+        if [ $# -lt 2 ] || [[ ! $2 =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "deploy.sh: --release needs a vMAJOR.MINOR.PATCH version, e.g. --release v1.2.3" >&2
+          exit 2
+        fi
+        PRESET_VERSION=$2
+        shift
+        ;;
       --check) MODE="check" ;;
       --sync)
         MODE="sync"
@@ -157,6 +172,9 @@ sync_into() {
 # until the console exits. CURRENT_TAG is whatever git already has; keeping them
 # apart is what stops a status refresh from silently undoing a version bump.
 VERSION=""
+# Where VERSION came from, so a step never falls back silently:
+# "bumped", "--release", or "latest tag".
+VERSION_SOURCE=""
 CURRENT_TAG=""
 NEXT_VERSION=""
 
@@ -353,11 +371,25 @@ frame_flush() {
 
 # ── Status probes ────────────────────────────────────────────────────────────
 
-ST_VERSION="" ST_NEXT="" ST_BRANCH="" ST_DIRTY="" ST_GO="" ST_GH="" ST_AUR="" ST_AHEAD=""
+ST_VERSION="" ST_NEXT="" ST_BRANCH="" ST_DIRTY="" ST_GO="" ST_GH="" ST_AUR="" ST_AHEAD="" ST_IN_HISTORY=""
 AUR_PROBE_FILE=""
 
+# read_current_tag finds the latest release: the highest vX.Y.Z tag in the
+# repository. `git describe` would give the nearest tag behind HEAD instead,
+# which on a branch that is missing a release is an older version — and every
+# bump suggestion, "is this newer?" check and build fallback went wrong with it.
 read_current_tag() {
-  CURRENT_TAG=$(git -C "$PROJECT_DIR" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo "v0.0.0")
+  CURRENT_TAG=$(git -C "$PROJECT_DIR" tag --list 'v[0-9]*' --sort=-v:refname 2>/dev/null |
+    grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+  [ -n "$CURRENT_TAG" ] || CURRENT_TAG="v0.0.0"
+}
+
+# release_in_history reports whether the latest release is part of HEAD. When
+# it is not, the release was cut from another branch, and releasing from here
+# would ship without its changes.
+release_in_history() {
+  [ "$CURRENT_TAG" = "v0.0.0" ] && return 0
+  git -C "$PROJECT_DIR" merge-base --is-ancestor "$CURRENT_TAG" HEAD 2>/dev/null
 }
 
 # semver_parts TAG sets MAJ MIN PAT, or fails for a tag that is not vX.Y.Z.
@@ -431,11 +463,46 @@ ahead_of_origin() {
   git -C "$PROJECT_DIR" rev-list --count '@{u}..HEAD' 2>/dev/null
 }
 
+# git_remote runs a read-only git command against origin without ever
+# prompting: an SSH passphrase or credential prompt would hang behind the
+# frame. An agent-held key still works; anything else fails fast instead.
+git_remote() {
+  local cmd=(git -C "$PROJECT_DIR" "$@")
+  command -v timeout >/dev/null 2>&1 && cmd=(timeout 15 "${cmd[@]}")
+  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes" "${cmd[@]}"
+}
+
+# fetch_tags brings local tags up to date with origin. Every version decision
+# reads local tags, so a clone that last fetched before a release made
+# elsewhere would suggest, and try to publish, a version that already exists.
+fetch_tags() {
+  if run_quiet "fetching tags from origin" git_remote fetch --quiet --tags origin; then
+    return 0
+  fi
+  log_warn "could not fetch tags from origin — local tags may be out of date"
+  return 1
+}
+
+# remote_has_tag reports whether origin already has TAG.
+remote_has_tag() {
+  git_remote ls-remote --exit-code --tags --refs origin "refs/tags/$1" >/dev/null 2>&1
+}
+
+# remote_latest_tag prints the highest vX.Y.Z tag on origin (nothing when it
+# has none), or fails when origin cannot be read.
+remote_latest_tag() {
+  local refs
+  refs=$(git_remote ls-remote --tags --refs origin 2>/dev/null) || return 1
+  printf '%s\n' "$refs" | awk -F'refs/tags/' 'NF > 1 { print $2 }' |
+    grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1
+}
+
 refresh_status() {
   read_current_tag
   suggest_next_patch
   ST_VERSION="$CURRENT_TAG"
   ST_NEXT="$NEXT_VERSION"
+  if release_in_history; then ST_IN_HISTORY=1; else ST_IN_HISTORY=0; fi
   ST_BRANCH=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
   ST_DIRTY=$(git -C "$PROJECT_DIR" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
   ST_AHEAD=$(ahead_of_origin)
@@ -813,7 +880,11 @@ draw_header() {
   # A long feature-branch name would otherwise eat the whole status row.
   short_branch="$ST_BRANCH"
   if [ "${#short_branch}" -gt 18 ]; then short_branch="${short_branch:0:17}…"; fi
-  ver_cell=$(status_cell "version" "$GREEN" "${ST_VERSION:-?}")
+  if [ "$ST_IN_HISTORY" = 0 ]; then
+    ver_cell=$(status_cell "version" "$YELLOW" "${ST_VERSION:-?} ⚠ not in this branch")
+  else
+    ver_cell=$(status_cell "version" "$GREEN" "${ST_VERSION:-?}")
+  fi
   if [ -n "$VERSION" ] && [ "$VERSION" != "$ST_VERSION" ]; then
     # A bump has been made: show what is actually going to be released, so a
     # pending version is never invisible on the way to the tag step.
@@ -898,15 +969,25 @@ draw_menu() {
   done
 }
 
+# LOG_GUTTER runs down the left of the output, so a line of it can never be
+# read as a menu row, however close the two sit on a short terminal.
+LOG_GUTTER=""
+
 draw_log() {
   local height=$1
   [ "$height" -lt 1 ] && return 0
-  frame_line " ${DIM}$(repeat_char '─' $((COLS - 2)))${NC}"
+  LOG_GUTTER="  ${ACCENT}${DIM}│${NC}"
+  # A clear break from the menu: a blank row, then a labelled divider.
+  frame_blank
+  local label=" output "
+  local rule=$((COLS - ${#label} - 5))
+  [ "$rule" -lt 0 ] && rule=0
+  frame_line "  ${ACCENT}╭─${NC}${DIM}${label}$(repeat_char '─' "$rule")${NC}"
 
   if [ -n "$BUSY_MSG" ]; then
     local elapsed=""
     [ "$BUSY_START" -gt 0 ] && elapsed=" ${DIM}$(format_time $(($(date +%s) - BUSY_START)))${NC}"
-    frame_line "  ${ACCENT}${SPIN_FRAMES:$SPIN_I:1}${NC} ${BUSY_MSG}…${elapsed}"
+    frame_line "${LOG_GUTTER} ${ACCENT}${SPIN_FRAMES:$SPIN_I:1}${NC} ${BUSY_MSG}…${elapsed}"
     height=$((height - 1))
   fi
   [ "$height" -lt 1 ] && return 0
@@ -917,7 +998,7 @@ draw_log() {
   fi
   local i
   for ((i = start; i < total; i++)); do
-    frame_line "${LOG[$i]}"
+    frame_line "${LOG_GUTTER}${LOG[$i]}"
   done
 }
 
@@ -955,9 +1036,9 @@ draw_frame() {
   FRAME_ROWS=0
   draw_header
   draw_pipeline
-  # The header's rows, the tracker's, the log separator and the footer are
-  # fixed overhead.
-  local overhead=6
+  # The header's rows, the tracker's, the gap and divider above the log, the
+  # gap above the footer, and the footer are fixed overhead.
+  local overhead=8
   [ "$PIPE_ACTIVE" -eq 1 ] && overhead=$((overhead + 1))
   [ -n "$PROMPT_TEXT" ] && overhead=$((overhead + 1))
   local available=$((ROWS - overhead))
@@ -975,9 +1056,12 @@ draw_frame() {
   local log_height=$((available - menu_height))
   draw_log "$log_height"
   # Push the prompt and footer onto the last rows so they never float mid-screen.
-  local tail_rows=1
-  [ -n "$PROMPT_TEXT" ] && tail_rows=2
+  # A blank row always sits between the output and the footer, so the last
+  # line of output never runs into the key hints.
+  local tail_rows=2
+  [ -n "$PROMPT_TEXT" ] && tail_rows=3
   while [ "$FRAME_ROWS" -lt $((ROWS - tail_rows)) ]; do frame_blank; done
+  frame_blank
   draw_prompt
   draw_footer
   frame_flush
@@ -1030,6 +1114,21 @@ readiness_checks() {
     check_line warn "golangci-lint is missing — the lint step will be skipped"
   fi
 
+  if [ "$ST_VERSION" = "v0.0.0" ]; then
+    check_line ok "no release yet"
+  elif [ "$ST_IN_HISTORY" = 0 ]; then
+    check_line fail "the latest release $ST_VERSION is not in $ST_BRANCH — merge the branch it was tagged on first, or this release drops its changes"
+  else
+    check_line ok "the latest release $ST_VERSION is in $ST_BRANCH"
+  fi
+  local remote_tag
+  if ! remote_tag=$(remote_latest_tag); then
+    check_line warn "could not read tags from origin — local tags may be out of date"
+  elif [ -n "$remote_tag" ] && semver_gt "$remote_tag" "$ST_VERSION"; then
+    check_line fail "origin has $remote_tag but the newest local tag is $ST_VERSION — run 'git fetch --tags'"
+  else
+    check_line ok "local tags are current with origin"
+  fi
   case "$ST_BRANCH" in
     main | master) check_line ok "on $ST_BRANCH" ;;
     *) check_line warn "on $ST_BRANCH — releases usually come from main" ;;
@@ -1107,8 +1206,17 @@ act_check() {
 
 act_bump() {
   log_step "Bump version"
+  fetch_tags
   read_current_tag
-  log_info "current tag: ${GREEN}${CURRENT_TAG}${NC}"
+  log_info "latest release: ${GREEN}${CURRENT_TAG}${NC}"
+
+  # A version given with --release is the choice already; check it like any
+  # other instead of asking again and quietly replacing it.
+  local choice=""
+  if [ "$VERSION_SOURCE" = "--release" ]; then
+    choice=$VERSION
+    log_info "using ${GREEN}${choice}${NC} from --release"
+  fi
 
   local patch="" minor="" major=""
   if semver_parts "$CURRENT_TAG"; then
@@ -1117,8 +1225,9 @@ act_bump() {
     major="v$((MAJ + 1)).0.0"
   fi
 
-  local choice=""
-  if [ -n "$patch" ]; then
+  if [ -n "$choice" ]; then
+    :
+  elif [ -n "$patch" ]; then
     PROMPT_KEYS="p patch · m minor · M major · c custom · enter patch · esc cancel"
     while [ -z "$choice" ]; do
       ask "Release which version?" "p $patch · m $minor · M $major · c custom"
@@ -1149,10 +1258,15 @@ act_bump() {
     log_err "$choice is already tagged — pick a new version"
     return 1
   fi
+  if remote_has_tag "$choice"; then
+    log_err "$choice is already released on origin — pick a new version"
+    return 1
+  fi
   if [ "$CURRENT_TAG" != "v0.0.0" ] && ! semver_gt "$choice" "$CURRENT_TAG"; then
     log_warn "$choice is not later than $CURRENT_TAG"
     tui_confirm "Release $choice anyway?" n || return 1
   fi
+  [ "$VERSION_SOURCE" = "--release" ] && [ "$choice" = "$VERSION" ] || VERSION_SOURCE="bumped"
   VERSION=$choice
   log_ok "version set to ${GREEN}${VERSION}${NC}"
   refresh_status
@@ -1164,6 +1278,7 @@ ensure_version() {
   if [ -z "$VERSION" ] || [ "$VERSION" = "v0.0.0" ]; then
     read_current_tag
     VERSION="$CURRENT_TAG"
+    VERSION_SOURCE="latest tag"
   fi
   [ -n "$VERSION" ] && [ "$VERSION" != "v0.0.0" ]
 }
@@ -1273,10 +1388,30 @@ act_notes() {
 
 # ── Actions: verification ────────────────────────────────────────────────────
 
+# act_test runs what CI enforces on every push, so a release cannot pass here
+# and then fail CI on its own tagged commit.
 act_test() {
   log_step "Run tests"
-  local start=$(date +%s)
-  if run_streamed "go test ./..." go test ./...; then
+  local start=$(date +%s) unformatted line
+  unformatted=$(gofmt -l . 2>&1)
+  if [ -n "$unformatted" ]; then
+    log_err "gofmt would change these files:"
+    while IFS= read -r line; do log_detail "$line"; done <<<"$unformatted"
+    return 1
+  fi
+  log_ok "gofmt clean"
+  if ! run_streamed "go vet ./..." go vet ./...; then
+    log_err "go vet reported problems"
+    return 1
+  fi
+  log_ok "go vet clean"
+  # The race detector needs cgo; without it, test as before rather than fail.
+  local test_cmd=(go test -race ./...)
+  if [ "$(go env CGO_ENABLED 2>/dev/null)" != "1" ]; then
+    log_warn "cgo is off — running tests without the race detector CI uses"
+    test_cmd=(go test ./...)
+  fi
+  if run_streamed "${test_cmd[*]}" "${test_cmd[@]}"; then
     log_ok "tests passed ${DIM}($(format_time $(($(date +%s) - start))))${NC}"
     return 0
   fi
@@ -1301,6 +1436,10 @@ act_lint() {
 act_build() {
   log_step "Build binaries locally"
   ensure_version
+  log_info "building as ${GREEN}${VERSION:-dev}${NC} ${DIM}(${VERSION_SOURCE:-no version})${NC}"
+  if [ "$VERSION_SOURCE" = "latest tag" ]; then
+    log_detail "no version chosen this session — use 'Bump version' or --release to build a new one"
+  fi
   log_info "local builds are a compile check — release assets come from CI"
   [ -n "$BUILD_NOTE" ] && log_detail "$BUILD_NOTE"
 
@@ -1411,6 +1550,7 @@ require_gh() {
 act_release() {
   log_step "Tag and release"
   require_gh || return 1
+  fetch_tags
 
   # Run straight from the menu, "Tag and release" used to fall back to the
   # latest tag and offer to delete and recreate it. Re-releasing is now
@@ -1424,6 +1564,7 @@ act_release() {
     log_warn "no version was bumped this session"
     tui_confirm "Re-release the existing $CURRENT_TAG?" n || { log_info "run 'Bump version' first"; return 1; }
     VERSION=$CURRENT_TAG
+    VERSION_SOURCE="latest tag"
   fi
 
   # A tag is made from the last commit, so uncommitted work would be missing
@@ -1457,17 +1598,20 @@ act_release() {
     fi
   fi
 
-  if git -C "$PROJECT_DIR" rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
-    log_warn "tag $VERSION already exists"
+  local recreate=0 local_tag=0 origin_tag=0
+  git -C "$PROJECT_DIR" rev-parse -q --verify "refs/tags/$VERSION" >/dev/null && local_tag=1
+  remote_has_tag "$VERSION" && origin_tag=1
+  if [ "$local_tag" -eq 1 ] || [ "$origin_tag" -eq 1 ]; then
+    if [ "$origin_tag" -eq 1 ]; then
+      log_warn "tag $VERSION already exists on origin"
+    else
+      log_warn "tag $VERSION already exists locally"
+    fi
     if ! tui_confirm "Delete and recreate tag $VERSION?" n; then
       log_info "keeping the existing tag"
       return 1
     fi
-    if ! dry_run_blocks "delete tag $VERSION locally and on origin"; then
-      git -C "$PROJECT_DIR" tag -d "$VERSION" >/dev/null 2>&1
-      git -C "$PROJECT_DIR" push origin --delete "$VERSION" >/dev/null 2>&1
-      log_ok "old tag removed"
-    fi
+    recreate=1
   fi
 
   # Point of no return: pushing the tag is what makes the release public and
@@ -1478,7 +1622,26 @@ act_release() {
       log_info "nothing published"
       return 1
     fi
-    git -C "$PROJECT_DIR" tag -a "$VERSION" -m "Release $VERSION"
+  fi
+
+  # An old tag is deleted only after the final yes, so answering no above
+  # leaves a published release's tag exactly where it was.
+  if [ "$recreate" -eq 1 ]; then
+    if [ "$local_tag" -eq 1 ] &&
+        ! mutate "delete the local tag $VERSION" git -C "$PROJECT_DIR" tag -d "$VERSION"; then
+      log_err "could not delete the local tag $VERSION"
+      return 1
+    fi
+    if [ "$origin_tag" -eq 1 ] &&
+        ! mutate "delete tag $VERSION on origin" git -C "$PROJECT_DIR" push origin --delete "$VERSION"; then
+      log_err "could not delete tag $VERSION on origin"
+      return 1
+    fi
+    log_result "old tag $VERSION removed"
+  fi
+  if [ "$DRY_RUN" -eq 0 ] && ! git -C "$PROJECT_DIR" tag -a "$VERSION" -m "Release $VERSION"; then
+    log_err "could not create tag $VERSION"
+    return 1
   fi
   if ! mutate_streamed "push tag $VERSION to origin, publishing the release" \
       git -C "$PROJECT_DIR" push origin "$VERSION"; then
@@ -1498,6 +1661,13 @@ act_release() {
 # release_asset_names lists the assets currently attached to a release.
 release_asset_names() {
   gh release view "$1" --repo "$REPO" --json assets -q '.assets[].name' 2>/dev/null
+}
+
+# release_run_state prints "status:conclusion" of the latest release workflow
+# run for a tag, or nothing when it cannot be read.
+release_run_state() {
+  gh run list --repo "$REPO" --workflow release.yml --branch "$1" --limit 1 \
+    --json status,conclusion -q '.[0] | "\(.status):\(.conclusion)"' 2>/dev/null
 }
 
 release_has_all_assets() {
@@ -1536,6 +1706,18 @@ act_wait_assets() {
       log_ok "all Linux assets are published"
       return 0
     fi
+    # A failed workflow will never upload, so stop instead of waiting out the
+    # timeout. An unreadable state just keeps polling.
+    local run_state
+    run_state=$(release_run_state "$VERSION")
+    case "$run_state" in
+      completed:failure | completed:cancelled | completed:timed_out | completed:startup_failure)
+        clear_busy
+        log_err "the release workflow for $VERSION ended with ${run_state#completed:}"
+        log_detail "https://github.com/${REPO}/actions/workflows/release.yml"
+        return 1
+        ;;
+    esac
     # Animate between API polls: ~8s of spinner per poll.
     local tick=0
     while [ "$tick" -lt 40 ]; do
@@ -1646,7 +1828,7 @@ aur_render_into() {
   if ! bash "$PROJECT_DIR/packaging/aur/render-pkgbuild.sh" \
       --version "$VERSION" --pkgrel "$rel" \
       --sha256-x86_64 "$x86" --sha256-aarch64 "$arm" \
-      --sha256-license "$lic" \
+      --sha256-license "$lic" "${AUR_TAG_FILE_ARGS[@]}" \
       --output "$dir/PKGBUILD"; then
     log_err "rendering the PKGBUILD failed"
     return 1
@@ -1668,15 +1850,19 @@ sha_for_asset() {
   awk -v want="$asset" '$2 == want || $2 == "*" want { print $1; exit }' "$sums_file"
 }
 
-# license_sha256 hashes the LICENSE blob at the tag, which is exactly what the
+# AUR_TAG_FILE_ARGS carries the --sha256-<name> flags for AUR_TAG_FILES from
+# the publish step into aur_render_into.
+AUR_TAG_FILE_ARGS=()
+
+# tag_file_sha256 hashes one file's blob at the tag, which is exactly what the
 # PKGBUILD's raw.githubusercontent source URL serves.
-license_sha256() {
-  local tag=$1 tmp hash
-  tmp=$(mktemp "${TMPDIR:-/tmp}/license-XXXXXX")
+tag_file_sha256() {
+  local tag=$1 path=$2 tmp hash
+  tmp=$(mktemp "${TMPDIR:-/tmp}/tagfile-XXXXXX")
   # Piping git straight into sha256sum hides a missing file: the pipeline still
   # succeeds and hashes empty input, yielding e3b0c442… — a digest that looks
   # real and would publish a PKGBUILD nobody can build. Capture, check, then hash.
-  if ! git -C "$PROJECT_DIR" show "${tag}:LICENSE" > "$tmp" 2>/dev/null || [ ! -s "$tmp" ]; then
+  if ! git -C "$PROJECT_DIR" show "${tag}:${path}" > "$tmp" 2>/dev/null || [ ! -s "$tmp" ]; then
     rm -f "$tmp"
     return 1
   fi
@@ -1732,7 +1918,7 @@ act_aur_publish() {
   arm_asset=$(asset_name linux aarch64)
   sha_x86=$(sha_for_asset "$work/checksums" "$x86_asset")
   sha_arm=$(sha_for_asset "$work/checksums" "$arm_asset")
-  sha_license=$(license_sha256 "$VERSION")
+  sha_license=$(tag_file_sha256 "$VERSION" LICENSE)
 
   if [ -z "$sha_x86" ] || [ -z "$sha_arm" ]; then
     log_err "$CHECKSUMS_ASSET does not list both Linux tarballs"
@@ -1745,6 +1931,20 @@ act_aur_publish() {
     rm -rf "$work"
     return 1
   fi
+  AUR_TAG_FILE_ARGS=()
+  local tag_entry tag_name tag_path tag_sha tag_shas=()
+  for tag_entry in "${AUR_TAG_FILES[@]}"; do
+    tag_name=${tag_entry%%:*} tag_path=${tag_entry#*:}
+    tag_sha=$(tag_file_sha256 "$VERSION" "$tag_path")
+    if [ -z "$tag_sha" ]; then
+      log_err "no $tag_path at $VERSION — the tag must carry it, and be fetched locally"
+      log_detail "the PKGBUILD downloads $tag_path from $VERSION (AUR_TAG_FILES in deploy.conf)"
+      rm -rf "$work"
+      return 1
+    fi
+    AUR_TAG_FILE_ARGS+=("--sha256-$tag_name" "$tag_sha")
+    tag_shas+=("$tag_path at tag $VERSION  $tag_sha")
+  done
   log_ok "checksums read from the published release"
   log_detail "x86_64  ${sha_x86:0:16}…"
   log_detail "aarch64 ${sha_arm:0:16}…"
@@ -1800,6 +2000,8 @@ act_aur_publish() {
   log_detail "x86_64  $x86_asset  $sha_x86"
   log_detail "aarch64 $arm_asset $sha_arm"
   log_detail "LICENSE at tag $VERSION  $sha_license"
+  local tag_line
+  for tag_line in "${tag_shas[@]}"; do log_detail "$tag_line"; done
 
   # `git add -N` registers the new files so `git diff` also renders the very
   # first publish, where both files are still untracked.
@@ -1937,6 +2139,10 @@ main() {
   load_config
   setup_colors
   cd "$PROJECT_DIR" || exit 1
+  if [ -n "$PRESET_VERSION" ]; then
+    VERSION=$PRESET_VERSION
+    VERSION_SOURCE="--release"
+  fi
 
   if [ "$MODE" = "check" ]; then
     printf '%s release readiness\n' "$(gradient " ${APP_GLYPH} ${APP_NAME} ")"
@@ -1973,6 +2179,10 @@ main() {
 
   log_raw "  ${DIM}${APP_NAME} release console — select an action and press enter.${NC}"
   [ "$DRY_RUN" -eq 1 ] && log_warn "dry run ${BOLD}on${NC} — nothing will be committed, pushed, or published"
+  draw_frame
+  # Read-only, so it runs in a dry run too: the status line and every version
+  # suggestion should describe origin, not a stale clone.
+  fetch_tags && refresh_status
   draw_frame
 
   local key
