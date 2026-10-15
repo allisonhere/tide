@@ -3,7 +3,6 @@ package ui
 import (
 	"context"
 	"fmt"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,22 +42,19 @@ const (
 type sidebarRowKind int
 
 const (
-	rowKindFolder sidebarRowKind = iota
-	rowKindFeed
+	// rowKindFeed is the zero value so an ArticlesLoadedMsg that names only a
+	// FeedID is a single-feed load.
+	rowKindFeed sidebarRowKind = iota
+	// rowKindFolder rows list their local feeds' articles merged.
+	rowKindFolder
 	// rowKindSaved is the "Saved" virtual feed pinned above the real tree. It
 	// has no db.Feed behind it, so every path that reaches for selectedFeed()
 	// must treat it as "no feed selected" and consult savedSelected() instead.
 	rowKindSaved
+	// rowKindAllUnread is the "All Unread" virtual feed under Saved: unread
+	// articles across every local feed.
+	rowKindAllUnread
 )
-
-// savedFeedID is the sentinel feed id carried by ArticlesLoadedMsg for the
-// Saved view, so the existing stale-load guard works unchanged.
-//
-// math.MinInt64 specifically: local feed ids are positive AUTOINCREMENT rowids,
-// and remote ids come from remoteStableID, which masks to 63 bits before
-// negating and so bottoms out at MinInt64+1. MinInt64 is the one value neither
-// source can produce.
-const savedFeedID int64 = math.MinInt64
 
 type sidebarRow struct {
 	kind     sidebarRowKind
@@ -129,6 +125,9 @@ type Model struct {
 	listOffset       int
 	searchQuery      string
 	showUnreadOnly   bool
+	// markAllUnreadArmed is set by a first R on All Unread; the next key either
+	// confirms (R again) or disarms it.
+	markAllUnreadArmed bool
 
 	// Content pane
 	viewport         viewport.Model
@@ -532,9 +531,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.pendingSelectFeedID = 0
-		} else if prevKind == rowKindSaved {
+		} else if prevKind == rowKindSaved || prevKind == rowKindAllUnread {
 			for i, row := range m.sidebarRows {
-				if row.kind == rowKindSaved {
+				if row.kind == prevKind {
 					m.sidebarCursor = i
 					break
 				}
@@ -570,15 +569,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		cmds := []tea.Cmd{}
-		if m.savedSelected() {
-			cmds = append(cmds, m.loadSavedArticlesCmd())
-		} else if len(m.feeds) == 0 {
+		if len(m.feeds) == 0 && !m.savedSelected() {
 			m.clearArticles()
 			return m, nil
-		} else if selected := m.selectedFeed(); selected != nil {
-			cmds = append(cmds, m.loadFeedArticlesCmd(selected.ID))
-		} else {
-			m.clearArticles()
+		}
+		if cmd := m.selectionArticlesCmd(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		// On startup, fetch whatever is due rather than the whole library at
 		// once; the queue bounds how many run together. With the background
@@ -597,13 +593,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ArticlesLoadedMsg:
 		// Ignore stale article loads from a previously selected feed; async loads can race with sidebar movement. -allie
 		if msg.Err != nil {
-			if m.articlesLoadIsCurrent(msg.FeedID) {
+			if m.articlesLoadIsCurrent(msg) {
 				m.clearArticles()
 			}
 			m.setStatus(msg.Err.Error(), true)
 			return m, m.clearStatusCmd()
 		}
-		if m.articlesLoadIsCurrent(msg.FeedID) {
+		if m.articlesLoadIsCurrent(msg) {
 			m.articles = msg.Articles
 			m.applyFilter()
 			m.articleCursor = clamp(m.articleCursor, 0, max(0, len(m.filteredArticles)-1))
@@ -681,8 +677,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if stored.URLUpdatedTo != "" {
 			m.setStatus(fmt.Sprintf("feed URL updated to %s", stored.URLUpdatedTo), false)
 		}
-		if selected := m.selectedFeed(); selected != nil && msg.FeedID == selected.ID {
-			cmds = append(cmds, m.loadFeedArticlesCmd(msg.FeedID))
+		if m.selectionIncludesFeed(msg.FeedID) {
+			// A merged list reloads under the reader as each of its feeds
+			// refreshes, so keep the cursor on the article being read.
+			m.keepCurrentArticleAcrossReload()
+			cmds = append(cmds, m.selectionArticlesCmd())
 		}
 		cmds = append(cmds, m.loadFeedsCmd())
 		cmds = append(cmds, m.clearStatusCmd())
@@ -1022,6 +1021,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if !keyMatches(msg, m.keys.MarkAllRead) {
+		m.markAllUnreadArmed = false
+	}
 	switch {
 	case keyMatches(msg, m.keys.Quit):
 		if !m.cfg.Display.ConfirmQuit {
@@ -1077,15 +1079,15 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.clearViewportArticle()
 		}
-		// A local feed loaded in unread-only mode holds no read rows, so
-		// showing all articles needs a reload; keep the cursor on the
-		// current article across it.
-		if !m.showUnreadOnly && !m.savedSelected() {
-			if feed := m.selectedFeed(); feed != nil {
-				if len(m.filteredArticles) > 0 {
-					m.restoreArticleID = m.filteredArticles[m.articleCursor].ID
-				}
-				return m, tea.Batch(m.loadFeedArticlesCmd(feed.ID), m.clearStatusCmd())
+		// A feed or folder loaded in unread-only mode holds no read rows, so
+		// showing all articles needs a reload; keep the cursor on the current
+		// article across it. Saved holds every row already, and All Unread is
+		// unread by definition.
+		if kind, _ := m.currentSidebarSelection(); !m.showUnreadOnly && len(m.sidebarRows) > 0 &&
+			(kind == rowKindFeed || kind == rowKindFolder) {
+			m.keepCurrentArticleAcrossReload()
+			if cmd := m.selectionArticlesCmd(); cmd != nil {
+				return m, tea.Batch(cmd, m.clearStatusCmd())
 			}
 		}
 		return m, m.clearStatusCmd()
@@ -1168,6 +1170,9 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.refreshFeedCmd(selected.ID, selected.URL, true)
 		}
+		if feeds, ok := m.selectionLocalFeeds(); ok {
+			return m, m.enqueueRefresh(feeds, false)
+		}
 		return m, nil
 
 	case keyMatches(msg, m.keys.RefreshAll):
@@ -1210,6 +1215,16 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if folderID, ok := m.selectedFolderID(); ok {
 			return m, m.markFolderReadCmd(folderID)
+		}
+		if kind, _ := m.currentSidebarSelection(); len(m.sidebarRows) > 0 && kind == rowKindAllUnread {
+			// Everything at once is hard to undo, so it takes a second R.
+			if !m.markAllUnreadArmed {
+				m.markAllUnreadArmed = true
+				m.setStatus(fmt.Sprintf("press %s again to mark every local article read", m.keys.MarkAllRead.Help().Key), false)
+				return m, m.clearStatusCmd()
+			}
+			m.markAllUnreadArmed = false
+			return m, m.markFeedsReadCmd(feedIDs(m.localFeeds(0, false)), nil)
 		}
 		return m, nil
 
@@ -1445,17 +1460,9 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// loadSidebarSelection loads whatever the sidebar cursor now points at. Folder
-// rows have no article list of their own, so they clear the pane.
+// loadSidebarSelection loads whatever the sidebar cursor now points at.
 func (m Model) loadSidebarSelection() (tea.Model, tea.Cmd) {
-	if m.savedSelected() {
-		return m, m.loadSavedArticlesCmd()
-	}
-	if selected := m.selectedFeed(); selected != nil {
-		return m, m.loadFeedArticlesCmd(selected.ID)
-	}
-	m.clearArticles()
-	return m, nil
+	return m, m.selectionArticlesCmd()
 }
 
 func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1828,6 +1835,8 @@ func (m Model) renderFeedsPane() string {
 		switch row.kind {
 		case rowKindSaved:
 			rows = append(rows, m.renderSavedRow(selected, innerW))
+		case rowKindAllUnread:
+			rows = append(rows, m.renderAllUnreadRow(selected, innerW))
 		case rowKindFolder:
 			rows = append(rows, m.renderFolderHeader(row.folderID, selected, innerW))
 		case rowKindFeed:
@@ -1877,9 +1886,15 @@ func (m Model) renderArticlesPane() string {
 	rows := []string{}
 	visible := m.filteredArticles
 	end := min(m.listOffset+m.articleRowsVisible(), len(visible))
+	// Merged lists name each row's feed, capped so the title keeps most of the row.
+	multiFeed := m.multiFeedSelected()
+	feedTagWidth := min(18, rowW/4)
 	for i := m.listOffset; i < end; i++ {
 		a := visible[i]
 		age := m.formatTime(a.PublishedAt)
+		if multiFeed {
+			age = truncate(m.feedDisplayTitle(a.FeedID), feedTagWidth) + " · " + age
+		}
 
 		dot := m.articleRowPrefix(a.Read)
 		if i == m.articleCursor {
@@ -2000,8 +2015,16 @@ func (m Model) renderContentPane() string {
 
 func (m Model) articlesPaneTitle() string {
 	title := "Articles"
-	if m.savedSelected() {
-		title = savedRowLabel
+	if len(m.sidebarRows) > 0 {
+		switch kind, id := m.currentSidebarSelection(); kind {
+		case rowKindSaved:
+			title = savedRowLabel
+		case rowKindAllUnread:
+			// Always unread-only, so the suffix would only repeat the name.
+			return allUnreadRowLabel
+		case rowKindFolder:
+			title = m.folderName(id)
+		}
 	}
 	if m.showUnreadOnly {
 		title += " (unread)"
@@ -3352,6 +3375,14 @@ func (m *Model) selectPendingArticle() {
 // non-navigating reload, if it is still in the filtered list. Unlike
 // selectPendingArticle it leaves the unread filter as it is — the reload may be
 // the one that just applied a new filter setting.
+// keepCurrentArticleAcrossReload queues the article under the cursor so the
+// next load of the list puts the cursor back on it.
+func (m *Model) keepCurrentArticleAcrossReload() {
+	if len(m.filteredArticles) > 0 && m.restoreArticleID == 0 {
+		m.restoreArticleID = m.filteredArticles[m.articleCursor].ID
+	}
+}
+
 func (m *Model) restoreArticleCursor() {
 	if m.restoreArticleID == 0 {
 		return
@@ -3378,12 +3409,22 @@ func (m *Model) ensureArticleCursorVisible() {
 // articlesLoadIsCurrent reports whether an ArticlesLoadedMsg belongs to what
 // the sidebar has selected right now. Loads are async, so a result can land
 // after the cursor has already moved on.
-func (m Model) articlesLoadIsCurrent(feedID int64) bool {
-	if feedID == savedFeedID {
-		return m.savedSelected()
+func (m Model) articlesLoadIsCurrent(msg ArticlesLoadedMsg) bool {
+	if len(m.sidebarRows) == 0 {
+		return false
 	}
-	selected := m.selectedFeed()
-	return selected != nil && selected.ID == feedID
+	kind, id := m.currentSidebarSelection()
+	if kind != msg.Kind {
+		return false
+	}
+	switch kind {
+	case rowKindFeed:
+		selected := m.selectedFeed()
+		return selected != nil && selected.ID == msg.FeedID
+	case rowKindFolder:
+		return id == msg.FolderID
+	}
+	return true
 }
 
 // loadSavedArticlesCmd loads the Saved virtual feed: every starred article
@@ -3392,14 +3433,114 @@ func (m *Model) loadSavedArticlesCmd() tea.Cmd {
 	database := m.db
 	return func() tea.Msg {
 		if database == nil {
-			return ArticlesLoadedMsg{FeedID: savedFeedID}
+			return ArticlesLoadedMsg{Kind: rowKindSaved}
 		}
 		articles, err := database.ListStarredArticles(0)
 		if err != nil {
-			return ArticlesLoadedMsg{FeedID: savedFeedID, Err: err}
+			return ArticlesLoadedMsg{Kind: rowKindSaved, Err: err}
 		}
-		return ArticlesLoadedMsg{FeedID: savedFeedID, Articles: articles}
+		return ArticlesLoadedMsg{Kind: rowKindSaved, Articles: articles}
 	}
+}
+
+// loadMergedArticlesCmd loads the newest articles across several local feeds
+// for a virtual row: All Unread, or a folder (folderID names it).
+func (m *Model) loadMergedArticlesCmd(kind sidebarRowKind, folderID int64, feedIDs []int64, unreadOnly bool) tea.Cmd {
+	database := m.db
+	return func() tea.Msg {
+		msg := ArticlesLoadedMsg{Kind: kind, FolderID: folderID}
+		if database == nil {
+			return msg
+		}
+		msg.Articles, msg.Err = database.ListArticlesForFeeds(feedIDs, unreadOnly)
+		return msg
+	}
+}
+
+// localFeeds lists local (non-remote) feeds, limited to one folder when
+// inFolder is set; folder 0 is the uncategorized group.
+func (m Model) localFeeds(folderID int64, inFolder bool) []db.Feed {
+	var feeds []db.Feed
+	for _, f := range m.feeds {
+		if m.isRemoteFeed(f.ID) || (inFolder && f.FolderID != folderID) {
+			continue
+		}
+		feeds = append(feeds, f)
+	}
+	return feeds
+}
+
+func feedIDs(feeds []db.Feed) []int64 {
+	ids := make([]int64, len(feeds))
+	for i, f := range feeds {
+		ids[i] = f.ID
+	}
+	return ids
+}
+
+// selectionLocalFeeds is the local feeds behind a virtual row: every one for
+// All Unread, a folder's for a folder row. ok is false on any other row.
+func (m Model) selectionLocalFeeds() (feeds []db.Feed, ok bool) {
+	if len(m.sidebarRows) == 0 {
+		return nil, false
+	}
+	switch kind, id := m.currentSidebarSelection(); kind {
+	case rowKindAllUnread:
+		return m.localFeeds(0, false), true
+	case rowKindFolder:
+		return m.localFeeds(id, true), true
+	}
+	return nil, false
+}
+
+// selectionArticlesCmd loads the article list for whatever the sidebar cursor
+// is on, or clears the pane and returns nil when the row has none.
+func (m *Model) selectionArticlesCmd() tea.Cmd {
+	if len(m.sidebarRows) > 0 {
+		switch kind, id := m.currentSidebarSelection(); kind {
+		case rowKindSaved:
+			return m.loadSavedArticlesCmd()
+		case rowKindAllUnread:
+			return m.loadMergedArticlesCmd(rowKindAllUnread, 0, feedIDs(m.localFeeds(0, false)), true)
+		case rowKindFolder:
+			return m.loadMergedArticlesCmd(rowKindFolder, id, feedIDs(m.localFeeds(id, true)), m.showUnreadOnly)
+		case rowKindFeed:
+			if selected := m.selectedFeed(); selected != nil {
+				return m.loadFeedArticlesCmd(selected.ID)
+			}
+		}
+	}
+	m.clearArticles()
+	return nil
+}
+
+// selectionIncludesFeed reports whether the selected row's article list draws
+// on feedID, so a refresh of that feed should reload it.
+func (m Model) selectionIncludesFeed(feedID int64) bool {
+	if len(m.sidebarRows) == 0 {
+		return false
+	}
+	switch kind, id := m.currentSidebarSelection(); kind {
+	case rowKindFeed:
+		selected := m.selectedFeed()
+		return selected != nil && selected.ID == feedID
+	case rowKindAllUnread:
+		return !m.isRemoteFeed(feedID)
+	case rowKindFolder:
+		f := m.feedByID(feedID)
+		return f != nil && f.FolderID == id && !m.isRemoteFeed(feedID)
+	}
+	return false
+}
+
+// multiFeedSelected reports whether the article list mixes feeds, so each row
+// should name its feed.
+func (m Model) multiFeedSelected() bool {
+	if len(m.sidebarRows) == 0 {
+		return false
+	}
+	kind, _ := m.currentSidebarSelection()
+	return kind != rowKindFeed
 }
 
 func (m *Model) loadArticlesCmd(feedID int64) tea.Cmd {
@@ -3687,16 +3828,22 @@ func (m *Model) markAllReadCmd(feedID int64) tea.Cmd {
 }
 
 func (m *Model) markFolderReadCmd(folderID int64) tea.Cmd {
-	feedIDs := make([]int64, 0)
+	ids := make([]int64, 0)
 	streamIDs := make(map[int64]string)
 	for _, feed := range m.feeds {
 		if feed.FolderID == folderID {
-			feedIDs = append(feedIDs, feed.ID)
+			ids = append(ids, feed.ID)
 			if streamID, ok := m.greaderStreams[feed.ID]; ok {
 				streamIDs[feed.ID] = streamID
 			}
 		}
 	}
+	return m.markFeedsReadCmd(ids, streamIDs)
+}
+
+// markFeedsReadCmd marks every article in feedIDs read: through the Google
+// Reader source for feeds in streamIDs, in the local database otherwise.
+func (m *Model) markFeedsReadCmd(feedIDs []int64, streamIDs map[int64]string) tea.Cmd {
 	database := m.db
 	client := m.greaderClient
 	return func() tea.Msg {
@@ -3864,7 +4011,7 @@ func summaryFilename(title string) string {
 // rows on top. Virtual rows are added here rather than inside buildSidebarRows
 // so that function stays a pure view of the real feed tree.
 func (m *Model) rebuildSidebar() {
-	rows := []sidebarRow{{kind: rowKindSaved}}
+	rows := []sidebarRow{{kind: rowKindSaved}, {kind: rowKindAllUnread}}
 	rows = append(rows, buildSidebarRows(m.feeds, m.folders, m.collapsedFolders, true)...)
 	m.sidebarRows = rows
 	m.sidebarCursor = clamp(m.sidebarCursor, 0, max(0, len(m.sidebarRows)-1))
@@ -4094,8 +4241,8 @@ func (m Model) currentSidebarSelection() (sidebarRowKind, int64) {
 	switch row.kind {
 	case rowKindFolder:
 		return rowKindFolder, row.folderID
-	case rowKindSaved:
-		return rowKindSaved, savedFeedID
+	case rowKindSaved, rowKindAllUnread:
+		return row.kind, 0
 	}
 	return rowKindFeed, row.feedID
 }
@@ -4338,7 +4485,6 @@ func (m *Model) toggleSelectedFolder() bool {
 			break
 		}
 	}
-	m.clearArticles()
 	return true
 }
 
@@ -4646,9 +4792,49 @@ func feedDisplayLabel(name string, icons bool) string {
 // savedRowLabel is the sidebar caption for the Saved virtual feed.
 const savedRowLabel = "Saved"
 
+const allUnreadRowLabel = "All Unread"
+
 // renderSavedRow draws the Saved virtual feed. It sits at folder level rather
 // than feed level — it is not inside any folder — so it borrows the folder
 // header's shape, with no accent colour since it has no folder behind it.
+// renderAllUnreadRow draws the All Unread virtual row in the Saved row's
+// style, aligned under its label, with the local unread total as its badge.
+func (m Model) renderAllUnreadRow(selected bool, width int) string {
+	prefix := strings.Repeat(" ", lipgloss.Width(m.styles.StarGlyph())+1)
+	label := folderDisplayLabel(allUnreadRowLabel, false, m.iconsEnabled())
+
+	badge := ""
+	badgeStyle := m.styles.UnreadBadge
+	if selected {
+		badgeStyle = m.sidebarSelectedBadgeStyle("")
+	}
+	if n := m.localUnreadCount(); n > 0 {
+		badge = badgeStyle.Render(fmt.Sprintf("(%d)", n))
+	}
+
+	style := m.styles.FeedItem.Copy().Foreground(lipgloss.Color(m.styles.Theme.Dimmed)).Bold(true)
+	if selected {
+		style = m.sidebarSelectedStyle("").Copy().Bold(true)
+	}
+	rowBg := terminalColorAsColor(style.GetBackground())
+	if rowBg == "" {
+		rowBg = m.styles.Theme.Bg
+	}
+	style = style.Foreground(contrastFg(rowBg))
+	return style.Width(width).Render(renderFeedRow(prefix, label, badge, width))
+}
+
+// localUnreadCount sums unread articles across local feeds: the All Unread badge.
+func (m Model) localUnreadCount() int64 {
+	var n int64
+	for _, f := range m.feeds {
+		if !m.isRemoteFeed(f.ID) {
+			n += f.UnreadCount
+		}
+	}
+	return n
+}
+
 func (m Model) renderSavedRow(selected bool, width int) string {
 	star := m.styles.StarGlyph()
 	prefix := star + " "
@@ -4922,9 +5108,16 @@ func (m Model) articleRowCursorPrefix() string {
 // wording because "no articles" reads like a bug there, when it actually means
 // the user has not saved anything yet.
 func (m Model) emptyArticlesHint() string {
-	if m.savedSelected() {
-		return fmt.Sprintf("  nothing starred yet — press %s to star an article",
-			m.keys.ToggleStar.Help().Key)
+	if len(m.sidebarRows) > 0 {
+		switch kind, _ := m.currentSidebarSelection(); kind {
+		case rowKindSaved:
+			return fmt.Sprintf("  nothing starred yet — press %s to star an article",
+				m.keys.ToggleStar.Help().Key)
+		case rowKindAllUnread:
+			return "  all caught up"
+		case rowKindFolder:
+			return "  no articles in this folder"
+		}
 	}
 	return "  no articles"
 }

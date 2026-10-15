@@ -81,8 +81,8 @@ func TestSavedRowIsNeitherFeedNorFolder(t *testing.T) {
 		t.Fatal("expected Saved row not to be collapsible")
 	}
 	kind, id := m.currentSidebarSelection()
-	if kind != rowKindSaved || id != savedFeedID {
-		t.Fatalf("currentSidebarSelection = (%v, %d), want (rowKindSaved, savedFeedID)", kind, id)
+	if kind != rowKindSaved || id != 0 {
+		t.Fatalf("currentSidebarSelection = (%v, %d), want (rowKindSaved, 0)", kind, id)
 	}
 }
 
@@ -96,12 +96,12 @@ func TestMovingToSavedRowLoadsStarredArticles(t *testing.T) {
 	m := newStarModel()
 	m.db = database
 	m.focused = paneFeeds
-	m.sidebarCursor = 1 // the feed row
+	m.sidebarCursor = 1 // All Unread, directly under Saved
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	m = next.(Model)
 	if !m.savedSelected() {
-		t.Fatal("expected moving up from the first feed to land on Saved")
+		t.Fatal("expected moving up from All Unread to land on Saved")
 	}
 	if cmd == nil {
 		t.Fatal("expected selecting Saved to issue an article load")
@@ -110,29 +110,31 @@ func TestMovingToSavedRowLoadsStarredArticles(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ArticlesLoadedMsg, got %T", cmd())
 	}
-	if msg.FeedID != savedFeedID {
-		t.Fatalf("expected the saved sentinel feed id, got %d", msg.FeedID)
+	if msg.Kind != rowKindSaved {
+		t.Fatalf("expected a Saved load, got kind %v", msg.Kind)
 	}
 }
 
 // Article loads are async, so a result must only be applied if the sidebar is
 // still on what asked for it.
-func TestArticlesLoadIsCurrentGuardsSavedSentinel(t *testing.T) {
+func TestArticlesLoadIsCurrentGuardsSavedLoads(t *testing.T) {
 	m := newStarModel()
+	saved := ArticlesLoadedMsg{Kind: rowKindSaved}
+	feedOne := ArticlesLoadedMsg{FeedID: 1}
 
 	m.sidebarCursor = 0 // Saved
-	if !m.articlesLoadIsCurrent(savedFeedID) {
+	if !m.articlesLoadIsCurrent(saved) {
 		t.Fatal("expected a saved load to apply while Saved is selected")
 	}
-	if m.articlesLoadIsCurrent(1) {
+	if m.articlesLoadIsCurrent(feedOne) {
 		t.Fatal("expected a feed load to be dropped while Saved is selected")
 	}
 
 	m.selectSidebarFeed(1)
-	if m.articlesLoadIsCurrent(savedFeedID) {
+	if m.articlesLoadIsCurrent(saved) {
 		t.Fatal("expected a saved load to be dropped while a feed is selected")
 	}
-	if !m.articlesLoadIsCurrent(1) {
+	if !m.articlesLoadIsCurrent(feedOne) {
 		t.Fatal("expected the selected feed's load to apply")
 	}
 }

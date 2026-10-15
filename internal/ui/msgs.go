@@ -15,7 +15,12 @@ type FeedsLoadedMsg struct {
 	Err           error
 }
 type ArticlesLoadedMsg struct {
+	// Kind and the id beside it name what the load was for, so a result that
+	// lands after the sidebar has moved on is dropped. The zero Kind is a single
+	// feed, named by FeedID; a folder load is named by FolderID.
+	Kind     sidebarRowKind
 	FeedID   int64
+	FolderID int64
 	Articles []db.Article
 	Err      error
 }

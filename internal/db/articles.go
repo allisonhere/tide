@@ -148,6 +148,39 @@ func (db *DB) CountStarred() (int64, error) {
 	return n, err
 }
 
+// ListArticlesForFeeds returns the newest articles across feedIDs, for views
+// that merge feeds. An empty list returns nothing.
+func (db *DB) ListArticlesForFeeds(feedIDs []int64, unreadOnly bool) ([]Article, error) {
+	if len(feedIDs) == 0 {
+		return nil, nil
+	}
+	args := make([]any, len(feedIDs))
+	for i, id := range feedIDs {
+		args[i] = id
+	}
+	query := `SELECT ` + articleColumns + ` FROM articles WHERE feed_id IN (?` +
+		strings.Repeat(", ?", len(feedIDs)-1) + `)`
+	if unreadOnly {
+		query += ` AND read = 0`
+	}
+	query += ` ORDER BY published_at DESC LIMIT 200`
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var articles []Article
+	for rows.Next() {
+		a, err := scanArticle(rows)
+		if err != nil {
+			return nil, err
+		}
+		articles = append(articles, a)
+	}
+	return articles, rows.Err()
+}
+
 // CountUnread is the number of unread articles across every local feed.
 func (db *DB) CountUnread() (int64, error) {
 	var n int64

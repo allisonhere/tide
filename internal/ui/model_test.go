@@ -3683,7 +3683,7 @@ func TestFeedsLoadedSelectsFirstFeedInsteadOfFolderByDefault(t *testing.T) {
 	}
 }
 
-func TestFolderSelectionClearsArticlesAndToggleCollapses(t *testing.T) {
+func TestFolderSelectionLoadsMergedArticlesAndToggleCollapses(t *testing.T) {
 	database, err := db.Open()
 	if err != nil {
 		t.Skip("cannot open DB:", err)
@@ -3707,14 +3707,20 @@ func TestFolderSelectionClearsArticlesAndToggleCollapses(t *testing.T) {
 	}})
 	m = m2.(Model)
 
-	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
-	m = m2.(Model)
-	if len(m.filteredArticles) != 0 {
-		t.Fatalf("expected folder selection to clear articles, got %d", len(m.filteredArticles))
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("expected folder selection to load the folder's articles")
+	}
+	if msg, ok := cmd().(ArticlesLoadedMsg); !ok || msg.Kind != rowKindFolder || msg.FolderID != 10 {
+		t.Fatalf("expected a load for folder 10, got %+v", msg)
 	}
 
 	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = m2.(Model)
+	if len(m.filteredArticles) == 0 {
+		t.Fatal("expected collapsing the folder to keep its article list")
+	}
 	// Assert on feed rows rather than a total row count: the sidebar also
 	// carries pinned virtual rows (Saved) that no folder can collapse.
 	for _, row := range m.sidebarRows {

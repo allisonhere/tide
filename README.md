@@ -64,6 +64,7 @@ Enter to restart, Esc to restart later.
 - Full-text search across stored local articles, including titles, content, and AI summaries
 - Vim-style visual selection in the content pane (`v` character-wise, `V` line-wise) with copy to clipboard (`c` / `y`), plus `L` to copy an article's link
 - Unread-only filtering and in-article find
+- **All Unread** and per-folder views that merge articles across your local feeds
 - Headless `tide --refresh`, `--unread-count` and `--bar` (unread count for the Omarchy bar or Waybar)
 - Mark read/unread, open in browser
 - Optional actionable links in content pane (Settings → Display)
@@ -541,6 +542,21 @@ Starring requires a locally stored article. Google Reader feeds are fetched live
 and never persisted, so starring a remote article is refused rather than silently
 lost. Starred articles are never pruned, but deleting a feed removes its articles,
 starred ones included.
+
+### All Unread and folders
+
+**All Unread** sits under Saved: every unread article across your local feeds,
+newest first, with the total as its badge. Selecting a **folder** row lists its
+feeds' articles merged the same way, following the `u` unread-only toggle. In
+both, each row names its feed beside the date.
+
+- `f` refreshes the folder's feeds, or every local feed from All Unread
+- `R` marks a folder read; on All Unread it marks everything read, and asks for
+  a second `R` first because that is hard to undo
+- `Enter` / `Space` still collapse a folder, and keep its list showing
+
+Both cover local feeds only; Google Reader / FreshRSS feeds are fetched live per
+feed and appear only under their own rows.
 
 When `Display → Focus line` is enabled, the content pane highlights the current readable line. `j/↓` and `k/↑` move the focus line and scroll only when needed.
 

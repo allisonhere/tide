@@ -71,3 +71,29 @@ func TestOpenSharesDatabaseWhileAnotherConnectionWrites(t *testing.T) {
 		t.Fatalf("expected the second writer to wait for the lock, got %v", err)
 	}
 }
+
+func TestListArticlesForFeedsMergesAndFilters(t *testing.T) {
+	d := openTestDB(t)
+	a, _ := d.AddFeed("https://example.com/a.xml", "A", "")
+	b, _ := d.AddFeed("https://example.com/b.xml", "B", "")
+	c, _ := d.AddFeed("https://example.com/c.xml", "C", "")
+	if _, err := d.UpsertArticles([]Article{
+		{FeedID: a, GUID: "a1", Title: "A1", PublishedAt: time.Unix(3, 0)},
+		{FeedID: b, GUID: "b1", Title: "B1", PublishedAt: time.Unix(2, 0), Read: true},
+		{FeedID: c, GUID: "c1", Title: "C1", PublishedAt: time.Unix(1, 0)},
+	}); err != nil {
+		t.Fatalf("UpsertArticles: %v", err)
+	}
+
+	all, err := d.ListArticlesForFeeds([]int64{a, b}, false)
+	if err != nil || len(all) != 2 || all[0].GUID != "a1" || all[1].GUID != "b1" {
+		t.Fatalf("expected A and B newest first, got %+v (err %v)", all, err)
+	}
+	unread, _ := d.ListArticlesForFeeds([]int64{a, b}, true)
+	if len(unread) != 1 || unread[0].GUID != "a1" {
+		t.Fatalf("expected only A's unread article, got %+v", unread)
+	}
+	if none, err := d.ListArticlesForFeeds(nil, false); err != nil || none != nil {
+		t.Fatalf("expected nothing for no feeds, got %+v (err %v)", none, err)
+	}
+}
