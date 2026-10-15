@@ -25,7 +25,8 @@ func omarchyBarEnv(t *testing.T) string {
 	defaults := filepath.Join(omarchyRoot, "config", "omarchy", "shell.json")
 	os.MkdirAll(filepath.Dir(defaults), 0o755)
 	os.WriteFile(defaults, []byte(`{"bar":{"layout":{"right":[{"id":"omarchy.clock"}]}}}`), 0o644)
-	os.WriteFile(filepath.Join(binDir, "tide"), []byte("#!/bin/sh\n"), 0o755)
+	current := "#!/bin/sh\necho '{\"text\":\"\",\"tooltip\":\"\",\"class\":\"empty\"}'\n"
+	os.WriteFile(filepath.Join(binDir, "tide"), []byte(current), 0o755)
 	return filepath.Join(cfgHome, "omarchy", "shell.json")
 }
 
@@ -102,5 +103,29 @@ func TestSavingOmarchyBarToggleUpdatesTheBar(t *testing.T) {
 	data, _ = os.ReadFile(shellJSON)
 	if strings.Contains(string(data), `"id": "tide"`) {
 		t.Fatalf("expected Tide removed from the bar:\n%s", data)
+	}
+}
+
+// A tide that predates --bar ignores the flag and starts the reader, and its
+// terminal escape codes end up as the bar's text. The toggle must refuse to
+// point the bar at one, and leave the bar config alone.
+func TestOmarchyBarRefusesATideThatCannotPrintBarStatus(t *testing.T) {
+	shellJSON := omarchyBarEnv(t)
+	// Replace the fake installed tide with an old one: no --bar, junk on stdout.
+	binDir := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
+	old := "#!/bin/sh\nprintf '\\033]11;#1e1e2e\\007\\033_Ga=d,d=A\\033\\\\\\033]111\\007'\n"
+	if err := os.WriteFile(filepath.Join(binDir, "tide"), []byte(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	msg, ok := omarchyBarCmd(true)().(OmarchyBarUpdatedMsg)
+	if !ok || msg.Err == nil {
+		t.Fatalf("expected the toggle to be refused, got %+v", msg)
+	}
+	if !strings.Contains(msg.Err.Error(), "--bar") {
+		t.Fatalf("expected the error to say why, got %q", msg.Err)
+	}
+	if _, err := os.Stat(shellJSON); err == nil {
+		t.Fatal("expected the bar config to be left untouched")
 	}
 }
