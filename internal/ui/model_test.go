@@ -3929,7 +3929,9 @@ func TestSettingsViewRendersUpdateActions(t *testing.T) {
 	view := s.View(62, 40, chrome)
 
 	// The sidebar no longer carries a "CATEGORIES" heading; assert on its rows.
-	if !containsString(view, "DISPLAY") || !containsString(view, "UPDATES") {
+	// Only the selected row is uppercase, so Updates reads "UPDATES" and the
+	// rest are title case.
+	if !containsString(view, "Display") || !containsString(view, "UPDATES") {
 		t.Fatalf("expected categories pane in settings view: %q", view)
 	}
 	if !containsString(view, "Current version") {

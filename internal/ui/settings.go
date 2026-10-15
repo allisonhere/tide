@@ -1824,7 +1824,9 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 func (s Settings) renderSectionNavRow(width int, label, subtitle string, selected, paneFocused bool, chrome managerChrome) string {
 	fg, subFg := chrome.muted, chrome.muted
 	bold := false
+	display := titleCaseSectionLabel(label)
 	if selected {
+		display = strings.ToUpper(label)
 		fg = chrome.accent
 		bold = true
 	}
@@ -1833,11 +1835,11 @@ func (s Settings) renderSectionNavRow(width int, label, subtitle string, selecte
 	innerW := max(1, width-lipgloss.Width(marker)-1)
 	var row string
 	if subtitle == "" {
-		row = padRight(truncate(label, innerW), innerW)
+		row = padRight(truncate(display, innerW), innerW)
 	} else {
 		subW := lipgloss.Width(subtitle)
 		labelW := max(1, innerW-subW-1)
-		left := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(fg).Bold(bold).Width(labelW).Render(truncate(label, labelW))
+		left := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(fg).Bold(bold).Width(labelW).Render(truncate(display, labelW))
 		spacer := lipgloss.NewStyle().Background(chrome.baseBg).Width(1).Render("")
 		right := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(subFg).Render(subtitle)
 		row = left + spacer + right
@@ -1848,6 +1850,17 @@ func (s Settings) renderSectionNavRow(width int, label, subtitle string, selecte
 		Bold(bold).
 		Render(row)
 	return padStyled(styled, width, chrome.baseBg)
+}
+
+// titleCaseSectionLabel converts an uppercase section label ("DISPLAY") to the
+// quiet form used for unselected sidebar rows ("Display"). Short acronyms such
+// as "AI" stay uppercase.
+func titleCaseSectionLabel(label string) string {
+	if label == "" || strings.ToUpper(label) != label || len([]rune(label)) <= 2 {
+		return label
+	}
+	lower := strings.ToLower(label)
+	return strings.ToUpper(lower[:1]) + lower[1:]
 }
 
 func (s Settings) renderFieldLabel(label string, focused bool, _ int, chrome managerChrome) string {

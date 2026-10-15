@@ -1535,3 +1535,37 @@ func TestSettingsOmarchyToggleVisibleWithoutScrollingInShortPane(t *testing.T) {
 		t.Fatalf("expected the Omarchy toggle in a 16-row pane, got:\n%s", view)
 	}
 }
+
+// The sidebar is quiet until you are on a row: the selected section is
+// uppercase and accented, the others are title case, and the focus rail only
+// appears while the sidebar itself has focus.
+func TestSettingsSidebarUppercasesOnlyTheSelectedSection(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setActiveSection(ssFeeds)
+	chrome := newManagerChrome(72, CatppuccinMocha, false)
+
+	s.setFocusedPane(settingsPaneSidebar)
+	focused := ansi.Strip(s.viewSectionsPane(18, 14, chrome))
+	for _, want := range []string{"Display", "FEEDS", "Updates", "Changelog", "AI", "About"} {
+		if !strings.Contains(focused, want) {
+			t.Fatalf("expected %q in the sidebar:\n%s", want, focused)
+		}
+	}
+	for _, unwanted := range []string{"DISPLAY", "UPDATES", "CHANGELOG", "ABOUT", "Feeds"} {
+		if strings.Contains(focused, unwanted) {
+			t.Fatalf("expected %q not to appear in the sidebar:\n%s", unwanted, focused)
+		}
+	}
+	if !strings.Contains(focused, "▌") {
+		t.Fatalf("expected the focus rail beside the selected row:\n%s", focused)
+	}
+
+	s.setFocusedPane(settingsPaneDetail)
+	unfocused := ansi.Strip(s.viewSectionsPane(18, 14, chrome))
+	if strings.Contains(unfocused, "▌") {
+		t.Fatalf("expected no focus rail while the detail pane has focus:\n%s", unfocused)
+	}
+	if !strings.Contains(unfocused, "FEEDS") {
+		t.Fatalf("expected the selected section to stay uppercase without focus:\n%s", unfocused)
+	}
+}
