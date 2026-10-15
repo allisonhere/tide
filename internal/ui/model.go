@@ -675,7 +675,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			FaviconURL:  msg.FaviconURL,
 			Articles:    msg.Articles,
 			Result:      msg.Result,
-		})
+		}, m.cfg.Feed.MuteKeywords)
 		if err != nil {
 			m.setStatus(err.Error(), true)
 		} else if stored.URLUpdatedTo != "" {
@@ -3920,6 +3920,7 @@ func buildSidebarRows(feeds []db.Feed, folders []db.Folder, collapsedFolders map
 
 func (m Model) newFeedManager() FeedManager {
 	fm := NewFeedManagerWithSource(m.db, m.cfg.Source)
+	fm.muteKeywords = m.cfg.Feed.MuteKeywords
 	fm.setData(m.feeds, m.folders)
 	if feed := m.selectedFeed(); feed != nil {
 		fm.selectFeed(feed.ID)

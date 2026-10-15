@@ -123,6 +123,7 @@ func (s staticFeedManagerSource) Editable() bool { return s.editable }
 type FeedManager struct {
 	// Persistent data and row projection are separated so edits can reload without losing navigation state. -allie
 	db               *db.DB
+	muteKeywords     []string // feed.mute_keywords, applied to a new feed's first articles
 	source           feedManagerSource
 	feeds            []db.Feed
 	folders          []db.Folder
@@ -1497,6 +1498,7 @@ func validateHTTPURL(raw string, fieldName string) error {
 func (fm *FeedManager) saveCmd() tea.Cmd {
 	// Snapshot form values before returning the command; Bubble Tea may keep mutating the manager while it runs. -allie
 	rawURL := strings.TrimSpace(fm.urlInput.Value())
+	muteKeywords := fm.muteKeywords
 	titleValue := strings.TrimSpace(fm.titleInput.Value())
 	newFolderName := strings.TrimSpace(fm.newFolderInput.Value())
 	greaderURL := strings.TrimSpace(fm.greaderURLInput.Value())
@@ -1643,7 +1645,7 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 		}
 
 		// Upsert articles immediately so the panes aren't empty
-		if _, err := database.UpsertArticles(refresh.Articles(id, parsed)); err != nil {
+		if _, err := database.UpsertArticles(refresh.ApplyMutes(refresh.Articles(id, parsed), muteKeywords)); err != nil {
 			fmt.Fprintf(os.Stderr, "initial article upsert failed (feed %d): %v\n", id, err)
 		}
 

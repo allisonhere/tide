@@ -88,7 +88,7 @@ func refreshCommand(database *db.DB, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "error listing feeds:", err)
 		return 1
 	}
-	summary := refresh.All(database, feeds, refreshWorkers)
+	summary := refresh.All(database, feeds, refreshWorkers, cfg.Feed.MuteKeywords)
 	for _, f := range summary.Failed {
 		fmt.Fprintf(stderr, "%s: %v\n", f.Feed.Title, f.Err)
 	}

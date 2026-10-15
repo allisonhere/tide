@@ -47,6 +47,7 @@ const (
 	sfFeedMaxBody
 	sfFeedRefreshInterval
 	sfFeedRetentionDays
+	sfFeedMuteKeywords
 	sfUpdateCheckOnStartup
 	sfUpdateCheckNow
 	sfUpdateInstallNow
@@ -193,6 +194,7 @@ type Settings struct {
 	feedMaxBodyInput     textinput.Model
 	refreshIntervalInput textinput.Model
 	retentionDaysInput   textinput.Model
+	muteKeywordsInput    textinput.Model
 	// storage backs the read-only usage line in the Feeds section.
 	storage              settingsStorageState
 	updateCheckOnStartup bool
@@ -284,6 +286,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		feedMaxBodyInput:     mkInput(strconv.Itoa(cfg.Feed.MaxBodyMiB), "10", false),
 		refreshIntervalInput: mkInput(strconv.Itoa(cfg.Feed.RefreshIntervalMinutes), "30", false),
 		retentionDaysInput:   mkInput(strconv.Itoa(cfg.Feed.RetentionDays), "0", false),
+		muteKeywordsInput:    mkInput(strings.Join(cfg.Feed.MuteKeywords, ", "), "sponsored, giveaway", false),
 		updateCheckOnStartup: cfg.Updates.CheckOnStartup,
 		update:               updateState,
 		providerIdx:          providerIndex(cfg.AI.Provider),
@@ -372,6 +375,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	if n, err := strconv.Atoi(strings.TrimSpace(s.retentionDaysInput.Value())); err == nil && n >= 0 {
 		cfg.Feed.RetentionDays = n
 	}
+	cfg.Feed.MuteKeywords = config.ParseMuteKeywords(s.muteKeywordsInput.Value())
 	cfg.Updates.CheckOnStartup = s.updateCheckOnStartup
 
 	cfg.AI.Provider = aiProviderIDs[s.providerIdx]
@@ -513,6 +517,7 @@ func (s *Settings) applyFocus() {
 	s.feedMaxBodyInput.Blur()
 	s.refreshIntervalInput.Blur()
 	s.retentionDaysInput.Blur()
+	s.muteKeywordsInput.Blur()
 	s.openaiInput.Blur()
 	s.claudeInput.Blur()
 	s.geminiInput.Blur()
@@ -535,6 +540,8 @@ func (s *Settings) applyFocus() {
 		s.refreshIntervalInput.Focus()
 	case sfFeedRetentionDays:
 		s.retentionDaysInput.Focus()
+	case sfFeedMuteKeywords:
+		s.muteKeywordsInput.Focus()
 	case sfAPIKey:
 		switch s.providerIdx {
 		case 1:
@@ -586,7 +593,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		}
 		return append(fields, sfActionableLinks, sfFilterLinks, sfArticleImages, sfBrowser, sfConfirmQuit)
 	case ssFeeds:
-		return []settingsField{sfBackToSections, sfFeedRefreshInterval, sfFeedRetentionDays, sfFeedMaxBody}
+		return []settingsField{sfBackToSections, sfFeedRefreshInterval, sfFeedRetentionDays, sfFeedMuteKeywords, sfFeedMaxBody}
 	case ssUpdates:
 		fields := []settingsField{sfBackToSections, sfUpdateCheckOnStartup, sfUpdateCheckNow}
 		if s.updateNowActionVisible() {
@@ -680,7 +687,7 @@ func (s Settings) isTextInput() bool {
 		return false
 	}
 	switch s.focusedField {
-	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfFeedRetentionDays, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
+	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfFeedRetentionDays, sfFeedMuteKeywords, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
 		sfRetroBg, sfRetroFg, sfRetroAccent:
 		return true
 	}
@@ -701,6 +708,8 @@ func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) 
 		s.refreshIntervalInput, cmd = s.refreshIntervalInput.Update(msg)
 	case sfFeedRetentionDays:
 		s.retentionDaysInput, cmd = s.retentionDaysInput.Update(msg)
+	case sfFeedMuteKeywords:
+		s.muteKeywordsInput, cmd = s.muteKeywordsInput.Update(msg)
 	case sfAPIKey:
 		switch s.providerIdx {
 		case 1:
@@ -799,6 +808,8 @@ func (s Settings) focusedTextInputCursorPosition() int {
 		return s.refreshIntervalInput.Position()
 	case sfFeedRetentionDays:
 		return s.retentionDaysInput.Position()
+	case sfFeedMuteKeywords:
+		return s.muteKeywordsInput.Position()
 	case sfAPIKey:
 		switch s.providerIdx {
 		case 1:
@@ -1243,7 +1254,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
-	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfFeedRetentionDays, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
+	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfFeedRetentionDays, sfFeedMuteKeywords, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
 		sfRetroBg, sfRetroFg, sfRetroAccent:
 		// Enter advances to next field; everything else goes to the text input.
 		if keyMatches(key, keys.Enter) {
@@ -1387,6 +1398,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		b.addGroup("Feeds")
 		b.addInput("Refresh every (minutes)", s.refreshIntervalInput, sfFeedRefreshInterval)
 		b.addInput("Delete read after (days)", s.retentionDaysInput, sfFeedRetentionDays)
+		b.addInput("Mute titles containing", s.muteKeywordsInput, sfFeedMuteKeywords)
 		b.addInput("Feed max size (MiB)", s.feedMaxBodyInput, sfFeedMaxBody)
 		b.addValue("Stored", s.storage.summary(), false)
 
@@ -2187,6 +2199,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "how often feeds refresh in the background; 0 = only on startup and f/F"
 	case sfFeedRetentionDays:
 		return "0 keeps everything; starred, summarized and unread articles are never deleted"
+	case sfFeedMuteKeywords:
+		return "comma-separated; new articles whose title contains one arrive already read"
 	case sfReadingWidth:
 		return "max columns for article text; 0 = no limit (e.g. 80, 100)"
 	case sfTestAIConnection:

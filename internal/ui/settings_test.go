@@ -1407,3 +1407,21 @@ func TestSettingsManualInstallCopyKeySetsAction(t *testing.T) {
 		t.Fatalf("expected copy manual install action, got %v", got)
 	}
 }
+
+func TestSettingsMuteKeywordsRoundTrip(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Feed.MuteKeywords = []string{"sponsored", "giveaway"}
+	s := newSettings(cfg, settingsUpdateState{})
+	if got := s.muteKeywordsInput.Value(); got != "sponsored, giveaway" {
+		t.Fatalf("expected keywords joined in the field, got %q", got)
+	}
+
+	s.setActiveSection(ssFeeds)
+	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfFeedMuteKeywords)
+	s.muteKeywordsInput.SetValue("giveaway, , Crypto ")
+	got := s.ApplyTo(cfg).Feed.MuteKeywords
+	if len(got) != 2 || got[0] != "giveaway" || got[1] != "Crypto" {
+		t.Fatalf("unexpected keywords from the field: %q", got)
+	}
+}

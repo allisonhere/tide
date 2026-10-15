@@ -261,6 +261,10 @@ Feed options:
   Starred articles, articles with a saved AI summary, and unread articles are
   never deleted at any age, and neither are articles a feed served without a
   publication date
+- **Mute titles containing:** comma-separated keywords (`feed.mute_keywords`).
+  A newly fetched article whose title contains one, ignoring case, is stored
+  already read, so it never counts as unread. Articles already in the library
+  are left alone
 - Shows the current article count and database size, so the cost of keeping
   everything is visible next to the setting that changes it
 - Set the maximum feed body size accepted during parsing
@@ -389,6 +393,7 @@ density = "compact"
 max_body_mib = 10
 refresh_interval_minutes = 30   # 0 disables the background refresh
 retention_days = 0              # 0 keeps every article forever
+mute_keywords = []              # e.g. ["sponsored", "giveaway"]
 
 [ai]
 provider = "ollama" # openai | claude | gemini | ollama | ""

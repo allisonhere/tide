@@ -73,10 +73,11 @@ type Stored struct {
 
 // Store writes a successful fetch: its articles, the feed's title,
 // description and favicon (keeping the stored ones when the feed sends
-// none), the fetch time, and the new URL after a permanent redirect.
-func Store(database *db.DB, f Fetched) (Stored, error) {
+// none), the fetch time, and the new URL after a permanent redirect. New
+// articles whose title matches a mute keyword are stored already read.
+func Store(database *db.DB, f Fetched, mute []string) (Stored, error) {
 	var stored Stored
-	n, err := database.UpsertArticles(f.Articles)
+	n, err := database.UpsertArticles(ApplyMutes(f.Articles, mute))
 	if err != nil {
 		return stored, fmt.Errorf("store articles: %w", err)
 	}
@@ -104,6 +105,29 @@ func Store(database *db.DB, f Fetched) (Stored, error) {
 	return stored, errors.Join(errs...)
 }
 
+// ApplyMutes marks articles read when their title contains a mute keyword,
+// ignoring case. Read only takes effect on insert, so an article already
+// stored keeps whatever state it has.
+func ApplyMutes(articles []db.Article, mute []string) []db.Article {
+	if len(mute) == 0 {
+		return articles
+	}
+	lowered := make([]string, len(mute))
+	for i, k := range mute {
+		lowered[i] = strings.ToLower(k)
+	}
+	for i := range articles {
+		title := strings.ToLower(articles[i].Title)
+		for _, k := range lowered {
+			if strings.Contains(title, k) {
+				articles[i].Read = true
+				break
+			}
+		}
+	}
+	return articles
+}
+
 func firstNonBlank(s, fallback string) string {
 	if s = strings.TrimSpace(s); s != "" {
 		return s
@@ -124,9 +148,10 @@ type Summary struct {
 	Failed []FeedError
 }
 
-// All refreshes feeds with at most workers fetches in flight. One feed's
-// failure is recorded in the summary and does not stop the rest.
-func All(database *db.DB, feeds []db.Feed, workers int) Summary {
+// All refreshes feeds with at most workers fetches in flight, muting as Store
+// does. One feed's failure is recorded in the summary and does not stop the
+// rest.
+func All(database *db.DB, feeds []db.Feed, workers int, mute []string) Summary {
 	workers = max(1, workers)
 	jobs := make(chan db.Feed)
 	var (
@@ -143,7 +168,7 @@ func All(database *db.DB, feeds []db.Feed, workers int) Summary {
 				var stored Stored
 				err := fetched.Result.Err
 				if fetched.Result.IsSuccess() {
-					stored, err = Store(database, fetched)
+					stored, err = Store(database, fetched, mute)
 				} else if err == nil {
 					err = errors.New(fetched.Result.FriendlyMessage())
 				}

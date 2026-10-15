@@ -52,7 +52,7 @@ func TestStoreCountsNewArticlesAndKeepsExistingState(t *testing.T) {
 	if !first.Result.IsSuccess() {
 		t.Fatalf("fetch failed: %v", first.Result.Err)
 	}
-	stored, err := Store(database, first)
+	stored, err := Store(database, first, nil)
 	if err != nil {
 		t.Fatalf("Store: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestStoreCountsNewArticlesAndKeepsExistingState(t *testing.T) {
 		t.Fatalf("SetStarred: %v", err)
 	}
 
-	stored, err = Store(database, Fetch(feedID, srv.URL+"/feed"))
+	stored, err = Store(database, Fetch(feedID, srv.URL+"/feed"), nil)
 	if err != nil {
 		t.Fatalf("second Store: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestAllRecordsFailuresWithoutStoppingOtherFeeds(t *testing.T) {
 		t.Fatalf("ListFeeds: %v", err)
 	}
 
-	summary := All(database, feeds, 4)
+	summary := All(database, feeds, 4, nil)
 	if summary.Feeds != 2 || summary.New != 2 {
 		t.Fatalf("expected 2 feeds and 2 new articles, got %+v", summary)
 	}
@@ -112,5 +112,27 @@ func TestAllRecordsFailuresWithoutStoppingOtherFeeds(t *testing.T) {
 	}
 	if articles, _ := database.ListArticles(goodID); len(articles) != 2 {
 		t.Fatalf("expected good feed stored, got %d", len(articles))
+	}
+}
+
+func TestStoreMutesOnlyNewArticles(t *testing.T) {
+	database := openDB(t)
+	srv := feedServer(t)
+	feedID, _ := database.AddFeed(srv.URL+"/feed", "", "")
+
+	// "first" matches without regard to case; "Second" does not.
+	if _, err := Store(database, Fetch(feedID, srv.URL+"/feed"), []string{"FIRST"}); err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	if n, _ := database.CountUnread(); n != 1 {
+		t.Fatalf("expected the muted article stored read, got %d unread", n)
+	}
+
+	// A keyword added later does not reach back to articles already stored.
+	if _, err := Store(database, Fetch(feedID, srv.URL+"/feed"), []string{"second"}); err != nil {
+		t.Fatalf("second Store: %v", err)
+	}
+	if n, _ := database.CountUnread(); n != 1 {
+		t.Fatalf("expected existing articles left alone, got %d unread", n)
 	}
 }
