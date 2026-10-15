@@ -232,9 +232,12 @@ func Save(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
-	return toml.NewEncoder(f).Encode(cfg)
+	if err := toml.NewEncoder(f).Encode(cfg); err != nil {
+		_ = f.Close()
+		return err
+	}
+	// A failed close can mean the write never reached disk, so report it.
+	return f.Close()
 }
 
 func configPath() (string, error) {

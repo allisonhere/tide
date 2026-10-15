@@ -172,7 +172,7 @@ func (u *Updater) Download(release ReleaseInfo) (DownloadedAsset, error) {
 		return DownloadedAsset{}, fmt.Errorf("create archive file: %w", err)
 	}
 	if _, err := io.Copy(archiveFile, resp.Body); err != nil {
-		archiveFile.Close()
+		_ = archiveFile.Close()
 		return DownloadedAsset{}, fmt.Errorf("write archive file: %w", err)
 	}
 	if err := archiveFile.Close(); err != nil {
@@ -391,13 +391,13 @@ func extractTarGz(archivePath, destDir, expectedName string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("open archive: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gzr, err := gzip.NewReader(f)
 	if err != nil {
 		return "", fmt.Errorf("open gzip stream: %w", err)
 	}
-	defer gzr.Close()
+	defer func() { _ = gzr.Close() }()
 
 	tr := tar.NewReader(gzr)
 	for {
@@ -422,7 +422,7 @@ func extractTarGz(archivePath, destDir, expectedName string) (string, error) {
 			return "", fmt.Errorf("create extracted binary: %w", err)
 		}
 		if _, err := io.Copy(outFile, tr); err != nil {
-			outFile.Close()
+			_ = outFile.Close()
 			return "", fmt.Errorf("extract binary: %w", err)
 		}
 		if err := outFile.Close(); err != nil {
@@ -560,14 +560,14 @@ func copyExecutable(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		return err
 	}
 	if err := out.Close(); err != nil {

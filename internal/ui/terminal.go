@@ -31,7 +31,7 @@ func setTermBgCmd(bg lipgloss.Color) tea.Cmd {
 	return func() tea.Msg {
 		if tty, err := openTTY(); err == nil {
 			fmt.Fprintf(tty, "\x1b]11;%s\x07", string(bg))
-			tty.Close()
+			_ = tty.Close()
 		}
 		return nil
 	}

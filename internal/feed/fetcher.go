@@ -40,7 +40,7 @@ func newBrowserTransport() *http.Transport {
 
 			spec, err := utls.UTLSIdToSpec(utls.HelloChrome_Auto)
 			if err != nil {
-				conn.Close()
+				_ = conn.Close()
 				return nil, fmt.Errorf("utls spec: %w", err)
 			}
 			for i, ext := range spec.Extensions {
@@ -53,11 +53,11 @@ func newBrowserTransport() *http.Transport {
 
 			uconn := utls.UClient(conn, &utls.Config{ServerName: host}, utls.HelloCustom)
 			if err := uconn.ApplyPreset(&spec); err != nil {
-				conn.Close()
+				_ = conn.Close()
 				return nil, fmt.Errorf("utls preset: %w", err)
 			}
 			if err := uconn.HandshakeContext(ctx); err != nil {
-				conn.Close()
+				_ = conn.Close()
 				return nil, err
 			}
 			return uconn, nil

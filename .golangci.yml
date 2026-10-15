@@ -1,0 +1,24 @@
+# Default linters, plus errcheck exclusions for calls whose error is
+# conventionally ignored. Everything else is reported.
+version: "2"
+
+linters:
+  settings:
+    errcheck:
+      exclude-functions:
+        # Writing to a writer we do not own (stdout, stderr, a buffer).
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        # Closing something that was only read from, or a transaction after a
+        # commit (Rollback then returns sql.ErrTxDone).
+        - (io.ReadCloser).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Tx).Rollback
+  exclusions:
+    rules:
+      # Test setup calls are followed by assertions on their result.
+      - path: _test\.go
+        linters:
+          - errcheck

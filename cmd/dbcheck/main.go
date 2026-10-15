@@ -26,7 +26,9 @@ func main() {
 	defer db.Close()
 
 	// Enable foreign keys
-	db.Exec("PRAGMA foreign_keys=ON")
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		fmt.Println("pragma error:", err)
+	}
 
 	rows, err := db.Query(`
 		SELECT f.id, f.url, f.title, f.last_fetched,
@@ -43,7 +45,10 @@ func main() {
 	for rows.Next() {
 		var id, lastFetched, unread int64
 		var url, title string
-		rows.Scan(&id, &url, &title, &lastFetched, &unread)
+		if err := rows.Scan(&id, &url, &title, &lastFetched, &unread); err != nil {
+			fmt.Println("scan error:", err)
+			continue
+		}
 		fmt.Printf("  feed id=%d title=%q url=%q last_fetched=%d unread=%d\n", id, title, url, lastFetched, unread)
 		n++
 	}
@@ -51,6 +56,8 @@ func main() {
 
 	// Check articles
 	var acount int
-	db.QueryRow("SELECT COUNT(*) FROM articles").Scan(&acount)
+	if err := db.QueryRow("SELECT COUNT(*) FROM articles").Scan(&acount); err != nil {
+		fmt.Println("count error:", err)
+	}
 	fmt.Printf("total articles in DB: %d\n", acount)
 }

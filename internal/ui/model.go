@@ -1540,7 +1540,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.confirmedTheme = m.themeCursor
 			m.overlay = overlayNone
 			m.cfg.Theme = pickableThemeNameAt(m.confirmedTheme)
-			config.Save(m.cfg)
+			m.saveConfig()
 			themeCmd = m.startOmarchyWatchIfNeeded()
 			if len(m.filteredArticles) > 0 {
 				m.setViewportArticle(m.filteredArticles[m.articleCursor])
@@ -1719,7 +1719,7 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			feed.SetMaxFeedBodyBytes(m.cfg.Feed.MaxBodyMiB << 20)
 			m.reconcileImagesAfterSettings()
-			config.Save(m.cfg)
+			m.saveConfig()
 			summarizer, _ := ai.New(m.cfg.AI)
 			m.summarizer = summarizer
 			m.resetSourceClient()
@@ -3396,6 +3396,15 @@ func (m *Model) selectPendingArticle() {
 // non-navigating reload, if it is still in the filtered list. Unlike
 // selectPendingArticle it leaves the unread filter as it is — the reload may be
 // the one that just applied a new filter setting.
+// saveConfig writes the config file, and says so in the status line when it
+// cannot: a settings or theme change that silently failed to persist would
+// look saved until the next launch.
+func (m *Model) saveConfig() {
+	if err := config.Save(m.cfg); err != nil {
+		m.setStatus("could not save settings: "+err.Error(), true)
+	}
+}
+
 // keepCurrentArticleAcrossReload queues the article under the cursor so the
 // next load of the list puts the cursor back on it.
 func (m *Model) keepCurrentArticleAcrossReload() {

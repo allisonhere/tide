@@ -24,7 +24,7 @@ func ttyQuery(seq string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	defer tty.Close()
+	defer func() { _ = tty.Close() }()
 
 	fd := int(tty.Fd())
 	orig, err := unix.IoctlGetTermios(fd, ioctlGetTermios)
@@ -39,7 +39,8 @@ func ttyQuery(seq string) (string, bool) {
 	if err := unix.IoctlSetTermios(fd, ioctlSetTermios, &raw); err != nil {
 		return "", false
 	}
-	defer unix.IoctlSetTermios(fd, ioctlSetTermios, orig)
+	// Best-effort restore: the probe is over and there is nowhere to report to.
+	defer func() { _ = unix.IoctlSetTermios(fd, ioctlSetTermios, orig) }()
 
 	if _, err := tty.WriteString(seq); err != nil {
 		return "", false

@@ -91,7 +91,7 @@ func run() (code int, restartExec string) {
 	}
 	// Belt-and-suspenders cleanup: after Bubble Tea releases the terminal, purge
 	// any lingering images. Leaving the alt-screen clears them on most terminals.
-	cleanupImages := func() { io.WriteString(os.Stdout, image.DeleteAllSequence()) }
+	cleanupImages := func() { _, _ = io.WriteString(os.Stdout, image.DeleteAllSequence()) }
 	defer cleanupImages()
 
 	p := tea.NewProgram(model,
