@@ -2889,16 +2889,6 @@ func (m Model) renderOverlay(base string) string {
 	return overlayOnBase(base, box, m.width, m.height, m.styles.Theme.Bg, m.cfg.Display.Shadow && !m.styles.PlainUI)
 }
 
-func renderChromeOverlayBox(inner string, width int, chrome managerChrome, border lipgloss.Color) string {
-	return lipgloss.NewStyle().
-		Background(chrome.baseBg).
-		Border(lipPaneBorder(chrome.plainUI)).
-		BorderForeground(border).
-		BorderBackground(chrome.baseBg).
-		Width(width).
-		Render(inner)
-}
-
 // searchResultRows is how many result rows the overlay shows at once. Each
 // result occupies two lines (title, then a dim meta/snippet line).
 const searchResultRows = 8
@@ -4123,19 +4113,6 @@ func (m *Model) selectSidebarFeed(feedID int64) bool {
 	return false
 }
 
-func (m Model) selectedFolderHasRemoteFeeds() bool {
-	folderID, ok := m.selectedFolderID()
-	if !ok {
-		return false
-	}
-	for _, feed := range m.feeds {
-		if feed.FolderID == folderID && m.isRemoteFeed(feed.ID) {
-			return true
-		}
-	}
-	return false
-}
-
 func (m *Model) clearArticles() {
 	m.articles = nil
 	m.filteredArticles = nil
@@ -5321,9 +5298,6 @@ func (m Model) contentPaneOuterHeight() int {
 }
 func (m Model) contentPaneContentWidth() int {
 	return max(1, m.articlesPaneWidth()-2*m.paneBorderSize())
-}
-func (m Model) contentViewportHeight() int {
-	return max(1, m.contentPaneOuterHeight()-2*m.paneBorderSize())
 }
 func (m Model) contentBodyHeight() int {
 	return max(1, m.contentPaneOuterHeight()-2*m.paneBorderSize()-m.paneHeaderHeight())

@@ -2017,13 +2017,6 @@ func (fm FeedManager) viewListActions(width int, chrome managerChrome) string {
 	)
 }
 
-func renderManagerInset(spaces int, s string) string {
-	if spaces <= 0 {
-		return s
-	}
-	return strings.Repeat(" ", spaces) + s
-}
-
 func (fm FeedManager) feedByID(id int64) *db.Feed {
 	for i := range fm.feeds {
 		if fm.feeds[i].ID == id {
@@ -2354,20 +2347,6 @@ type managerChrome struct {
 	keyLabel           lipgloss.Style
 	statusBar          lipgloss.Style
 	plainUI            bool
-}
-
-func (c managerChrome) pickerChevronLeft() string {
-	if c.plainUI {
-		return "< "
-	}
-	return "◀ "
-}
-
-func (c managerChrome) pickerChevronRight() string {
-	if c.plainUI {
-		return " >"
-	}
-	return " ▶"
 }
 
 func newManagerChrome(width int, t Theme, plainUI bool) managerChrome {
@@ -2742,30 +2721,6 @@ func secretFingerprint(value string) string {
 	return fmt.Sprintf("%06x", h.Sum32())[:6]
 }
 
-func renderManagerInput(width int, value, placeholder string, focused bool, chrome managerChrome) string {
-	textW := max(1, width-1)
-	inputBg := chrome.fieldBg
-	dimBg := chrome.surfaceBg
-	bg := inputBg
-	if !focused {
-		bg = dimBg
-	}
-	cursor := lipgloss.NewStyle().Background(bg).Foreground(chrome.accent).Bold(true)
-	text := lipgloss.NewStyle().Background(bg).Foreground(chrome.text)
-	ghost := lipgloss.NewStyle().Background(bg).Foreground(chrome.muted)
-
-	value = strings.TrimSpace(value)
-	var line string
-	if value == "" {
-		line = cursor.Render("> ") + ghost.Render(placeholder)
-	} else if focused {
-		line = cursor.Render("> ") + text.Render(value)
-	} else {
-		line = text.Render(value)
-	}
-	return lipgloss.NewStyle().Background(bg).Padding(0, 1).Render(clampView(line, textW, 1, bg))
-}
-
 // renderManagerPicker delegates to the soft-panel picker so the manager's
 // selectors match Settings: value on the left, ‹› pinned to the right edge.
 // styles is retained for signature compatibility with the call sites.
@@ -2801,18 +2756,6 @@ func renderManagerColorPicker(width int, option folderColorOption, focused bool,
 		lipgloss.NewStyle().Background(chrome.baseBg).Render(strings.Repeat(" ", gap)) +
 		lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chevronFg).Bold(focused).Render(chevrons) +
 		lipgloss.NewStyle().Background(chrome.baseBg).Render(" ")
-}
-
-func renderManagerRow(width int, title string, chrome managerChrome) string {
-	textW := max(1, width-2)
-	rowBg := chrome.baseBg
-	row := padRight(truncate(title, textW), textW)
-	rendered := lipgloss.NewStyle().
-		Background(rowBg).
-		Foreground(chrome.text).
-		Padding(0, 1).
-		Render(row)
-	return clampView(rendered, width, 1, rowBg)
 }
 
 // managerFolderMarker returns the leading glyph that distinguishes a folder row.

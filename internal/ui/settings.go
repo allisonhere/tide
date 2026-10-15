@@ -1716,21 +1716,6 @@ func (b *settingsFormBuilder) addAITestConnection() {
 	b.addBlank()
 }
 
-func (s Settings) aiKeyStateLabel() string {
-	if s.providerIdx < 1 || s.providerIdx > 3 {
-		return ""
-	}
-
-	value := strings.TrimSpace(s.selectedAIKeyValue())
-	if value == "" {
-		return "empty"
-	}
-	if _, ok := s.selectedAIKeyValidation(); ok {
-		return "stored"
-	}
-	return "check"
-}
-
 type aiConnectionState int
 
 const (
@@ -1779,16 +1764,6 @@ func (s Settings) inputWidth(field settingsField, maxWidth int) int {
 	default:
 		return min(maxWidth, 32)
 	}
-}
-
-func (s Settings) dateLabel() string {
-	return strings.ToLower(dateFormatLabels[s.dateFormatIdx])
-}
-
-func (s Settings) renderSectionLabel(label string, width int, chrome managerChrome) string {
-	bar := lipgloss.NewStyle().Background(chrome.highlight).Width(2).Render("  ")
-	title := chrome.sectionLabel.Copy().Foreground(chrome.text).Width(width - 2).Render(" " + label)
-	return lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render(bar + title)
 }
 
 // Wide enough for "Feed max size (MiB)" with sectionLabel horizontal padding inside Width().
@@ -2230,19 +2205,6 @@ func (s Settings) renderAIConnectionStatus(width int, focused bool, chrome manag
 	return indicator + gap + label
 }
 
-// renderToggleHint appends a small hint showing the current value label.
-func (s Settings) renderToggleHint(active bool, trueLabel, falseLabel string, focused bool, chrome managerChrome) string {
-	val := falseLabel
-	if active {
-		val = trueLabel
-	}
-	style := chrome.keyLabel
-	if !focused {
-		style = lipgloss.NewStyle().Background(chrome.baseBg).Foreground(chrome.muted)
-	}
-	return style.Render("  " + val)
-}
-
 func (s Settings) renderProviderSelector(width int, chrome managerChrome) string {
 	focused := s.focusedField == sfProvider
 	providerName := aiProviderLabels[s.providerIdx]
@@ -2355,14 +2317,6 @@ func (s Settings) fieldHint(field settingsField) string {
 	default:
 		return ""
 	}
-}
-
-func (s Settings) renderInlineHint(text string, width int, chrome managerChrome) string {
-	return lipgloss.NewStyle().
-		Background(chrome.baseBg).
-		Foreground(chrome.muted).
-		Width(max(1, width)).
-		Render(text)
 }
 
 func (s Settings) renderAboutSection(width int, chrome managerChrome) settingsSectionBody {
@@ -2524,22 +2478,6 @@ func (s Settings) renderAboutHeroTextLine(text string, width, row int, bold bool
 	return b.String()
 }
 
-func (s Settings) renderAboutHeroWaveLine(width, row int) string {
-	pattern := aboutHeroWavePattern(s.aboutGradientFrame, row, width)
-
-	var b strings.Builder
-	for i, ch := range []rune(pattern) {
-		sceneBg := aboutHeroBackground(s.aboutGradientFrame, row, i, width)
-		foam := aboutHeroFoamSample(s.aboutGradientFrame, row, i, width)
-		sceneFg := aboutHeroWaveForeground(sceneBg, row, ch, foam)
-		reveal, shimmer := aboutHeroRevealMask(s.aboutGradientFrame, row, i, width)
-		bg := aboutHeroMaskedBackground(sceneBg, reveal, shimmer)
-		fg := aboutHeroMaskedForeground(sceneFg, bg, reveal, shimmer, ch != ' ')
-		b.WriteString(renderAboutHeroCell(ch, bg, fg, foam > 0.45 && ch != ' ' && reveal > 0.28))
-	}
-	return b.String()
-}
-
 func renderAboutHeroCell(ch rune, bg, fg lipgloss.Color, bold bool) string {
 	return lipgloss.NewStyle().
 		Background(bg).
@@ -2590,39 +2528,6 @@ func aboutHeroTextForeground(bg lipgloss.Color, row int, ch rune) lipgloss.Color
 	default:
 		return readableText(lipgloss.Color("#c2dde9"), bg, 4.5)
 	}
-}
-
-func aboutHeroWavePattern(frame, row, width int) string {
-	switch row {
-	case 2:
-		return aboutRepeatToLen("   ~~~      __/\\__      ~~~~      _/\\_      ", width)
-	default:
-		return aboutRepeatToLen("  __/\\\\____/\\\\\\___..___/\\\\____/\\\\\\__  ", width)
-	}
-}
-
-func aboutHeroFoamSample(frame, row, col, width int) float64 {
-	return 0
-}
-
-func aboutHeroWaveForeground(bg lipgloss.Color, row int, ch rune, foam float64) lipgloss.Color {
-	base := lipgloss.Color("#9fd1df")
-	if row == 3 {
-		base = lipgloss.Color("#d8f2fb")
-	}
-	if ch == ' ' {
-		base = lipgloss.Color("#6ba0b3")
-	}
-	if ch == '.' {
-		base = lipgloss.Color("#eefcff")
-	}
-	if foam > 0 && ch != ' ' {
-		base = blendLipglossColor(base, lipgloss.Color("#ffffff"), clamp01(foam*0.75))
-	}
-	if contrastRatio(base, bg) < 4.5 {
-		return readableText(base, bg, 4.5)
-	}
-	return base
 }
 
 func aboutHeroRevealMask(frame, row, col, width int) (float64, float64) {
@@ -2676,39 +2581,8 @@ func aboutCenterText(s string, width int) string {
 	return strings.Repeat(" ", left) + s + strings.Repeat(" ", right)
 }
 
-func aboutRepeatToLen(pattern string, n int) string {
-	if pattern == "" {
-		return strings.Repeat(" ", n)
-	}
-	var b strings.Builder
-	for b.Len() < n+len(pattern) {
-		b.WriteString(pattern)
-	}
-	return b.String()[:n]
-}
-
-func aboutScrollLeft(pattern string, width, offset int) string {
-	base := aboutRepeatToLen(pattern, width+len(pattern))
-	shift := offset % len(pattern)
-	return base[shift : shift+width]
-}
-
-func aboutScrollRight(pattern string, width, offset int) string {
-	shift := offset % len(pattern)
-	base := aboutRepeatToLen(pattern, width+len(pattern))
-	start := len(pattern) - shift
-	if start == len(pattern) {
-		start = 0
-	}
-	return base[start : start+width]
-}
-
 func clamp01(v float64) float64 {
 	return math.Max(0, math.Min(1, v))
-}
-
-func rgbLipglossColor(r, g, b int) lipgloss.Color {
-	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", r, g, b))
 }
 
 func blendLipglossColor(a, b lipgloss.Color, t float64) lipgloss.Color {

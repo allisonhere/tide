@@ -89,13 +89,6 @@ func buildPlace(id uint32, x, y, cols, rows int) string {
 	return wrapAtCursor(x, y, place)
 }
 
-// buildKeepalivePlace is identical to buildPlace; it exists as a distinct name
-// so callers can express intent (a cheap re-assert of an existing placement
-// after a full repaint, no retransmit).
-func buildKeepalivePlace(id uint32, x, y, cols, rows int) string {
-	return buildPlace(id, x, y, cols, rows)
-}
-
 // buildDelete removes image id and its placements from the screen and frees its
 // data (d=I). Using d=I rather than d=i avoids leaking transmitted image data
 // for the lifetime of the terminal session.

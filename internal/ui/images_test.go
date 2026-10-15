@@ -375,16 +375,6 @@ func repeatSpace(n int) string {
 	return string(b)
 }
 
-func countNL(s string) int {
-	n := 0
-	for _, r := range s {
-		if r == '\n' {
-			n++
-		}
-	}
-	return n
-}
-
 func TestResizeCurrentImage_ReservesCappedRows(t *testing.T) {
 	m := newImageTestModel(t, true)
 	m.EnableImages(img.Capability{Supported: true, Protocol: img.ProtocolKitty, CellW: 8, CellH: 16},
