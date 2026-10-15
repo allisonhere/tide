@@ -1,8 +1,36 @@
-# Status — 2026-09-01
+# Status — 2026-10-15
 
-## Current branch: feat/article-images
+## Current branch: main
+
+Everything below is merged to `main`. Released: v1.2.1. Unreleased, on `main`
+since v1.2.1: everything under "Since v1.2.1" (see `CHANGELOG.md`).
 
 ## What's working
+
+### Since v1.2.1 (unreleased)
+- **All Unread** virtual row under Saved (unread across local feeds), and folder rows that list
+  their feeds' articles merged. Article loads carry the sidebar row kind they were made for
+  (`ArticlesLoadedMsg.Kind`/`FolderID`), which replaced the old Saved sentinel feed id in the
+  stale-load guard. Merged rows name their feed. `f` / `R` work on both; `R` on All Unread needs a
+  second press.
+- **Read articles in local feeds** (#11): the feed loader follows the unread-only setting, `u`
+  reloads when it needs read rows and works from the sidebar.
+- **Mute keywords** (`feed.mute_keywords`): applied in `refresh.Store` / `refresh.ApplyMutes`;
+  new articles are stored already read. `db.UpsertArticles` takes `Read` on insert only.
+- **`internal/refresh`**: one fetch-and-store path for the reader, the feed manager's add flow and
+  the headless runner. `tide --refresh`, `--unread-count`, `--bar`, `--help` (`cli.go`); the
+  database opens with a 5 s busy timeout so they can run beside the reader.
+- **Omarchy bar** (`internal/omarchy/bar.go`): Settings → Feeds → Show in Omarchy bar adds or
+  removes a `tide --bar` command module in `~/.config/omarchy/shell.json` (backed up first; starts
+  from Omarchy's defaults when the user has no file, since the shell does not merge).
+- **Settings**: Display and Feeds fields are grouped; a `CHANGELOG` section renders the embedded
+  `CHANGELOG.md`; the panel is 84 columns; only the selected sidebar section is uppercase. Tab order
+  (`sectionFields`) and drawn order (`viewSectionBody`) are separate lists, guarded by
+  `TestSettingsTabOrderMatchesDrawnOrder`.
+- **Modal drop shadow** (`internal/ui/shadow.go`, `display.shadow`): blended into the base behind
+  the dialog, color derived from the theme background; off for the plain-ASCII VT52 theme.
+
+### Earlier
 - Toggleable pane header bars (`Settings → Display → Pane header bars`, on by
   default): hiding them restores one row in each pane and moves the focused
   pane's title and shortcuts to the status bar.
@@ -29,6 +57,13 @@
   One `sudo rm -f /usr/local/bin/tide` on upgrade, then never again.
 
 ## Known issues / next up
+- Cut the next release: `CHANGELOG.md` still lists everything under **Unreleased**, and `deploy.sh`
+  does not roll that heading to the new version yet; rename it by hand when releasing
+- Merged views (All Unread, folders) and mute keywords cover local feeds only. Google Reader /
+  FreshRSS feeds are fetched live per feed and never stored, so they appear only under their own
+  rows
+- `PLAN.md` and `folders.md` are the original implementation briefs, kept for history; they do not
+  describe the current code
 - Feed manager stability pass landed: shared detail-pane geometry, explicit background coverage, and regression tests for narrow widths and cancel/focus transitions
 - Keep monitoring screenshots for theme-specific Lip Gloss edge cases, but there is no current known reproducible background-bleed case in the feed manager
 

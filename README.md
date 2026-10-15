@@ -9,6 +9,39 @@ The reusable themed UI toolkit derived from Tide is available as
 
 ## What’s new
 
+**All Unread, and folders that open.** A new **All Unread** row sits under ★ Saved and lists every
+unread article across your local feeds, newest first, with the total as its badge. Selecting a
+**folder** now lists its feeds' articles together instead of emptying the pane, following the `u`
+unread-only toggle, and each row in a merged list names its feed. `f` refreshes the feeds in view
+and `R` marks them read; on All Unread, `R` asks for a second press first.
+
+**Mute what you don't read.** **Settings → Feeds → Filtering → Mute titles containing**
+(`feed.mute_keywords`): a newly fetched article whose title contains one of your comma-separated
+keywords, in any case, arrives already read, so it never counts as unread. Articles you already
+have are left alone.
+
+**Tide without the reader, and in your bar.** `tide --refresh`, `tide --unread-count` and
+`tide --bar` run without opening the UI, and are safe to run while it is open, so a cron job can
+keep feeds fresh. `--bar` prints Waybar-style JSON; on Omarchy, **Settings → Feeds → Omarchy bar →
+Show in Omarchy bar** puts your unread count in the bar with no config editing. See
+[Command Line](#command-line).
+
+**Settings, tidied.** Display is split into **Appearance**, **Panes**, **Reading** and
+**Behavior**, Feeds into **Refresh**, **Library** and **Filtering**, the panel is wider so hints
+fit on a line, and only the section you are on is capitalised in the sidebar. A new **Changelog**
+section shows these release notes inside the app, bundled with the build so they work offline.
+
+**Dialogs cast a shadow.** Settings, search, the theme picker and the other dialogs now float over
+the panes with a drop shadow that adapts to the theme: it steps down further on a light theme than
+on a near-black one, and stays off on the plain-ASCII VT52 theme. **Settings → Display → Panes →
+Modal drop shadow** (`display.shadow`) turns it off.
+
+**Fixed: read articles in local feeds.** The `u` toggle and `display.default_unread_only` could
+never show read articles for local feeds, so a fully read feed looked empty (#11). They do now, and
+`u` works while the feed list has focus.
+
+### Earlier
+
 **Feeds refresh on their own.** Every 30 minutes by default — **Settings → Feeds
 → Refresh every (minutes)**, or `feed.refresh_interval_minutes`; `0` turns it off
 and goes back to `f` / `F` only. Fetches run through a queue capped at four at a
@@ -65,6 +98,7 @@ Enter to restart, Esc to restart later.
 - Full-text search across stored local articles, including titles, content, and AI summaries
 - Vim-style visual selection in the content pane (`v` character-wise, `V` line-wise) with copy to clipboard (`c` / `y`), plus `L` to copy an article's link
 - Unread-only filtering and in-article find
+- Mute keywords: new articles whose title matches arrive already read (Settings → Feeds → Filtering)
 - **Settings → Changelog**: release notes inside the app, bundled with the build so they work offline
 - **All Unread** and per-folder views that merge articles across your local feeds
 - Headless `tide --refresh`, `--unread-count` and `--bar` (unread count for the Omarchy bar or Waybar)
@@ -154,7 +188,8 @@ go build -o tide .
 tide
 ```
 
-Config and database are stored in `~/.config/rss/`.
+Settings are stored in `~/.config/rss/config.toml` and the article database in
+`~/.local/share/rss/rss.db` (both follow `XDG_CONFIG_HOME` / `XDG_DATA_HOME`).
 
 If you have **no feeds yet**, use **`a`** (add) or **`m`** (feed manager) to subscribe. **`Enter`** does not open the add dialog on an empty feed list.
 
@@ -253,12 +288,23 @@ Saved Google Reader credentials are stored in `~/.config/rss/config.toml` under 
 
 Open settings with `S`.
 
-The settings overlay uses a category list on the left and a focused detail pane on the right. Current categories are `DISPLAY`, `FEEDS`, `UPDATES`, `AI`, and `ABOUT`.
+The settings overlay uses a category list on the left and a focused detail pane on the right. Current categories are `DISPLAY`, `FEEDS`, `UPDATES`, `CHANGELOG`, `AI`, and `ABOUT`. Only the selected category is capitalised, and the `▌` marker shows whether the list or the detail pane has focus.
 
-Display options:
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Move between categories, or between fields in the detail pane |
+| `→` / `Enter` / `Tab` | Move from the category list into the detail pane |
+| `←` / `Esc` | Back to the category list |
+| `Space` / `Enter` | Flip a toggle |
+| `Ctrl+S` | Save and close from anywhere |
+| `Esc` (on the category list) | Save and close |
+| `q` (on the category list) | Close and discard changes |
+
+Display options, grouped as **Appearance**, **Panes**, **Reading** and **Behavior**:
 - Toggle Unicode icons for pane headers and item state markers
 - Toggle pane header bars; when hidden, the focused pane's title and shortcuts move to the status line
 - Toggle pane borders, and pick square or rounded corners for the frames
+- Toggle the **modal drop shadow** behind dialogs (`display.shadow`, on by default; never drawn on VT52)
 - Switch between relative and absolute dates
 - Toggle mark-read-on-open
 - Toggle mark-read-on-focus
@@ -273,7 +319,9 @@ Display options:
 - Set a custom browser command
 - Toggle the quit confirmation
 
-Feed options:
+Feed options, grouped as **Omarchy bar**, **Refresh**, **Library** and **Filtering**:
+- **Show in Omarchy bar** (only on Omarchy): adds or removes Tide's unread count in the
+  bar when you save, backing up `~/.config/omarchy/shell.json` first
 - **Refresh every (minutes):** how often feeds re-fetch in the background. `0`
   disables it, leaving the startup fetch and `f` / `F`. Fetching is queued at
   four feeds at a time, and each feed's stored last-fetched time decides when it
@@ -290,6 +338,11 @@ Feed options:
 - Shows the current article count and database size, so the cost of keeping
   everything is visible next to the setting that changes it
 - Set the maximum feed body size accepted during parsing
+
+Changelog:
+- Read these release notes inside the app: `↑`/`↓` or `j`/`k` scroll, `Space` pages down,
+  `Home`/`End` jump to the top or bottom, `Esc` goes back. The notes are bundled with the
+  build, so they work offline and always match the installed version
 
 Update options:
 - Toggle startup update checks
@@ -494,9 +547,9 @@ Pushing the tag starts the GitHub Actions release workflow. CI tests again, buil
 | Key | Action |
 |-----|--------|
 | `r` | Toggle read/unread |
-| `R` | Mark the selected feed or folder read |
+| `R` | Mark the selected feed or folder read; on All Unread, press twice to mark every local article read |
 | `*` / `b` | Star article (save for later) |
-| `u` | Toggle unread-only view |
+| `u` | Toggle unread-only view; turning it off shows read articles too, from the feed list or the article list |
 | `o` | Open selected content link (when enabled) or article URL |
 | `Ctrl+N` / `Alt+N` | Next actionable link in content pane |
 | `Ctrl+P` / `Alt+P` | Previous actionable link in content pane |
@@ -594,7 +647,7 @@ When `Display → Actionable article links` is enabled, the content pane renders
 ### Feeds
 | Key | Action |
 |-----|--------|
-| `f` | Refresh the selected feed |
+| `f` | Refresh the selected feed, or a folder's feeds, or every local feed from All Unread |
 | `F` / `I` | Refresh every feed, due or not |
 | `m` | Feed manager |
 | `a` | Add a feed or GReader source from anywhere |

@@ -31,6 +31,12 @@ bundled into the app: Settings → Changelog.
 
 - Settings groups its fields: Display is now Appearance, Panes, Reading and Behavior, and Feeds is
   Omarchy bar, Refresh, Library and Filtering. The panel is wider so hints fit on one line.
+- In the Settings sidebar only the selected section is capitalised, as in tidemail; the others are
+  title case.
+- The in-app help (`?`) and the README now cover All Unread, folder views, mute keywords, the
+  command line, the Omarchy bar, the Changelog and the drop shadow.
+- The README said the article database lives in `~/.config/rss/`; it is in
+  `~/.local/share/rss/` (`XDG_DATA_HOME`), with only the config in `~/.config/rss/`.
 
 ### Fixed
 

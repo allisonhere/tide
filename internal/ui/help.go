@@ -40,7 +40,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 			entries: []entry{
 				{keys.Up.Help().Key + "/" + keys.Down.Help().Key, "move content focus line; scroll only when needed"},
 				{keys.MarkRead.Help().Key, "mark read; next article in list"},
-				{keys.MarkAllRead.Help().Key, "mark selected feed or folder as read"},
+				{keys.MarkAllRead.Help().Key, "mark selected feed or folder as read; on All Unread, press twice"},
 				{keys.OpenBrowser.Help().Key, "open selected link (content) or article URL"},
 				{keys.NextLink.Help().Key, "next actionable link in content"},
 				{keys.PrevLink.Help().Key, "previous actionable link in content"},
@@ -51,15 +51,18 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 				{keys.CopyLink.Help().Key, "copy the article's link"},
 				{keys.ToggleImage.Help().Key, "show/hide the lead image for this article (when article images are on)"},
 				{keys.Search.Help().Key, "search titles, content, and summaries across stored local feeds"},
-				{keys.UnreadOnly.Help().Key, "toggle unread-only view"},
+				{keys.UnreadOnly.Help().Key, "toggle unread-only view; off also shows read articles"},
 				{keys.ToggleStar.Help().Key, "star / unstar the selected article"},
 			},
 		},
 		{
-			name: "Saved",
+			name: "Saved, All Unread and folders",
 			entries: []entry{
 				{keys.ToggleStar.Help().Key, "star the selected article, or unstar it"},
 				{"★ Saved", "virtual feed at the top of the sidebar; every starred article"},
+				{"All Unread", "virtual feed under Saved; unread articles across all local feeds"},
+				{"folder row", "lists its feeds' articles together; follows the unread-only toggle"},
+				{"", "merged lists name each article's feed beside its date"},
 				{keys.Search.Help().Key + " is:starred", "limit a search to starred articles"},
 				{"is:starred", "on its own, browses everything starred"},
 			},
@@ -67,7 +70,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 		{
 			name: "Feeds",
 			entries: []entry{
-				{keys.Refresh.Help().Key, "refresh the selected feed"},
+				{keys.Refresh.Help().Key, "refresh the selected feed, a folder's feeds, or all local feeds (All Unread)"},
 				{keys.RefreshAll.Help().Key, "refresh every feed, due or not"},
 				{"", "feeds also refresh in the background; see S → Feeds"},
 				bind(keys.FeedManager),
@@ -101,6 +104,20 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 				{"S → Feeds", "refresh every: background refresh in minutes; 0 = startup and f/F"},
 				{"S → Feeds", "delete read after: retention in days; 0 keeps everything"},
 				{"", "retention never deletes starred, summarized, or unread articles"},
+				{"S → Feeds", "mute titles containing: new articles matching a keyword arrive already read"},
+				{"S → Feeds", "show in Omarchy bar: unread count in the bar (Omarchy only)"},
+				{"S → Display", "modal drop shadow: shadow behind dialogs; adapts to the theme"},
+				{"S → Changelog", "release notes for this version; ↑/↓ scroll, space pages"},
+				{"ctrl+s", "in Settings: save and close from anywhere"},
+			},
+		},
+		{
+			name: "Command Line",
+			entries: []entry{
+				{"tide --refresh", "refresh every local feed and exit; safe while Tide is open"},
+				{"tide --unread-count", "print the number of unread articles"},
+				{"tide --bar", "unread status as Waybar/Omarchy bar JSON"},
+				{"tide --help", "list the flags"},
 			},
 		},
 		{
