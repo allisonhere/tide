@@ -26,6 +26,7 @@ import (
 	"github.com/allisonhere/tide/internal/db"
 	"github.com/allisonhere/tide/internal/feed"
 	"github.com/allisonhere/tide/internal/greader"
+	"github.com/allisonhere/tide/internal/refresh"
 	"github.com/allisonhere/tide/internal/update"
 )
 
@@ -667,40 +668,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds := []tea.Cmd{pump}
 		// Successful refreshes update storage first; the visible pane reloads from DB afterward to keep filters consistent. -allie
-		for _, a := range msg.Articles {
-			if err := m.db.UpsertArticle(a); err != nil {
-				continue
-			}
-		}
-		now := time.Now()
-		currentFeed, err := m.db.GetFeed(msg.FeedID)
-		if err == nil {
-			title := strings.TrimSpace(msg.Title)
-			if title == "" {
-				title = currentFeed.Title
-			}
-			description := strings.TrimSpace(msg.Description)
-			if description == "" {
-				description = currentFeed.Description
-			}
-			faviconURL := strings.TrimSpace(msg.FaviconURL)
-			if faviconURL == "" {
-				faviconURL = currentFeed.FaviconURL
-			}
-			if err := m.db.UpdateFeedMeta(msg.FeedID, title, description, faviconURL, now); err != nil {
-				fmt.Fprintf(os.Stderr, "feed meta update failed (feed %d): %v\n", msg.FeedID, err)
-			}
-		} else {
-			if err := m.db.TouchFeedFetched(msg.FeedID, now); err != nil {
-				fmt.Fprintf(os.Stderr, "feed touch failed (feed %d): %v\n", msg.FeedID, err)
-			}
-		}
-		if r := msg.Result; r != nil && r.SuggestURLUpdate {
-			if err := m.db.UpdateFeedURL(msg.FeedID, r.SuggestedURL); err != nil {
-				m.setStatus(fmt.Sprintf("URL update failed: %v", err), true)
-			} else {
-				m.setStatus(fmt.Sprintf("feed URL updated to %s", r.SuggestedURL), false)
-			}
+		stored, err := refresh.Store(m.db, refresh.Fetched{
+			FeedID:      msg.FeedID,
+			Title:       msg.Title,
+			Description: msg.Description,
+			FaviconURL:  msg.FaviconURL,
+			Articles:    msg.Articles,
+			Result:      msg.Result,
+		})
+		if err != nil {
+			m.setStatus(err.Error(), true)
+		} else if stored.URLUpdatedTo != "" {
+			m.setStatus(fmt.Sprintf("feed URL updated to %s", stored.URLUpdatedTo), false)
 		}
 		if selected := m.selectedFeed(); selected != nil && msg.FeedID == selected.ID {
 			cmds = append(cmds, m.loadFeedArticlesCmd(msg.FeedID))
@@ -3580,37 +3559,16 @@ func updateProgressBar(pct, width int, chrome managerChrome) string {
 
 func (m *Model) refreshFeedCmd(feedID int64, feedURL string, manual bool) tea.Cmd {
 	m.refreshing[feedID] = true
-	conv := m.mdConverter
 	fetch := func() tea.Msg {
-		result := feed.FetchFeed(feedURL)
-		if !result.IsSuccess() {
-			return FeedRefreshedMsg{FeedID: feedID, Err: result.Err, Result: result, Manual: manual}
-		}
-
-		parsed := result.Feed
-		articles := make([]db.Article, 0, len(parsed.Items))
-		for _, item := range parsed.Items {
-			content, _ := conv.ConvertString(item.Content)
-			articles = append(articles, db.Article{
-				FeedID:      feedID,
-				GUID:        item.GUID,
-				Title:       item.Title,
-				Link:        item.Link,
-				Content:     content,
-				ImageURL:    item.ImageURL,
-				PublishedAt: item.PublishedAt,
-				Author:      item.Author,
-				Categories:  item.Categories,
-				UpdatedAt:   item.UpdatedAt,
-			})
-		}
+		f := refresh.Fetch(feedID, feedURL)
 		return FeedRefreshedMsg{
 			FeedID:      feedID,
-			Title:       parsed.Title,
-			Description: parsed.Description,
-			FaviconURL:  parsed.FaviconURL,
-			Articles:    articles,
-			Result:      result,
+			Title:       f.Title,
+			Description: f.Description,
+			FaviconURL:  f.FaviconURL,
+			Articles:    f.Articles,
+			Err:         f.Result.Err,
+			Result:      f.Result,
 			Manual:      manual,
 		}
 	}

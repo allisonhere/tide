@@ -30,7 +30,10 @@ func Open() (*DB, error) {
 	}
 
 	path := filepath.Join(dir, "rss.db")
-	conn, err := sql.Open("sqlite", path)
+	// The busy timeout lets a headless `tide --refresh` and a running TUI share
+	// the database: a writer waits for the other's lock instead of failing.
+	// It goes in the DSN so every pooled connection gets it.
+	conn, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}

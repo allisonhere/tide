@@ -46,6 +46,9 @@ func run() (code int, restartExec string) {
 			previewManualUpdate = true
 		}
 	}
+	if code, handled := runCommand(os.Args[1:], os.Stdout, os.Stderr); handled {
+		return code, ""
+	}
 
 	database, err := db.Open()
 	if err != nil {

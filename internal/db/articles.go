@@ -148,6 +148,20 @@ func (db *DB) CountStarred() (int64, error) {
 	return n, err
 }
 
+// CountUnread is the number of unread articles across every local feed.
+func (db *DB) CountUnread() (int64, error) {
+	var n int64
+	err := db.QueryRow(`SELECT COUNT(*) FROM articles WHERE read = 0`).Scan(&n)
+	return n, err
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // SetStarred saves or unsaves a single article.
 func (db *DB) SetStarred(id int64, starred bool) error {
 	v := 0
@@ -158,22 +172,57 @@ func (db *DB) SetStarred(id int64, starred bool) error {
 	return err
 }
 
+// UpsertArticle stores one article; see UpsertArticles.
 func (db *DB) UpsertArticle(a Article) error {
-	_, err := db.Exec(`
-		INSERT INTO articles (feed_id, guid, title, link, content, image_url, published_at, read, author, categories, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-		ON CONFLICT(feed_id, guid) DO UPDATE SET
-			title        = excluded.title,
-			link         = excluded.link,
-			content      = excluded.content,
-			image_url    = CASE WHEN excluded.image_url != '' THEN excluded.image_url ELSE articles.image_url END,
-			published_at = excluded.published_at,
-			author       = excluded.author,
-			categories   = excluded.categories,
-			updated_at   = excluded.updated_at
-	`, a.FeedID, a.GUID, a.Title, a.Link, a.Content, a.ImageURL, a.PublishedAt.Unix(),
-		a.Author, joinCategories(a.Categories), articleUpdatedUnix(a.UpdatedAt))
+	_, err := db.UpsertArticles([]Article{a})
 	return err
+}
+
+// UpsertArticles stores fetched articles in one transaction and reports how
+// many were new. A new row takes a.Read, so a caller can store an article
+// already read; an existing row keeps its read, starred and summary state and
+// only takes the refreshed fields.
+func (db *DB) UpsertArticles(articles []Article) (inserted int, err error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+	for _, a := range articles {
+		res, err := tx.Exec(`
+			INSERT INTO articles (feed_id, guid, title, link, content, image_url, published_at, read, author, categories, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(feed_id, guid) DO NOTHING
+		`, a.FeedID, a.GUID, a.Title, a.Link, a.Content, a.ImageURL, a.PublishedAt.Unix(),
+			boolToInt(a.Read), a.Author, joinCategories(a.Categories), articleUpdatedUnix(a.UpdatedAt))
+		if err != nil {
+			return 0, err
+		}
+		if n, _ := res.RowsAffected(); n == 1 {
+			inserted++
+			continue
+		}
+		if _, err := tx.Exec(`
+			UPDATE articles SET
+				title        = ?,
+				link         = ?,
+				content      = ?,
+				image_url    = CASE WHEN ? != '' THEN ? ELSE image_url END,
+				published_at = ?,
+				author       = ?,
+				categories   = ?,
+				updated_at   = ?
+			WHERE feed_id = ? AND guid = ?
+		`, a.Title, a.Link, a.Content, a.ImageURL, a.ImageURL, a.PublishedAt.Unix(),
+			a.Author, joinCategories(a.Categories), articleUpdatedUnix(a.UpdatedAt), a.FeedID, a.GUID); err != nil {
+			return 0, err
+		}
+	}
+	return inserted, tx.Commit()
 }
 
 func (db *DB) MarkRead(id int64, read bool) error {

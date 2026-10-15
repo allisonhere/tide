@@ -64,6 +64,7 @@ Enter to restart, Esc to restart later.
 - Full-text search across stored local articles, including titles, content, and AI summaries
 - Vim-style visual selection in the content pane (`v` character-wise, `V` line-wise) with copy to clipboard (`c` / `y`), plus `L` to copy an article's link
 - Unread-only filtering and in-article find
+- Headless `tide --refresh`, `--unread-count` and `--bar` (unread count for the Omarchy bar or Waybar)
 - Mark read/unread, open in browser
 - Optional actionable links in content pane (Settings → Display)
 - **Optional article images in the content pane** (Kitty graphics; Settings → Display; off by default) — text wraps beside the image, `i` toggles per article, clean text-only fallback everywhere else
@@ -140,6 +141,60 @@ Config and database are stored in `~/.config/rss/`.
 If you have **no feeds yet**, use **`a`** (add) or **`m`** (feed manager) to subscribe. **`Enter`** does not open the add dialog on an empty feed list.
 
 The **bottom status line** always shows **`m` feed manager**, **`S` settings**, **`/` search**, and **`?` help** on the left (alongside feed status). That matches the shortcuts documented in **`?` help**.
+
+## Command Line
+
+Tide also runs without opening the reader:
+
+| Flag | Does |
+| --- | --- |
+| `tide --refresh` | Refresh every local feed, print `refreshed N feeds, M new, K failed`, exit |
+| `tide --unread-count` | Print the number of unread articles |
+| `tide --bar` | Print unread status as status-bar JSON (below) |
+| `tide --help` | List the flags |
+
+These cover local feeds only — not a Google Reader / FreshRSS source — and are
+safe to run while the reader is open: SQLite waits for the reader's writes
+rather than failing.
+
+### Unread count in your bar
+
+`tide --bar` prints one line of Waybar-style JSON, which the Omarchy bar reads too:
+
+```json
+{"text":" 12","tooltip":"Tide: 12 unread\nSome Feed  9\nAnother  3","class":"unread"}
+```
+
+`text` is empty when nothing is unread (class `empty`), so the module hides
+itself. The icon is the Nerd Font RSS glyph.
+
+**Omarchy bar** — add a command module to a section of `bar.layout` in
+`~/.config/omarchy/shell.json` (it reloads on save):
+
+```json
+{ "id": "tide", "type": "command", "exec": "tide --bar", "interval": 60, "tooltip": "Tide", "onClick": "omarchy-launch-or-focus-tui tide" }
+```
+
+**Waybar** — add `"custom/tide"` to a `modules-*` list and define it:
+
+```jsonc
+"custom/tide": {
+  "exec": "tide --bar",
+  "return-type": "json",
+  "interval": 60,
+  "on-click": "alacritty -e tide"
+}
+```
+
+### Refreshing on a schedule
+
+Keep feeds fresh while the reader is closed, e.g. from cron:
+
+```cron
+*/30 * * * * tide --refresh >/dev/null
+```
+
+or a systemd user timer running `tide --refresh`. Feed errors go to stderr.
 
 ## Feed Manager And Sources
 
