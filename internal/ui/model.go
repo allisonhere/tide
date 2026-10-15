@@ -590,6 +590,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case OmarchyBarUpdatedMsg:
+		switch {
+		case msg.Err != nil:
+			m.setStatus("Omarchy bar: "+msg.Err.Error(), true)
+		case msg.Enabled:
+			m.setStatus("unread count added to the Omarchy bar", false)
+		default:
+			m.setStatus("unread count removed from the Omarchy bar", false)
+		}
+		return m, m.clearStatusCmd()
+
 	case ArticlesLoadedMsg:
 		// Ignore stale article loads from a previously selected feed; async loads can race with sidebar movement. -allie
 		if msg.Err != nil {
@@ -1727,6 +1738,9 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// and content scroll land back where the user left them. -allie
 			if len(m.filteredArticles) > 0 {
 				m.restoreArticleID = m.filteredArticles[m.articleCursor].ID
+			}
+			if m.settings.omarchyBar != m.settings.omarchyBarWas {
+				return m, tea.Batch(m.loadFeedsCmd(), omarchyBarCmd(m.settings.omarchyBar))
 			}
 			return m, m.loadFeedsCmd()
 		}

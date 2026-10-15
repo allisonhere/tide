@@ -128,6 +128,12 @@ type ClipboardCopiedMsg struct {
 	Err error
 }
 type StatusClearMsg struct{}
+
+// OmarchyBarUpdatedMsg reports adding or removing Tide's Omarchy bar module.
+type OmarchyBarUpdatedMsg struct {
+	Enabled bool
+	Err     error
+}
 type ErrMsg struct{ Err error }
 
 // SearchResultsMsg carries the outcome of a library-wide FTS query. Seq

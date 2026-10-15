@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/allisonhere/tide/internal/config"
+	"github.com/allisonhere/tide/internal/omarchy"
 	"github.com/allisonhere/tide/internal/update"
 )
 
@@ -48,6 +49,7 @@ const (
 	sfFeedRefreshInterval
 	sfFeedRetentionDays
 	sfFeedMuteKeywords
+	sfOmarchyBar
 	sfUpdateCheckOnStartup
 	sfUpdateCheckNow
 	sfUpdateInstallNow
@@ -175,15 +177,21 @@ func providerIndex(id string) int {
 
 type Settings struct {
 	// Display
-	icons                bool
-	showPaneHeaders      bool
-	showPaneBorders      bool
-	paneCornersIdx       int // 0 = square, 1 = round
-	dateFormatIdx        int // 0=Relative, 1=Absolute, 2=None
-	markReadOnOpen       bool
-	markReadOnFocus      bool
-	focusLine            bool
-	defaultUnreadOnly    bool
+	icons             bool
+	showPaneHeaders   bool
+	showPaneBorders   bool
+	paneCornersIdx    int // 0 = square, 1 = round
+	dateFormatIdx     int // 0=Relative, 1=Absolute, 2=None
+	markReadOnOpen    bool
+	markReadOnFocus   bool
+	focusLine         bool
+	defaultUnreadOnly bool
+	// omarchyBar is whether Tide's unread count should sit in the Omarchy bar.
+	// It is read from the bar's own config rather than Tide's, and only offered
+	// where that bar runs; saving applies a change to the bar config directly.
+	omarchyBarAvailable  bool
+	omarchyBar           bool
+	omarchyBarWas        bool
 	actionableLinks      bool
 	filterLinks          bool
 	articleImages        bool
@@ -276,6 +284,8 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		markReadOnFocus:      cfg.Display.MarkReadOnFocus,
 		focusLine:            cfg.Display.FocusLine,
 		defaultUnreadOnly:    cfg.Display.DefaultUnreadOnly,
+		omarchyBarAvailable:  omarchy.BarAvailable(),
+		omarchyBar:           omarchy.BarModuleInstalled(),
 		actionableLinks:      cfg.Display.ActionableLinks,
 		filterLinks:          cfg.Display.FilterLinks,
 		articleImages:        cfg.Display.ArticleImages,
@@ -308,6 +318,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		},
 		focusedField: sfBackToSections,
 	}
+	s.omarchyBarWas = s.omarchyBar
 	s.syncMaskedEchoChars()
 	s.applyFocus()
 	return s
@@ -593,7 +604,11 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		}
 		return append(fields, sfActionableLinks, sfFilterLinks, sfArticleImages, sfBrowser, sfConfirmQuit)
 	case ssFeeds:
-		return []settingsField{sfBackToSections, sfFeedRefreshInterval, sfFeedRetentionDays, sfFeedMuteKeywords, sfFeedMaxBody}
+		fields := []settingsField{sfBackToSections, sfFeedRefreshInterval, sfFeedRetentionDays, sfFeedMuteKeywords, sfFeedMaxBody}
+		if s.omarchyBarAvailable {
+			fields = append(fields, sfOmarchyBar)
+		}
+		return fields
 	case ssUpdates:
 		fields := []settingsField{sfBackToSections, sfUpdateCheckOnStartup, sfUpdateCheckNow}
 		if s.updateNowActionVisible() {
@@ -1075,6 +1090,15 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
+	case sfOmarchyBar:
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.omarchyBar = !s.omarchyBar
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
 	case sfDefaultUnreadOnly:
 		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.defaultUnreadOnly = !s.defaultUnreadOnly
@@ -1400,6 +1424,9 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		b.addInput("Delete read after (days)", s.retentionDaysInput, sfFeedRetentionDays)
 		b.addInput("Mute titles containing", s.muteKeywordsInput, sfFeedMuteKeywords)
 		b.addInput("Feed max size (MiB)", s.feedMaxBodyInput, sfFeedMaxBody)
+		if s.omarchyBarAvailable {
+			b.addToggle("Unread count in Omarchy bar", s.omarchyBar, sfOmarchyBar)
+		}
 		b.addValue("Stored", s.storage.summary(), false)
 
 	case ssUpdates:
@@ -2201,6 +2228,8 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "0 keeps everything; starred, summarized and unread articles are never deleted"
 	case sfFeedMuteKeywords:
 		return "comma-separated; new articles whose title contains one arrive already read"
+	case sfOmarchyBar:
+		return "adds or removes Tide's unread count in the bar when you save; click it to open Tide"
 	case sfReadingWidth:
 		return "max columns for article text; 0 = no limit (e.g. 80, 100)"
 	case sfTestAIConnection:

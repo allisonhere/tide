@@ -169,7 +169,11 @@ rather than failing.
 `text` is empty when nothing is unread (class `empty`), so the module hides
 itself. The icon is the Nerd Font RSS glyph.
 
-**Omarchy bar** — add a command module to a section of `bar.layout` in
+**Omarchy bar** — turn on **Settings → Feeds → Unread count in Omarchy bar**
+and save. Tide adds its module to the right of the bar (backing up
+`~/.config/omarchy/shell.json` first) and removes it again when you turn the
+setting off; clicking it opens Tide. The setting only appears on Omarchy. To do
+it by hand instead, add a command module to a section of `bar.layout` in
 `~/.config/omarchy/shell.json` (it reloads on save):
 
 ```json
