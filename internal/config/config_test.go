@@ -218,3 +218,29 @@ article_pane_height_percent = 0
 		t.Fatalf("expected invalid article pane height to default to 40, got %d", cfg.Display.ArticlePaneHeightPercent)
 	}
 }
+
+func TestParseMuteKeywordsTrimsAndDedupes(t *testing.T) {
+	got := ParseMuteKeywords(" Sponsored, ,giveaway,SPONSORED ,  ")
+	if len(got) != 2 || got[0] != "Sponsored" || got[1] != "giveaway" {
+		t.Fatalf("unexpected keywords %q", got)
+	}
+	if got := ParseMuteKeywords(""); got != nil {
+		t.Fatalf("expected no keywords from an empty field, got %q", got)
+	}
+}
+
+func TestMuteKeywordsRoundTrip(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := DefaultConfig()
+	cfg.Feed.MuteKeywords = []string{"sponsored", "  ", "Giveaway"}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := loaded.Feed.MuteKeywords; len(got) != 2 || got[0] != "sponsored" || got[1] != "Giveaway" {
+		t.Fatalf("unexpected keywords after round trip: %q", got)
+	}
+}

@@ -29,6 +29,7 @@ type DisplayConfig struct {
 	ShowPaneHeaders          bool               `toml:"show_pane_headers"`
 	ShowPaneBorders          bool               `toml:"show_pane_borders"`
 	PaneCorners              string             `toml:"pane_corners"` // "square" | "round"
+	Shadow                   bool               `toml:"shadow"`       // drop shadow behind modal overlays
 	DateFormat               string             `toml:"date_format"`  // "relative" | "absolute"
 	MarkReadOnOpen           bool               `toml:"mark_read_on_open"`
 	MarkReadOnFocus          bool               `toml:"mark_read_on_focus"`
@@ -57,6 +58,9 @@ type FeedConfig struct {
 	// quietly delete a library someone already has. Starred articles, articles
 	// with a saved AI summary, and unread articles are never pruned.
 	RetentionDays int `toml:"retention_days"`
+	// MuteKeywords mutes new articles whose title contains any of these,
+	// ignoring case: they are stored already read.
+	MuteKeywords []string `toml:"mute_keywords"`
 }
 
 type UpdatesConfig struct {
@@ -94,6 +98,7 @@ func DefaultConfig() Config {
 			ShowPaneHeaders:          true,
 			ShowPaneBorders:          true,
 			PaneCorners:              "square",
+			Shadow:                   true,
 			DateFormat:               "relative",
 			MarkReadOnOpen:           true,
 			FocusLine:                true,
@@ -149,6 +154,7 @@ func Load() (Config, error) {
 	if cfg.Feed.RetentionDays < 0 {
 		cfg.Feed.RetentionDays = 0
 	}
+	cfg.Feed.MuteKeywords = NormalizeMuteKeywords(cfg.Feed.MuteKeywords)
 	if cfg.Updates.CheckIntervalHours <= 0 {
 		cfg.Updates.CheckIntervalHours = DefaultConfig().Updates.CheckIntervalHours
 	}
@@ -161,6 +167,28 @@ func Load() (Config, error) {
 		cfg.Display.ArticlePaneHeightPercent = DefaultConfig().Display.ArticlePaneHeightPercent
 	}
 	return cfg, nil
+}
+
+// NormalizeMuteKeywords trims each keyword and drops blanks and
+// case-insensitive repeats, keeping the first spelling.
+func NormalizeMuteKeywords(keywords []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, k := range keywords {
+		k = strings.TrimSpace(k)
+		if k == "" || seen[strings.ToLower(k)] {
+			continue
+		}
+		seen[strings.ToLower(k)] = true
+		out = append(out, k)
+	}
+	return out
+}
+
+// ParseMuteKeywords reads a comma-separated keyword list, as typed in
+// Settings.
+func ParseMuteKeywords(s string) []string {
+	return NormalizeMuteKeywords(strings.Split(s, ","))
 }
 
 // NormalizeDisplayDensity returns "comfortable" or "compact".

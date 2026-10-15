@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -20,6 +19,7 @@ import (
 	"github.com/allisonhere/tide/internal/feed"
 	"github.com/allisonhere/tide/internal/greader"
 	"github.com/allisonhere/tide/internal/opml"
+	"github.com/allisonhere/tide/internal/refresh"
 )
 
 type fmMode int
@@ -123,6 +123,7 @@ func (s staticFeedManagerSource) Editable() bool { return s.editable }
 type FeedManager struct {
 	// Persistent data and row projection are separated so edits can reload without losing navigation state. -allie
 	db               *db.DB
+	muteKeywords     []string // feed.mute_keywords, applied to a new feed's first articles
 	source           feedManagerSource
 	feeds            []db.Feed
 	folders          []db.Folder
@@ -1497,6 +1498,7 @@ func validateHTTPURL(raw string, fieldName string) error {
 func (fm *FeedManager) saveCmd() tea.Cmd {
 	// Snapshot form values before returning the command; Bubble Tea may keep mutating the manager while it runs. -allie
 	rawURL := strings.TrimSpace(fm.urlInput.Value())
+	muteKeywords := fm.muteKeywords
 	titleValue := strings.TrimSpace(fm.titleInput.Value())
 	newFolderName := strings.TrimSpace(fm.newFolderInput.Value())
 	greaderURL := strings.TrimSpace(fm.greaderURLInput.Value())
@@ -1643,27 +1645,8 @@ func (fm *FeedManager) saveCmd() tea.Cmd {
 		}
 
 		// Upsert articles immediately so the panes aren't empty
-		conv := md.NewConverter("", true, nil)
-		var firstUpsertErr error
-		for _, item := range parsed.Items {
-			content, _ := conv.ConvertString(item.Content)
-			if err := database.UpsertArticle(db.Article{
-				FeedID:      id,
-				GUID:        item.GUID,
-				Title:       item.Title,
-				Link:        item.Link,
-				Content:     content,
-				ImageURL:    item.ImageURL,
-				PublishedAt: item.PublishedAt,
-				Author:      item.Author,
-				Categories:  item.Categories,
-				UpdatedAt:   item.UpdatedAt,
-			}); err != nil && firstUpsertErr == nil {
-				firstUpsertErr = err
-			}
-		}
-		if firstUpsertErr != nil {
-			fmt.Fprintf(os.Stderr, "initial article upsert failed (feed %d): %v\n", id, firstUpsertErr)
+		if _, err := database.UpsertArticles(refresh.ApplyMutes(refresh.Articles(id, parsed), muteKeywords)); err != nil {
+			fmt.Fprintf(os.Stderr, "initial article upsert failed (feed %d): %v\n", id, err)
 		}
 
 		f, _ := database.GetFeed(id)

@@ -52,6 +52,7 @@ Enter to restart, Esc to restart later.
 ## Features
 
 - Three-pane layout: feeds, articles, content, with optional per-pane borders (Settings → Display)
+- Dialogs float over the panes with a drop shadow that adapts to the theme, light or dark (Settings → Display → Panes; `display.shadow`)
 - Cursor markers in both list panes: the selected feed and the selected article are arrow-marked, so the cursor stays readable in an unfocused pane
 - Status bar reminders: feed manager, settings, search, and help keys (`m` · `S` · `/` · `?`)
 - Comfortable or compact list spacing (Settings → Display; configurable in `config.toml`)
@@ -64,6 +65,9 @@ Enter to restart, Esc to restart later.
 - Full-text search across stored local articles, including titles, content, and AI summaries
 - Vim-style visual selection in the content pane (`v` character-wise, `V` line-wise) with copy to clipboard (`c` / `y`), plus `L` to copy an article's link
 - Unread-only filtering and in-article find
+- **Settings → Changelog**: release notes inside the app, bundled with the build so they work offline
+- **All Unread** and per-folder views that merge articles across your local feeds
+- Headless `tide --refresh`, `--unread-count` and `--bar` (unread count for the Omarchy bar or Waybar)
 - Mark read/unread, open in browser
 - Optional actionable links in content pane (Settings → Display)
 - **Optional article images in the content pane** (Kitty graphics; Settings → Display; off by default) — text wraps beside the image, `i` toggles per article, clean text-only fallback everywhere else
@@ -156,6 +160,64 @@ If you have **no feeds yet**, use **`a`** (add) or **`m`** (feed manager) to sub
 
 The **bottom status line** always shows **`m` feed manager**, **`S` settings**, **`/` search**, and **`?` help** on the left (alongside feed status). That matches the shortcuts documented in **`?` help**.
 
+## Command Line
+
+Tide also runs without opening the reader:
+
+| Flag | Does |
+| --- | --- |
+| `tide --refresh` | Refresh every local feed, print `refreshed N feeds, M new, K failed`, exit |
+| `tide --unread-count` | Print the number of unread articles |
+| `tide --bar` | Print unread status as status-bar JSON (below) |
+| `tide --help` | List the flags |
+
+These cover local feeds only — not a Google Reader / FreshRSS source — and are
+safe to run while the reader is open: SQLite waits for the reader's writes
+rather than failing.
+
+### Unread count in your bar
+
+`tide --bar` prints one line of Waybar-style JSON, which the Omarchy bar reads too:
+
+```json
+{"text":" 12","tooltip":"Tide: 12 unread\nSome Feed  9\nAnother  3","class":"unread"}
+```
+
+`text` is empty when nothing is unread (class `empty`), so the module hides
+itself. The icon is the Nerd Font RSS glyph.
+
+**Omarchy bar** — turn on **Settings → Feeds → Show in Omarchy bar**
+and save. Tide adds its module to the right of the bar (backing up
+`~/.config/omarchy/shell.json` first) and removes it again when you turn the
+setting off; clicking it opens Tide. The setting only appears on Omarchy. To do
+it by hand instead, add a command module to a section of `bar.layout` in
+`~/.config/omarchy/shell.json` (it reloads on save):
+
+```json
+{ "id": "tide", "type": "command", "exec": "tide --bar", "interval": 60, "tooltip": "Tide", "onClick": "omarchy-launch-or-focus-tui tide" }
+```
+
+**Waybar** — add `"custom/tide"` to a `modules-*` list and define it:
+
+```jsonc
+"custom/tide": {
+  "exec": "tide --bar",
+  "return-type": "json",
+  "interval": 60,
+  "on-click": "alacritty -e tide"
+}
+```
+
+### Refreshing on a schedule
+
+Keep feeds fresh while the reader is closed, e.g. from cron:
+
+```cron
+*/30 * * * * tide --refresh >/dev/null
+```
+
+or a systemd user timer running `tide --refresh`. Feed errors go to stderr.
+
 ## Feed Manager And Sources
 
 Open the feed manager with `m`. Tide keeps one shared manager flow for local feeds and Google Reader-compatible sources.
@@ -221,6 +283,10 @@ Feed options:
   Starred articles, articles with a saved AI summary, and unread articles are
   never deleted at any age, and neither are articles a feed served without a
   publication date
+- **Mute titles containing:** comma-separated keywords (`feed.mute_keywords`).
+  A newly fetched article whose title contains one, ignoring case, is stored
+  already read, so it never counts as unread. Articles already in the library
+  are left alone
 - Shows the current article count and database size, so the cost of keeping
   everything is visible next to the setting that changes it
 - Set the maximum feed body size accepted during parsing
@@ -330,6 +396,7 @@ icons = false
 show_pane_headers = true
 show_pane_borders = true
 pane_corners = "square"   # or "round"
+shadow = true             # drop shadow behind dialogs
 date_format = "relative"
 mark_read_on_open = true
 mark_read_on_focus = false
@@ -349,6 +416,7 @@ density = "compact"
 max_body_mib = 10
 refresh_interval_minutes = 30   # 0 disables the background refresh
 retention_days = 0              # 0 keeps every article forever
+mute_keywords = []              # e.g. ["sponsored", "giveaway"]
 
 [ai]
 provider = "ollama" # openai | claude | gemini | ollama | ""
@@ -496,6 +564,21 @@ Starring requires a locally stored article. Google Reader feeds are fetched live
 and never persisted, so starring a remote article is refused rather than silently
 lost. Starred articles are never pruned, but deleting a feed removes its articles,
 starred ones included.
+
+### All Unread and folders
+
+**All Unread** sits under Saved: every unread article across your local feeds,
+newest first, with the total as its badge. Selecting a **folder** row lists its
+feeds' articles merged the same way, following the `u` unread-only toggle. In
+both, each row names its feed beside the date.
+
+- `f` refreshes the folder's feeds, or every local feed from All Unread
+- `R` marks a folder read; on All Unread it marks everything read, and asks for
+  a second `R` first because that is hard to undo
+- `Enter` / `Space` still collapse a folder, and keep its list showing
+
+Both cover local feeds only; Google Reader / FreshRSS feeds are fetched live per
+feed and appear only under their own rows.
 
 When `Display → Focus line` is enabled, the content pane highlights the current readable line. `j/↓` and `k/↑` move the focus line and scroll only when needed.
 

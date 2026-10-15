@@ -2,6 +2,7 @@ package main
 
 import (
 	"runtime/debug"
+	"strings"
 	"testing"
 )
 
@@ -36,5 +37,15 @@ func TestResolvedVersionFromBuildInfoFallsBackToRevision(t *testing.T) {
 	got := resolvedVersionFromBuildInfo(info)
 	if got != "abcdef1-dirty" {
 		t.Fatalf("expected short dirty revision fallback, got %q", got)
+	}
+}
+
+// The notes shown in Settings → Changelog are the embedded CHANGELOG.md, so a
+// build with an empty or unparsable file would silently ship a blank screen.
+func TestEmbeddedChangelogHasReleaseNotes(t *testing.T) {
+	for _, want := range []string{"## Unreleased", "## v1.2.1", "## v1.2.0"} {
+		if !strings.Contains(changelog, want) {
+			t.Fatalf("expected the embedded changelog to contain %q", want)
+		}
 	}
 }

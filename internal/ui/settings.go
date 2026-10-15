@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/allisonhere/tide/internal/config"
+	"github.com/allisonhere/tide/internal/omarchy"
 	"github.com/allisonhere/tide/internal/update"
 )
 
@@ -26,12 +27,18 @@ var shellCommandKeywords = map[string]bool{
 
 // ── Field index ───────────────────────────────────────────────────────────────
 
+// settingsOverlayMaxW caps the Settings panel's width. Wide enough that a
+// field's hint fits on one line on a typical terminal; it still shrinks to fit
+// a narrow one.
+const settingsOverlayMaxW = 84
+
 type settingsField int
 
 const (
 	sfIcons settingsField = iota
 	sfShowPaneHeaders
 	sfShowPaneBorders
+	sfShadow
 	sfPaneCorners
 	sfDateFormat
 	sfMarkReadOnOpen
@@ -47,6 +54,8 @@ const (
 	sfFeedMaxBody
 	sfFeedRefreshInterval
 	sfFeedRetentionDays
+	sfFeedMuteKeywords
+	sfOmarchyBar
 	sfUpdateCheckOnStartup
 	sfUpdateCheckNow
 	sfUpdateInstallNow
@@ -78,6 +87,7 @@ const (
 	ssDisplay settingsSection = iota
 	ssFeeds
 	ssUpdates
+	ssChangelog
 	ssAI
 	ssAbout
 	settingsSectionCount
@@ -147,6 +157,7 @@ var (
 		"DISPLAY",
 		"FEEDS",
 		"UPDATES",
+		"CHANGELOG",
 		"AI",
 		"ABOUT",
 	}
@@ -174,15 +185,22 @@ func providerIndex(id string) int {
 
 type Settings struct {
 	// Display
-	icons                bool
-	showPaneHeaders      bool
-	showPaneBorders      bool
-	paneCornersIdx       int // 0 = square, 1 = round
-	dateFormatIdx        int // 0=Relative, 1=Absolute, 2=None
-	markReadOnOpen       bool
-	markReadOnFocus      bool
-	focusLine            bool
-	defaultUnreadOnly    bool
+	icons             bool
+	showPaneHeaders   bool
+	showPaneBorders   bool
+	paneCornersIdx    int // 0 = square, 1 = round
+	dateFormatIdx     int // 0=Relative, 1=Absolute, 2=None
+	markReadOnOpen    bool
+	markReadOnFocus   bool
+	focusLine         bool
+	defaultUnreadOnly bool
+	shadow            bool
+	// omarchyBar is whether Tide's unread count should sit in the Omarchy bar.
+	// It is read from the bar's own config rather than Tide's, and only offered
+	// where that bar runs; saving applies a change to the bar config directly.
+	omarchyBarAvailable  bool
+	omarchyBar           bool
+	omarchyBarWas        bool
 	actionableLinks      bool
 	filterLinks          bool
 	articleImages        bool
@@ -193,6 +211,7 @@ type Settings struct {
 	feedMaxBodyInput     textinput.Model
 	refreshIntervalInput textinput.Model
 	retentionDaysInput   textinput.Model
+	muteKeywordsInput    textinput.Model
 	// storage backs the read-only usage line in the Feeds section.
 	storage              settingsStorageState
 	updateCheckOnStartup bool
@@ -212,6 +231,8 @@ type Settings struct {
 	activeSection      settingsSection
 	focusedPane        settingsPaneFocus
 	sectionField       [settingsSectionCount]settingsField
+	changelogScroll    int               // first visible line of Settings → Changelog
+	changelog          *changelogMetrics // recorded by the draw; see changelogMetrics
 	focusedField       settingsField
 	aboutGradientFrame int
 	aiValidatePending  bool
@@ -274,6 +295,9 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		markReadOnFocus:      cfg.Display.MarkReadOnFocus,
 		focusLine:            cfg.Display.FocusLine,
 		defaultUnreadOnly:    cfg.Display.DefaultUnreadOnly,
+		shadow:               cfg.Display.Shadow,
+		omarchyBarAvailable:  omarchy.BarAvailable(),
+		omarchyBar:           omarchy.BarModuleInstalled(),
 		actionableLinks:      cfg.Display.ActionableLinks,
 		filterLinks:          cfg.Display.FilterLinks,
 		articleImages:        cfg.Display.ArticleImages,
@@ -284,6 +308,7 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		feedMaxBodyInput:     mkInput(strconv.Itoa(cfg.Feed.MaxBodyMiB), "10", false),
 		refreshIntervalInput: mkInput(strconv.Itoa(cfg.Feed.RefreshIntervalMinutes), "30", false),
 		retentionDaysInput:   mkInput(strconv.Itoa(cfg.Feed.RetentionDays), "0", false),
+		muteKeywordsInput:    mkInput(strings.Join(cfg.Feed.MuteKeywords, ", "), "sponsored, giveaway", false),
 		updateCheckOnStartup: cfg.Updates.CheckOnStartup,
 		update:               updateState,
 		providerIdx:          providerIndex(cfg.AI.Provider),
@@ -297,14 +322,17 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		activeSection:        ssDisplay,
 		focusedPane:          settingsPaneSidebar,
 		sectionField: [settingsSectionCount]settingsField{
-			ssDisplay: sfBackToSections,
-			ssFeeds:   sfBackToSections,
-			ssUpdates: sfBackToSections,
-			ssAI:      sfBackToSections,
-			ssAbout:   sfBackToSections,
+			ssDisplay:   sfBackToSections,
+			ssFeeds:     sfBackToSections,
+			ssUpdates:   sfBackToSections,
+			ssChangelog: sfBackToSections,
+			ssAI:        sfBackToSections,
+			ssAbout:     sfBackToSections,
 		},
 		focusedField: sfBackToSections,
 	}
+	s.omarchyBarWas = s.omarchyBar
+	s.changelog = &changelogMetrics{}
 	s.syncMaskedEchoChars()
 	s.applyFocus()
 	return s
@@ -338,6 +366,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	cfg.Display.MarkReadOnFocus = s.markReadOnFocus
 	cfg.Display.FocusLine = s.focusLine
 	cfg.Display.DefaultUnreadOnly = s.defaultUnreadOnly
+	cfg.Display.Shadow = s.shadow
 	cfg.Display.ActionableLinks = s.actionableLinks
 	cfg.Display.FilterLinks = s.filterLinks
 	cfg.Display.ArticleImages = s.articleImages
@@ -372,6 +401,7 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	if n, err := strconv.Atoi(strings.TrimSpace(s.retentionDaysInput.Value())); err == nil && n >= 0 {
 		cfg.Feed.RetentionDays = n
 	}
+	cfg.Feed.MuteKeywords = config.ParseMuteKeywords(s.muteKeywordsInput.Value())
 	cfg.Updates.CheckOnStartup = s.updateCheckOnStartup
 
 	cfg.AI.Provider = aiProviderIDs[s.providerIdx]
@@ -468,6 +498,9 @@ func (s *Settings) setActiveSection(section settingsSection) {
 	if section != ssAbout {
 		s.aboutGradientFrame = 0
 	}
+	if section != ssChangelog {
+		s.changelogScroll = 0
+	}
 	s.ensureSectionFieldVisible(section)
 	s.focusedField = s.sectionField[section]
 	s.applyFocus()
@@ -513,6 +546,7 @@ func (s *Settings) applyFocus() {
 	s.feedMaxBodyInput.Blur()
 	s.refreshIntervalInput.Blur()
 	s.retentionDaysInput.Blur()
+	s.muteKeywordsInput.Blur()
 	s.openaiInput.Blur()
 	s.claudeInput.Blur()
 	s.geminiInput.Blur()
@@ -535,6 +569,8 @@ func (s *Settings) applyFocus() {
 		s.refreshIntervalInput.Focus()
 	case sfFeedRetentionDays:
 		s.retentionDaysInput.Focus()
+	case sfFeedMuteKeywords:
+		s.muteKeywordsInput.Focus()
 	case sfAPIKey:
 		switch s.providerIdx {
 		case 1:
@@ -580,13 +616,22 @@ func (s Settings) updateNowActionVisible() bool {
 func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
-		fields := []settingsField{sfBackToSections, sfIcons, sfShowPaneHeaders, sfShowPaneBorders, sfPaneCorners, sfDateFormat, sfMarkReadOnOpen, sfMarkReadOnFocus, sfFocusLine, sfDefaultUnreadOnly, sfTheme, sfDisplayDensity, sfReadingWidth}
+		// Keep this in the order viewSectionBody draws the groups.
+		fields := []settingsField{sfBackToSections, sfTheme, sfDisplayDensity, sfIcons, sfDateFormat}
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
-		return append(fields, sfActionableLinks, sfFilterLinks, sfArticleImages, sfBrowser, sfConfirmQuit)
+		return append(fields,
+			sfShowPaneHeaders, sfShowPaneBorders, sfPaneCorners, sfShadow,
+			sfReadingWidth, sfFocusLine, sfActionableLinks, sfFilterLinks, sfArticleImages,
+			sfDefaultUnreadOnly, sfMarkReadOnOpen, sfMarkReadOnFocus, sfBrowser, sfConfirmQuit)
 	case ssFeeds:
-		return []settingsField{sfBackToSections, sfFeedRefreshInterval, sfFeedRetentionDays, sfFeedMaxBody}
+		fields := []settingsField{sfBackToSections}
+		if s.omarchyBarAvailable {
+			// First, so it is in view without scrolling on a short terminal.
+			fields = append(fields, sfOmarchyBar)
+		}
+		return append(fields, sfFeedRefreshInterval, sfFeedMaxBody, sfFeedRetentionDays, sfFeedMuteKeywords)
 	case ssUpdates:
 		fields := []settingsField{sfBackToSections, sfUpdateCheckOnStartup, sfUpdateCheckNow}
 		if s.updateNowActionVisible() {
@@ -612,6 +657,8 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		}
 		fields = append(fields, sfTestAIConnection, sfSavePath, sfMarkReadOnSummarize)
 		return fields
+	case ssChangelog:
+		return []settingsField{sfBackToSections}
 	case ssAbout:
 		return []settingsField{sfBackToSections, sfAboutRepo, sfAboutIssues}
 	default:
@@ -680,7 +727,7 @@ func (s Settings) isTextInput() bool {
 		return false
 	}
 	switch s.focusedField {
-	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfFeedRetentionDays, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
+	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfFeedRetentionDays, sfFeedMuteKeywords, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
 		sfRetroBg, sfRetroFg, sfRetroAccent:
 		return true
 	}
@@ -701,6 +748,8 @@ func (s Settings) updateFocusedTextInput(msg tea.Msg) (Settings, tea.Cmd, bool) 
 		s.refreshIntervalInput, cmd = s.refreshIntervalInput.Update(msg)
 	case sfFeedRetentionDays:
 		s.retentionDaysInput, cmd = s.retentionDaysInput.Update(msg)
+	case sfFeedMuteKeywords:
+		s.muteKeywordsInput, cmd = s.muteKeywordsInput.Update(msg)
 	case sfAPIKey:
 		switch s.providerIdx {
 		case 1:
@@ -799,6 +848,8 @@ func (s Settings) focusedTextInputCursorPosition() int {
 		return s.refreshIntervalInput.Position()
 	case sfFeedRetentionDays:
 		return s.retentionDaysInput.Position()
+	case sfFeedMuteKeywords:
+		return s.muteKeywordsInput.Position()
 	case sfAPIKey:
 		switch s.providerIdx {
 		case 1:
@@ -918,6 +969,10 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 
 	if !s.isTextInput() && !s.isPickerField() && keyMatches(key, keys.Left) {
 		s.setFocusedPane(settingsPaneSidebar)
+		return s, nil, false
+	}
+
+	if s.activeSection == ssChangelog && s.handleChangelogKey(key.String()) {
 		return s, nil, false
 	}
 
@@ -1058,6 +1113,24 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 	case sfFocusLine:
 		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.focusLine = !s.focusLine
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
+	case sfShadow:
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.shadow = !s.shadow
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
+	case sfOmarchyBar:
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.omarchyBar = !s.omarchyBar
 		} else if keyMatches(key, keys.Down) {
 			s.setFocusedField(s.nextField())
 		} else if keyMatches(key, keys.Up) {
@@ -1243,7 +1316,7 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
-	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfFeedRetentionDays, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
+	case sfBrowser, sfFeedMaxBody, sfFeedRefreshInterval, sfFeedRetentionDays, sfFeedMuteKeywords, sfReadingWidth, sfAPIKey, sfOllamaURL, sfOllamaModel, sfSavePath,
 		sfRetroBg, sfRetroFg, sfRetroAccent:
 		// Enter advances to next field; everything else goes to the text input.
 		if keyMatches(key, keys.Enter) {
@@ -1320,6 +1393,9 @@ func (s Settings) viewSectionPane(width, height int, chrome managerChrome) strin
 	titleRow = padStyled(titleRow, width, chrome.baseBg)
 	headingGap := lipgloss.NewStyle().Background(chrome.baseBg).Width(width).Render("")
 	bodyHeight := max(1, height-2)
+	if s.activeSection == ssChangelog && s.changelog != nil {
+		s.changelog.page, s.changelog.total = bodyHeight, len(body.lines)
+	}
 	section := lipgloss.JoinVertical(lipgloss.Left, titleRow, headingGap, s.scrollSectionBody(body, width, bodyHeight, chrome))
 	return lipgloss.NewStyle().Width(width).Height(height).Background(chrome.baseBg).Render(section)
 }
@@ -1329,7 +1405,9 @@ func (s Settings) scrollSectionBody(body settingsSectionBody, width, height int,
 		return clampView("", width, height, chrome.baseBg)
 	}
 	offset := 0
-	if anchor, ok := body.anchors[s.focusedField]; ok {
+	if s.activeSection == ssChangelog {
+		offset = clamp(s.changelogScroll, 0, max(0, len(body.lines)-height))
+	} else if anchor, ok := body.anchors[s.focusedField]; ok {
 		offset = settingsScrollOffset(len(body.lines), anchor, height)
 	}
 	end := min(len(body.lines), offset+height)
@@ -1346,6 +1424,9 @@ func settingsScrollOffset(totalLines, anchorLine, height int) int {
 }
 
 func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSectionBody {
+	if s.activeSection == ssChangelog {
+		return s.renderChangelogSection(width, chrome)
+	}
 	if s.activeSection == ssAbout {
 		body := s.renderAboutSection(width, chrome)
 		body = s.prependBackLink(body, width, chrome)
@@ -1356,39 +1437,50 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 	b.addBackLink()
 	switch s.activeSection {
 	case ssDisplay:
-		b.addGroup("Display")
-		b.addToggle("Icons", s.icons, sfIcons)
-		b.addToggle("Pane header bars", s.showPaneHeaders, sfShowPaneHeaders)
-		b.addToggle("Pane borders", s.showPaneBorders, sfShowPaneBorders)
-		if s.showPaneBorders {
-			b.addPaneCornersSelector()
-		}
-		b.addDateFormatSelector()
-		b.addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
-		b.addToggle("Mark read on focus", s.markReadOnFocus, sfMarkReadOnFocus)
-		b.addToggle("Focus line", s.focusLine, sfFocusLine)
-		b.addToggle("Default to unread only", s.defaultUnreadOnly, sfDefaultUnreadOnly)
+		b.addGroup("Appearance")
 		b.addThemeSelector()
 		b.addDensitySelector()
-		b.addInput("Reading width (columns)", s.readingWidthInput, sfReadingWidth)
+		b.addToggle("Icons", s.icons, sfIcons)
+		b.addDateFormatSelector()
 		if config.IsRetroTerminalTheme(s.themeName) {
 			b.addGroup("Terminal colors")
 			b.addInput("VT background (#rrggbb)", s.retroBgInput, sfRetroBg)
 			b.addInput("VT foreground (#rrggbb)", s.retroFgInput, sfRetroFg)
 			b.addInput("VT accent (#rrggbb)", s.retroAccentInput, sfRetroAccent)
 		}
+		b.addGroup("Panes")
+		b.addToggle("Pane header bars", s.showPaneHeaders, sfShowPaneHeaders)
+		b.addToggle("Pane borders", s.showPaneBorders, sfShowPaneBorders)
+		if s.showPaneBorders {
+			b.addPaneCornersSelector()
+		}
+		b.addToggle("Modal drop shadow", s.shadow, sfShadow)
+		b.addGroup("Reading")
+		b.addInput("Reading width (columns)", s.readingWidthInput, sfReadingWidth)
+		b.addToggle("Focus line", s.focusLine, sfFocusLine)
 		b.addToggle("Actionable article links", s.actionableLinks, sfActionableLinks)
 		b.addToggle("Filter links from articles", s.filterLinks, sfFilterLinks)
 		b.addToggle("Article images", s.articleImages, sfArticleImages)
+		b.addGroup("Behavior")
+		b.addToggle("Default to unread only", s.defaultUnreadOnly, sfDefaultUnreadOnly)
+		b.addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
+		b.addToggle("Mark read on focus", s.markReadOnFocus, sfMarkReadOnFocus)
 		b.addInput("Browser command", s.browserInput, sfBrowser)
 		b.addToggle("Confirm before quitting", s.confirmQuit, sfConfirmQuit)
 
 	case ssFeeds:
-		b.addGroup("Feeds")
+		if s.omarchyBarAvailable {
+			b.addGroup("Omarchy bar")
+			b.addToggle("Show in Omarchy bar", s.omarchyBar, sfOmarchyBar)
+		}
+		b.addGroup("Refresh")
 		b.addInput("Refresh every (minutes)", s.refreshIntervalInput, sfFeedRefreshInterval)
-		b.addInput("Delete read after (days)", s.retentionDaysInput, sfFeedRetentionDays)
 		b.addInput("Feed max size (MiB)", s.feedMaxBodyInput, sfFeedMaxBody)
+		b.addGroup("Library")
+		b.addInput("Delete read after (days)", s.retentionDaysInput, sfFeedRetentionDays)
 		b.addValue("Stored", s.storage.summary(), false)
+		b.addGroup("Filtering")
+		b.addInput("Mute titles containing", s.muteKeywordsInput, sfFeedMuteKeywords)
 
 	case ssUpdates:
 		b.addGroup("Updates")
@@ -1719,6 +1811,14 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 			"esc", "categories",
 		)
 	}
+	if s.activeSection == ssChangelog {
+		return renderSoftHints(width, chrome,
+			"↑/↓", "scroll",
+			"space", "page",
+			"home/end", "top/bottom",
+			"esc", "categories",
+		)
+	}
 	if s.activeSection == ssUpdates && s.focusedField == sfUpdateManualCommand {
 		return renderSoftHints(width, chrome,
 			"enter", "copy",
@@ -1738,7 +1838,9 @@ func (s Settings) viewHints(width int, chrome managerChrome) string {
 func (s Settings) renderSectionNavRow(width int, label, subtitle string, selected, paneFocused bool, chrome managerChrome) string {
 	fg, subFg := chrome.muted, chrome.muted
 	bold := false
+	display := titleCaseSectionLabel(label)
 	if selected {
+		display = strings.ToUpper(label)
 		fg = chrome.accent
 		bold = true
 	}
@@ -1747,11 +1849,11 @@ func (s Settings) renderSectionNavRow(width int, label, subtitle string, selecte
 	innerW := max(1, width-lipgloss.Width(marker)-1)
 	var row string
 	if subtitle == "" {
-		row = padRight(truncate(label, innerW), innerW)
+		row = padRight(truncate(display, innerW), innerW)
 	} else {
 		subW := lipgloss.Width(subtitle)
 		labelW := max(1, innerW-subW-1)
-		left := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(fg).Bold(bold).Width(labelW).Render(truncate(label, labelW))
+		left := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(fg).Bold(bold).Width(labelW).Render(truncate(display, labelW))
 		spacer := lipgloss.NewStyle().Background(chrome.baseBg).Width(1).Render("")
 		right := lipgloss.NewStyle().Background(chrome.baseBg).Foreground(subFg).Render(subtitle)
 		row = left + spacer + right
@@ -1762,6 +1864,17 @@ func (s Settings) renderSectionNavRow(width int, label, subtitle string, selecte
 		Bold(bold).
 		Render(row)
 	return padStyled(styled, width, chrome.baseBg)
+}
+
+// titleCaseSectionLabel converts an uppercase section label ("DISPLAY") to the
+// quiet form used for unselected sidebar rows ("Display"). Short acronyms such
+// as "AI" stay uppercase.
+func titleCaseSectionLabel(label string) string {
+	if label == "" || strings.ToUpper(label) != label || len([]rune(label)) <= 2 {
+		return label
+	}
+	lower := strings.ToLower(label)
+	return strings.ToUpper(lower[:1]) + lower[1:]
 }
 
 func (s Settings) renderFieldLabel(label string, focused bool, _ int, chrome managerChrome) string {
@@ -2187,6 +2300,12 @@ func (s Settings) fieldHint(field settingsField) string {
 		return "how often feeds refresh in the background; 0 = only on startup and f/F"
 	case sfFeedRetentionDays:
 		return "0 keeps everything; starred, summarized and unread articles are never deleted"
+	case sfFeedMuteKeywords:
+		return "comma-separated; new articles whose title contains one arrive already read"
+	case sfShadow:
+		return "darken the area just behind dialogs so they stand out from the panes; not used on the VT52 theme"
+	case sfOmarchyBar:
+		return "adds or removes Tide's unread count in the bar when you save; click it to open Tide"
 	case sfReadingWidth:
 		return "max columns for article text; 0 = no limit (e.g. 80, 100)"
 	case sfTestAIConnection:
