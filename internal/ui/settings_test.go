@@ -2,7 +2,9 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"testing"
 
@@ -210,6 +212,7 @@ func TestSettingsLoadsAndAppliesFocusLine(t *testing.T) {
 func TestSettingsViewIncludesFocusLineToggle(t *testing.T) {
 	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
 	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfFocusLine)
 	v := s.View(62, 40, newManagerChrome(62, CatppuccinMocha, false))
 	if !strings.Contains(v, "Focus line") {
 		t.Fatal("expected settings view to contain focus line toggle")
@@ -998,8 +1001,8 @@ func TestSettingsSectionsUseSharedRightPaneGroupHeaders(t *testing.T) {
 		section settingsSection
 		want    string
 	}{
-		{section: ssDisplay, want: "Display"},
-		{section: ssFeeds, want: "Feeds"},
+		{section: ssDisplay, want: "Appearance"},
+		{section: ssFeeds, want: "Refresh"},
 		{section: ssUpdates, want: "Updates"},
 		{section: ssAI, want: "Provider credentials"},
 	}
@@ -1423,5 +1426,112 @@ func TestSettingsMuteKeywordsRoundTrip(t *testing.T) {
 	got := s.ApplyTo(cfg).Feed.MuteKeywords
 	if len(got) != 2 || got[0] != "giveaway" || got[1] != "Crypto" {
 		t.Fatalf("unexpected keywords from the field: %q", got)
+	}
+}
+
+// sectionFields is the Tab order and viewSectionBody is the drawing order;
+// they are separate lists, so a field added to one and not the other would
+// make the focus rail jump around. Every focusable field must appear in both,
+// in the same order.
+func TestSettingsTabOrderMatchesDrawnOrder(t *testing.T) {
+	configs := map[string]func(*config.Config){
+		"default":     func(*config.Config) {},
+		"retro theme": func(c *config.Config) { c.Theme = "vt100" },
+	}
+	for name, mutate := range configs {
+		for section := settingsSection(0); section < settingsSectionCount; section++ {
+			if section == ssAbout {
+				continue
+			}
+			t.Run(fmt.Sprintf("%s/section %d", name, section), func(t *testing.T) {
+				cfg := config.DefaultConfig()
+				mutate(&cfg)
+				cfg.Display.ShowPaneBorders = true
+				s := newSettings(cfg, settingsUpdateState{})
+				s.omarchyBarAvailable = true
+				s.setActiveSection(section)
+
+				body := s.viewSectionBody(80, newManagerChrome(84, CatppuccinMocha, false))
+				var drawn []settingsField
+				for field := range body.anchors {
+					drawn = append(drawn, field)
+				}
+				sort.Slice(drawn, func(i, j int) bool { return body.anchors[drawn[i]] < body.anchors[drawn[j]] })
+
+				var tabbed []settingsField
+				for _, field := range s.sectionFields(section) {
+					if _, ok := body.anchors[field]; ok {
+						tabbed = append(tabbed, field)
+					}
+				}
+				if fmt.Sprint(tabbed) != fmt.Sprint(drawn) {
+					t.Fatalf("Tab order %v differs from drawn order %v", tabbed, drawn)
+				}
+			})
+		}
+	}
+}
+
+func TestSettingsDisplayAndFeedsAreGrouped(t *testing.T) {
+	text := func(s Settings) string {
+		body := s.viewSectionBody(80, newManagerChrome(84, CatppuccinMocha, false))
+		return ansi.Strip(strings.Join(body.lines, "\n"))
+	}
+	headings := func(t *testing.T, got string, want ...string) {
+		t.Helper()
+		lines := strings.Split(got, "\n")
+		last := -1
+		for _, h := range want {
+			at := -1
+			for i, line := range lines {
+				if strings.TrimSpace(line) == h {
+					at = i
+					break
+				}
+			}
+			if at < 0 {
+				t.Fatalf("expected the %q group heading in:\n%s", h, got)
+			}
+			if at < last {
+				t.Fatalf("expected %q after the previous group in:\n%s", h, got)
+			}
+			last = at
+		}
+	}
+
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.setActiveSection(ssDisplay)
+	headings(t, text(s), "Appearance", "Panes", "Reading", "Behavior")
+	if strings.Contains(text(s), "Terminal colors") {
+		t.Fatal("expected no Terminal colors group on a theme without retro colors")
+	}
+
+	retro := config.DefaultConfig()
+	retro.Theme = "vt100"
+	s = newSettings(retro, settingsUpdateState{})
+	s.setActiveSection(ssDisplay)
+	headings(t, text(s), "Appearance", "Terminal colors", "Panes", "Reading", "Behavior")
+
+	s = newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.omarchyBarAvailable = true
+	s.setActiveSection(ssFeeds)
+	headings(t, text(s), "Omarchy bar", "Refresh", "Library", "Filtering")
+
+	s.omarchyBarAvailable = false
+	if strings.Contains(text(s), "Omarchy bar") {
+		t.Fatal("expected no Omarchy bar group away from Omarchy")
+	}
+}
+
+// The Omarchy toggle was once missed because it sat below the fold; it leads
+// Feeds so it is in view without scrolling, even in a short pane.
+func TestSettingsOmarchyToggleVisibleWithoutScrollingInShortPane(t *testing.T) {
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	s.omarchyBarAvailable = true
+	s.setActiveSection(ssFeeds)
+	s.setFocusedPane(settingsPaneDetail)
+	view := ansi.Strip(s.View(84, 16, newManagerChrome(84, CatppuccinMocha, false)))
+	if !strings.Contains(view, "Show in Omarchy bar") {
+		t.Fatalf("expected the Omarchy toggle in a 16-row pane, got:\n%s", view)
 	}
 }

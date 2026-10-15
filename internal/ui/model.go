@@ -2862,7 +2862,7 @@ func (m Model) renderOverlay(base string) string {
 		}
 
 	case overlaySettings:
-		winW := min(m.width-4, 62)
+		winW := min(m.width-4, settingsOverlayMaxW)
 		winH := min(m.height-4, 36)
 		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
 		inner := m.settings.View(winW, winH, chrome)

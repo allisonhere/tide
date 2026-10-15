@@ -27,6 +27,11 @@ var shellCommandKeywords = map[string]bool{
 
 // ── Field index ───────────────────────────────────────────────────────────────
 
+// settingsOverlayMaxW caps the Settings panel's width. Wide enough that a
+// field's hint fits on one line on a typical terminal; it still shrinks to fit
+// a narrow one.
+const settingsOverlayMaxW = 84
+
 type settingsField int
 
 const (
@@ -598,18 +603,22 @@ func (s Settings) updateNowActionVisible() bool {
 func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
-		fields := []settingsField{sfBackToSections, sfIcons, sfShowPaneHeaders, sfShowPaneBorders, sfPaneCorners, sfDateFormat, sfMarkReadOnOpen, sfMarkReadOnFocus, sfFocusLine, sfDefaultUnreadOnly, sfTheme, sfDisplayDensity, sfReadingWidth}
+		// Keep this in the order viewSectionBody draws the groups.
+		fields := []settingsField{sfBackToSections, sfTheme, sfDisplayDensity, sfIcons, sfDateFormat}
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
-		return append(fields, sfActionableLinks, sfFilterLinks, sfArticleImages, sfBrowser, sfConfirmQuit)
+		return append(fields,
+			sfShowPaneHeaders, sfShowPaneBorders, sfPaneCorners,
+			sfReadingWidth, sfFocusLine, sfActionableLinks, sfFilterLinks, sfArticleImages,
+			sfDefaultUnreadOnly, sfMarkReadOnOpen, sfMarkReadOnFocus, sfBrowser, sfConfirmQuit)
 	case ssFeeds:
 		fields := []settingsField{sfBackToSections}
 		if s.omarchyBarAvailable {
 			// First, so it is in view without scrolling on a short terminal.
 			fields = append(fields, sfOmarchyBar)
 		}
-		return append(fields, sfFeedRefreshInterval, sfFeedRetentionDays, sfFeedMuteKeywords, sfFeedMaxBody)
+		return append(fields, sfFeedRefreshInterval, sfFeedMaxBody, sfFeedRetentionDays, sfFeedMuteKeywords)
 	case ssUpdates:
 		fields := []settingsField{sfBackToSections, sfUpdateCheckOnStartup, sfUpdateCheckNow}
 		if s.updateNowActionVisible() {
@@ -1392,43 +1401,49 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 	b.addBackLink()
 	switch s.activeSection {
 	case ssDisplay:
-		b.addGroup("Display")
-		b.addToggle("Icons", s.icons, sfIcons)
-		b.addToggle("Pane header bars", s.showPaneHeaders, sfShowPaneHeaders)
-		b.addToggle("Pane borders", s.showPaneBorders, sfShowPaneBorders)
-		if s.showPaneBorders {
-			b.addPaneCornersSelector()
-		}
-		b.addDateFormatSelector()
-		b.addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
-		b.addToggle("Mark read on focus", s.markReadOnFocus, sfMarkReadOnFocus)
-		b.addToggle("Focus line", s.focusLine, sfFocusLine)
-		b.addToggle("Default to unread only", s.defaultUnreadOnly, sfDefaultUnreadOnly)
+		b.addGroup("Appearance")
 		b.addThemeSelector()
 		b.addDensitySelector()
-		b.addInput("Reading width (columns)", s.readingWidthInput, sfReadingWidth)
+		b.addToggle("Icons", s.icons, sfIcons)
+		b.addDateFormatSelector()
 		if config.IsRetroTerminalTheme(s.themeName) {
 			b.addGroup("Terminal colors")
 			b.addInput("VT background (#rrggbb)", s.retroBgInput, sfRetroBg)
 			b.addInput("VT foreground (#rrggbb)", s.retroFgInput, sfRetroFg)
 			b.addInput("VT accent (#rrggbb)", s.retroAccentInput, sfRetroAccent)
 		}
+		b.addGroup("Panes")
+		b.addToggle("Pane header bars", s.showPaneHeaders, sfShowPaneHeaders)
+		b.addToggle("Pane borders", s.showPaneBorders, sfShowPaneBorders)
+		if s.showPaneBorders {
+			b.addPaneCornersSelector()
+		}
+		b.addGroup("Reading")
+		b.addInput("Reading width (columns)", s.readingWidthInput, sfReadingWidth)
+		b.addToggle("Focus line", s.focusLine, sfFocusLine)
 		b.addToggle("Actionable article links", s.actionableLinks, sfActionableLinks)
 		b.addToggle("Filter links from articles", s.filterLinks, sfFilterLinks)
 		b.addToggle("Article images", s.articleImages, sfArticleImages)
+		b.addGroup("Behavior")
+		b.addToggle("Default to unread only", s.defaultUnreadOnly, sfDefaultUnreadOnly)
+		b.addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)
+		b.addToggle("Mark read on focus", s.markReadOnFocus, sfMarkReadOnFocus)
 		b.addInput("Browser command", s.browserInput, sfBrowser)
 		b.addToggle("Confirm before quitting", s.confirmQuit, sfConfirmQuit)
 
 	case ssFeeds:
-		b.addGroup("Feeds")
 		if s.omarchyBarAvailable {
+			b.addGroup("Omarchy bar")
 			b.addToggle("Show in Omarchy bar", s.omarchyBar, sfOmarchyBar)
 		}
+		b.addGroup("Refresh")
 		b.addInput("Refresh every (minutes)", s.refreshIntervalInput, sfFeedRefreshInterval)
-		b.addInput("Delete read after (days)", s.retentionDaysInput, sfFeedRetentionDays)
-		b.addInput("Mute titles containing", s.muteKeywordsInput, sfFeedMuteKeywords)
 		b.addInput("Feed max size (MiB)", s.feedMaxBodyInput, sfFeedMaxBody)
+		b.addGroup("Library")
+		b.addInput("Delete read after (days)", s.retentionDaysInput, sfFeedRetentionDays)
 		b.addValue("Stored", s.storage.summary(), false)
+		b.addGroup("Filtering")
+		b.addInput("Mute titles containing", s.muteKeywordsInput, sfFeedMuteKeywords)
 
 	case ssUpdates:
 		b.addGroup("Updates")
