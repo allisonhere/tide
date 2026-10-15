@@ -604,11 +604,12 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		}
 		return append(fields, sfActionableLinks, sfFilterLinks, sfArticleImages, sfBrowser, sfConfirmQuit)
 	case ssFeeds:
-		fields := []settingsField{sfBackToSections, sfFeedRefreshInterval, sfFeedRetentionDays, sfFeedMuteKeywords, sfFeedMaxBody}
+		fields := []settingsField{sfBackToSections}
 		if s.omarchyBarAvailable {
+			// First, so it is in view without scrolling on a short terminal.
 			fields = append(fields, sfOmarchyBar)
 		}
-		return fields
+		return append(fields, sfFeedRefreshInterval, sfFeedRetentionDays, sfFeedMuteKeywords, sfFeedMaxBody)
 	case ssUpdates:
 		fields := []settingsField{sfBackToSections, sfUpdateCheckOnStartup, sfUpdateCheckNow}
 		if s.updateNowActionVisible() {
@@ -1420,13 +1421,13 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 
 	case ssFeeds:
 		b.addGroup("Feeds")
+		if s.omarchyBarAvailable {
+			b.addToggle("Show in Omarchy bar", s.omarchyBar, sfOmarchyBar)
+		}
 		b.addInput("Refresh every (minutes)", s.refreshIntervalInput, sfFeedRefreshInterval)
 		b.addInput("Delete read after (days)", s.retentionDaysInput, sfFeedRetentionDays)
 		b.addInput("Mute titles containing", s.muteKeywordsInput, sfFeedMuteKeywords)
 		b.addInput("Feed max size (MiB)", s.feedMaxBodyInput, sfFeedMaxBody)
-		if s.omarchyBarAvailable {
-			b.addToggle("Unread count in Omarchy bar", s.omarchyBar, sfOmarchyBar)
-		}
 		b.addValue("Stored", s.storage.summary(), false)
 
 	case ssUpdates:
