@@ -174,6 +174,14 @@ the installer above (or take an in-app update). It installs to `~/.local/bin` an
 prints a one-time `sudo rm -f /usr/local/bin/tide` to clear the old copy — after
 that, no more prompts.
 
+**Windows (experimental):** download `tide-windows-x86_64.zip` (or
+`tide-windows-aarch64.zip` on ARM) from the
+[latest release](https://github.com/allisonhere/tide/releases/latest), unzip
+it, and run `tide.exe` from Windows Terminal or PowerShell. In-app updates are
+not available on Windows, so download new releases by hand. To open links,
+set a browser in Settings (for example the full path to `msedge.exe`). The
+config lives in `%USERPROFILE%\.config\rss\config.toml`.
+
 Or build from source:
 
 ```bash

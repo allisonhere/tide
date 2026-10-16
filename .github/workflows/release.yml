@@ -32,6 +32,13 @@ jobs:
       - name: Test
         run: go test ./...
 
+      # Windows ships as a cross-compiled zip, so make sure it still builds.
+      - name: Vet for Windows
+        env:
+          CGO_ENABLED: "0"
+          GOOS: windows
+        run: go vet ./...
+
       - name: Build binaries
         run: |
           mkdir -p dist
@@ -40,9 +47,24 @@ jobs:
             "linux   arm64 tide-linux-aarch64"
             "darwin  amd64 tide-darwin-x86_64"
             "darwin  arm64 tide-darwin-aarch64"
+            "windows amd64 tide-windows-x86_64"
+            "windows arm64 tide-windows-aarch64"
           )
           for entry in "${targets[@]}"; do
             read -r goos goarch name <<< "$entry"
+            if [ "$goos" = windows ]; then
+              # Windows gets a zip holding tide.exe. The in-app updater does
+              # not support Windows, so this archive is for manual installs only.
+              mkdir -p "dist/$name"
+              CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build \
+                -ldflags="-s -w -X main.version=${{ steps.version.outputs.tag }}" \
+                -o "dist/$name/tide.exe" \
+                .
+              ( cd "dist/$name" && zip -q "../$name.zip" tide.exe )
+              rm -r "dist/$name"
+              echo "Built dist/$name.zip"
+              continue
+            fi
             CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build \
               -ldflags="-s -w -X main.version=${{ steps.version.outputs.tag }}" \
               -o "dist/$name" \
@@ -54,7 +76,7 @@ jobs:
 
       - name: Generate checksums
         working-directory: dist
-        run: sha256sum *.tar.gz > checksums.txt
+        run: sha256sum *.tar.gz *.zip > checksums.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
@@ -63,4 +85,5 @@ jobs:
           generate_release_notes: true
           files: |
             dist/*.tar.gz
+            dist/*.zip
             dist/checksums.txt
