@@ -2,12 +2,12 @@
 
 ## Current branch: main
 
-Everything below is merged to `main`. Released: v1.2.1. Unreleased, on `main`
-since v1.2.1: everything under "Since v1.2.1" (see `CHANGELOG.md`).
+Everything below is merged to `main`. Latest release: v1.2.1. Everything under "Since v1.2.1"
+is written up as v1.3.0 in `CHANGELOG.md`, ready to release.
 
 ## What's working
 
-### Since v1.2.1 (unreleased)
+### Since v1.2.1 (v1.3.0, not yet released)
 - **All Unread** virtual row under Saved (unread across local feeds), and folder rows that list
   their feeds' articles merged. Article loads carry the sidebar row kind they were made for
   (`ArticlesLoadedMsg.Kind`/`FolderID`), which replaced the old Saved sentinel feed id in the
@@ -57,8 +57,8 @@ since v1.2.1: everything under "Since v1.2.1" (see `CHANGELOG.md`).
   One `sudo rm -f /usr/local/bin/tide` on upgrade, then never again.
 
 ## Known issues / next up
-- Cut the next release: `CHANGELOG.md` still lists everything under **Unreleased**, and `deploy.sh`
-  does not roll that heading to the new version yet; rename it by hand when releasing
+- Cut v1.3.0 with `./deploy.sh`. `deploy.sh` does not roll the changelog heading to the new
+  version, so after each release move new entries from **Unreleased** to a heading by hand
 - Merged views (All Unread, folders) and mute keywords cover local feeds only. Google Reader /
   FreshRSS feeds are fetched live per feed and never stored, so they appear only under their own
   rows

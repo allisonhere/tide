@@ -5,6 +5,8 @@ bundled into the app: Settings → Changelog.
 
 ## Unreleased
 
+## v1.3.0
+
 ### Added
 
 - **All Unread** row under Saved: unread articles from every local feed, newest first, with the
