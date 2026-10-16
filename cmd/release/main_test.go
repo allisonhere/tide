@@ -75,7 +75,7 @@ func TestCommitInputAcceptsNavigationLetters(t *testing.T) {
 		focus:       1,
 		commitInput: input,
 	}
-	for _, char := range []rune("qhjklr") {
+	for _, char := range "qhjklr" {
 		next, _ := m.updateConfigure(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{char}})
 		m = next.(model)
 	}

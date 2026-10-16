@@ -117,8 +117,8 @@ func wrapAtCursor(x, y int, seq string) string {
 		y = 1
 	}
 	var b strings.Builder
-	b.WriteString("\x1b7")                          // DECSC – save cursor
-	b.WriteString(fmt.Sprintf("\x1b[%d;%dH", y, x)) // CUP – move to row;col
+	b.WriteString("\x1b7")               // DECSC – save cursor
+	fmt.Fprintf(&b, "\x1b[%d;%dH", y, x) // CUP – move to row;col
 	b.WriteString(seq)
 	b.WriteString("\x1b8") // DECRC – restore cursor
 	return b.String()

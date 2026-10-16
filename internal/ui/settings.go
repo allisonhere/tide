@@ -2541,9 +2541,12 @@ func aboutHeroRevealMask(frame, row, col, width int) (float64, float64) {
 	headWidth := math.Max(1.4, float64(width)*0.03)
 	trailCenter := center - 4.2
 
-	trail := math.Exp(-math.Pow((x-trailCenter)/trailWidth, 2))
-	band := math.Exp(-math.Pow((x-center)/(trailWidth*0.62), 2))
-	shimmer := math.Exp(-math.Pow((x-center)/headWidth, 2))
+	trailD := (x - trailCenter) / trailWidth
+	bandD := (x - center) / (trailWidth * 0.62)
+	shimmerD := (x - center) / headWidth
+	trail := math.Exp(-trailD * trailD)
+	band := math.Exp(-bandD * bandD)
+	shimmer := math.Exp(-shimmerD * shimmerD)
 
 	reveal := clamp01(trail*0.72 + band*0.54)
 	return reveal, clamp01(shimmer)

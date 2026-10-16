@@ -18,17 +18,17 @@ func New(cfg config.AIConfig) (Summarizer, error) {
 	switch cfg.Provider {
 	case "openai":
 		if cfg.OpenAIKey == "" {
-			return nil, fmt.Errorf("OpenAI API key not set")
+			return nil, fmt.Errorf("no OpenAI API key set")
 		}
 		return &openAI{key: cfg.OpenAIKey}, nil
 	case "claude":
 		if cfg.ClaudeKey == "" {
-			return nil, fmt.Errorf("Claude API key not set")
+			return nil, fmt.Errorf("no Claude API key set")
 		}
 		return &claude{key: cfg.ClaudeKey}, nil
 	case "gemini":
 		if cfg.GeminiKey == "" {
-			return nil, fmt.Errorf("Gemini API key not set")
+			return nil, fmt.Errorf("no Gemini API key set")
 		}
 		return &gemini{key: cfg.GeminiKey}, nil
 	case "ollama":

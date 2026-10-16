@@ -2,6 +2,12 @@
 # conventionally ignored. Everything else is reported.
 version: "2"
 
+# Show every issue: by default the linter caps repeats of the same finding,
+# which hides the rest until the first few are fixed.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
 linters:
   settings:
     errcheck:

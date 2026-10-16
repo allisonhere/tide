@@ -2251,10 +2251,11 @@ func (fm FeedManager) viewHints(width int, chrome managerChrome) string {
 				enterLabel = "load feeds"
 			}
 		}
-		if fm.focusedField == fmFieldAddSource {
+		switch fm.focusedField {
+		case fmFieldAddSource:
 			enterLabel = "toggle source"
 			pickLabel = "toggle"
-		} else if fm.focusedField == fmFieldBack {
+		case fmFieldBack:
 			enterLabel = "sections"
 			pickLabel = "back"
 		}
@@ -2370,7 +2371,7 @@ func newManagerChrome(width int, t Theme, plainUI bool) managerChrome {
 	text := readableText(t.Fg, baseBg, 4.5)
 	muted := mutedText(text, baseBg)
 	// Softer than accent: form focus / selection (accent stays for key badges and primary actions).
-	highlight := accent
+	var highlight lipgloss.Color
 	if isDark(baseBg) {
 		highlight = adjustLightness(accent, -0.16)
 	} else {

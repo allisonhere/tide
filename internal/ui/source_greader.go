@@ -35,10 +35,7 @@ func (m Model) articleIsRemote(articleID int64) bool {
 			return m.isRemoteFeed(m.filteredArticles[i].FeedID)
 		}
 	}
-	if articleID < 0 {
-		return true
-	}
-	return false
+	return articleID < 0
 }
 
 func (m *Model) resetSourceClient() {

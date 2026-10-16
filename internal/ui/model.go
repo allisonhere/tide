@@ -2128,7 +2128,7 @@ func (m Model) statusBarInlineText(style lipgloss.Style, s string) string {
 	if s == "" {
 		return ""
 	}
-	return style.Copy().UnsetPadding().Render(s)
+	return style.UnsetPadding().Render(s)
 }
 
 // statusBarKeyHintStrip is the global shortcuts ending with ? help.
@@ -4383,14 +4383,14 @@ func (m Model) folderHeaderStyle(folderID int64, selected bool) lipgloss.Style {
 	// Saved is a top-level navigation item, so its folder glyph and label need
 	// the normal readable sidebar text color rather than the low-contrast dimmed
 	// folder-header color.
-	style := m.styles.FeedItem.Copy().Foreground(
+	style := m.styles.FeedItem.Foreground(
 		readableText(m.styles.Theme.Fg, m.styles.Theme.Bg, 7),
 	).Bold(true)
 	if accent != "" {
 		style = style.Foreground(accentReadableOn(accent, m.styles.Theme.Bg, 3))
 	}
 	if selected {
-		style = m.sidebarSelectedStyle(accent).Copy().Bold(true)
+		style = m.sidebarSelectedStyle(accent).Bold(true)
 	}
 	return style
 }
@@ -4403,14 +4403,14 @@ func (m Model) folderBadgeStyle(folderID int64, selected bool) lipgloss.Style {
 	if accent == "" {
 		return m.styles.UnreadBadge
 	}
-	return m.styles.UnreadBadge.Copy().Foreground(accentReadableOn(accent, m.styles.Theme.Bg, 3))
+	return m.styles.UnreadBadge.Foreground(accentReadableOn(accent, m.styles.Theme.Bg, 3))
 }
 
 func (m Model) feedAccentStyle(feed db.Feed, selected bool) lipgloss.Style {
 	style := m.styles.FeedItem
 	accent := m.folderColor(feed.FolderID)
 	if accent != "" {
-		style = style.Copy().Foreground(accentReadableOn(accent, m.styles.Theme.Bg, 3))
+		style = style.Foreground(accentReadableOn(accent, m.styles.Theme.Bg, 3))
 	}
 	if selected {
 		style = m.sidebarSelectedStyle(accent)
@@ -4426,13 +4426,13 @@ func (m Model) feedBadgeStyle(feed db.Feed, selected bool) lipgloss.Style {
 	if accent == "" {
 		return m.styles.UnreadBadge
 	}
-	return m.styles.UnreadBadge.Copy().Foreground(accentReadableOn(accent, m.styles.Theme.Bg, 3))
+	return m.styles.UnreadBadge.Foreground(accentReadableOn(accent, m.styles.Theme.Bg, 3))
 }
 
 func (m Model) sidebarSelectedStyle(accent lipgloss.Color) lipgloss.Style {
 	if m.focused == paneFeeds {
 		if accent != "" {
-			return m.styles.FeedItemSelectedFocused.Copy().
+			return m.styles.FeedItemSelectedFocused.
 				Background(accent).
 				Foreground(readableText(m.styles.Theme.Fg, accent, 4.5))
 		}
@@ -4442,14 +4442,14 @@ func (m Model) sidebarSelectedStyle(accent lipgloss.Color) lipgloss.Style {
 	style := m.styles.FeedItemSelectedUnfocused
 	if accent != "" {
 		bg := terminalColorAsColor(style.GetBackground())
-		style = style.Copy().Foreground(accentReadableOn(accent, bg, 3))
+		style = style.Foreground(accentReadableOn(accent, bg, 3))
 	}
 	return style
 }
 
 func (m Model) sidebarSelectedBadgeStyle(accent lipgloss.Color) lipgloss.Style {
 	style := m.sidebarSelectedStyle(accent)
-	return m.styles.UnreadBadge.Copy().Foreground(terminalColorAsColor(style.GetForeground()))
+	return m.styles.UnreadBadge.Foreground(terminalColorAsColor(style.GetForeground()))
 }
 
 func terminalColorAsColor(c lipgloss.TerminalColor) lipgloss.Color {
@@ -4469,9 +4469,9 @@ func (m Model) articleRowStyles() (lipgloss.Style, lipgloss.Style, lipgloss.Styl
 	borderFocus := m.styles.Theme.BorderFocus
 	if accent != "" {
 		leg := accentReadableOn(accent, m.styles.Theme.Bg, 3)
-		unread = unread.Copy().Foreground(leg)
-		selected = selected.Copy().Foreground(leg)
-		headerActive = headerActive.Copy().
+		unread = unread.Foreground(leg)
+		selected = selected.Foreground(leg)
+		headerActive = headerActive.
 			Background(accent).
 			Foreground(readableText(m.styles.Theme.Fg, accent, 4.5))
 		borderFocus = accent
@@ -4819,9 +4819,9 @@ func (m Model) renderAllUnreadRow(selected bool, width int) string {
 		badge = badgeStyle.Render(fmt.Sprintf("(%d)", n))
 	}
 
-	style := m.styles.FeedItem.Copy().Foreground(lipgloss.Color(m.styles.Theme.Dimmed)).Bold(true)
+	style := m.styles.FeedItem.Foreground(lipgloss.Color(m.styles.Theme.Dimmed)).Bold(true)
 	if selected {
-		style = m.sidebarSelectedStyle("").Copy().Bold(true)
+		style = m.sidebarSelectedStyle("").Bold(true)
 	}
 	rowBg := terminalColorAsColor(style.GetBackground())
 	if rowBg == "" {
@@ -4856,9 +4856,9 @@ func (m Model) renderSavedRow(selected bool, width int) string {
 		badge = badgeStyle.Render(fmt.Sprintf("(%d)", m.savedCount))
 	}
 
-	style := m.styles.FeedItem.Copy().Foreground(lipgloss.Color(m.styles.Theme.Dimmed)).Bold(true)
+	style := m.styles.FeedItem.Foreground(lipgloss.Color(m.styles.Theme.Dimmed)).Bold(true)
 	if selected {
-		style = m.sidebarSelectedStyle("").Copy().Bold(true)
+		style = m.sidebarSelectedStyle("").Bold(true)
 	}
 
 	// Capture the existing star color before changing the folder glyph and label.
@@ -4912,7 +4912,7 @@ func starredRowBackground(t Theme) lipgloss.Color {
 func applyArticleRowState(style, selected lipgloss.Style, starred, cursor bool, t Theme) lipgloss.Style {
 	if starred {
 		if bg := starredRowBackground(t); bg != t.Bg {
-			style = style.Copy().Background(bg)
+			style = style.Background(bg)
 		}
 	}
 	if cursor {
@@ -5016,10 +5016,10 @@ func articleRowSegments(prefix, star, title, age string, width int) (left, mid, 
 // stripped for the segments and re-emitted once, with the row's background so a
 // saved row's tint covers its spacer too.
 func renderStyledArticleRow(style lipgloss.Style, accent lipgloss.Color, left, star, right string, width int) string {
-	body := style.Copy().UnsetPadding()
-	line := body.Render(left) + body.Copy().Foreground(accent).Render(star) + body.Render(right)
+	body := style.UnsetPadding()
+	line := body.Render(left) + body.Foreground(accent).Render(star) + body.Render(right)
 
-	blank := body.Copy().Width(width).Render("")
+	blank := body.Width(width).Render("")
 	for i := 0; i < style.GetPaddingTop(); i++ {
 		line = blank + "\n" + line
 	}

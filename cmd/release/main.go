@@ -379,7 +379,7 @@ func (m model) viewConfigure() string {
 	b.WriteString(m.info.latestTag)
 	b.WriteString("\n")
 	b.WriteString(label("Changes"))
-	b.WriteString(fmt.Sprintf("%d file(s)", len(m.info.status)))
+	fmt.Fprintf(&b, "%d file(s)", len(m.info.status))
 	b.WriteString("\n")
 	b.WriteString(label("Git author"))
 	if m.info.identityReady() {
@@ -474,7 +474,7 @@ func (m model) viewRunning() string {
 		case 3:
 			icon = errStyle.Render("✗")
 		}
-		b.WriteString(fmt.Sprintf(" %s  %s\n", icon, step.name))
+		fmt.Fprintf(&b, " %s  %s\n", icon, step.name)
 	}
 	if len(m.logs) > 0 {
 		b.WriteString("\n")
@@ -535,7 +535,7 @@ func buildReleaseSteps(info repoInfo, version, commitMessage string) []releaseSt
 				email, _ := runOutput(root, "git", "config", "--get", "user.email")
 				name, email = strings.TrimSpace(name), strings.TrimSpace(email)
 				if name == "" || email == "" {
-					return "", errors.New(`Git author identity is missing; run:
+					return "", errors.New(`git author identity is missing; run:
   git config user.name "Your Name"
   git config user.email "you@example.com"`)
 				}
