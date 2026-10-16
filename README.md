@@ -36,6 +36,10 @@ the panes with a drop shadow that adapts to the theme: it steps down further on 
 on a near-black one, and stays off on the plain-ASCII VT52 theme. **Settings → Display → Panes →
 Modal drop shadow** (`display.shadow`) turns it off.
 
+**Windows builds.** Each release now includes `tide-windows-x86_64.zip` and
+`tide-windows-aarch64.zip` with `tide.exe`, still marked experimental. In-app updates are not
+available on Windows yet, so download new releases by hand. See [Installation](#installation).
+
 **Fixed: read articles in local feeds.** The `u` toggle and `display.default_unread_only` could
 never show read articles for local feeds, so a fully read feed looked empty (#11). They do now, and
 `u` works while the feed list has focus.
@@ -180,7 +184,8 @@ that, no more prompts.
 it, and run `tide.exe` from Windows Terminal or PowerShell. In-app updates are
 not available on Windows, so download new releases by hand. To open links,
 set a browser in Settings (for example the full path to `msedge.exe`). The
-config lives in `%USERPROFILE%\.config\rss\config.toml`.
+config lives in `%USERPROFILE%\.config\rss\config.toml` and the article database in
+`%USERPROFILE%\.local\share\rss\rss.db`.
 
 Or build from source:
 

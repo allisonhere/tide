@@ -22,6 +22,9 @@ bundled into the app: Settings → Changelog.
   unread count in the bar. Your `shell.json` is backed up first.
 - **Settings → Changelog**: read these release notes inside the app. They are bundled with the
   build, so they work offline and always match the installed version.
+- **Experimental Windows builds** (x86_64 and ARM64) are attached to each release as zip files
+  holding `tide.exe`, and the release workflow now vets the code for Windows. In-app updates are not
+  available on Windows yet, so download new releases by hand.
 - **Drop shadow** behind dialogs (Settings, search, the theme picker and the rest): a darkened sliver
   blended into whatever is behind it, so it works over any theme. It steps down further on a light
   theme than on a near-black one, and stays off on the plain-ASCII VT52 theme. On by default;
