@@ -14,8 +14,10 @@ import (
 // BarModuleID is the id of Tide's unread-count module in the Omarchy bar.
 const BarModuleID = "tide"
 
-// barRefreshSeconds is how often the bar re-runs `tide --bar`.
-const barRefreshSeconds = 60
+// barRefreshSeconds is how often the bar re-runs `tide --bar`. The shell has
+// no way to nudge a command module, so this is also how quickly the count
+// follows a feed being added or fetched. The command only reads the database.
+const barRefreshSeconds = 5
 
 // shellConfigPath is the user's Omarchy shell config, which owns the bar.
 func shellConfigPath() string {
@@ -78,7 +80,7 @@ func InstallBarModule(executable string) error {
 		return err
 	}
 	if BarModuleInstalled() {
-		return nil
+		return refreshBarInterval(path)
 	}
 
 	bar := childObject(cfg, "bar")
@@ -93,6 +95,33 @@ func InstallBarModule(executable string) error {
 		"onClick":  "omarchy-launch-or-focus-tui " + executable,
 	}
 	layout["right"] = append([]any{module}, right...)
+	return writeShellConfig(path, cfg)
+}
+
+// refreshBarInterval brings an already-installed module's interval up to date,
+// so installs from older versions stop polling slowly. It leaves the file
+// alone when nothing needs changing.
+func refreshBarInterval(path string) error {
+	cfg, err := readShellConfig(path)
+	if err != nil {
+		return err
+	}
+	changed := false
+	for _, section := range barSections(cfg) {
+		for _, m := range section {
+			obj, _ := m.(map[string]any)
+			if moduleID(m) != BarModuleID {
+				continue
+			}
+			if n, ok := obj["interval"].(json.Number); !ok || n.String() != fmt.Sprint(barRefreshSeconds) {
+				obj["interval"] = barRefreshSeconds
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return nil
+	}
 	return writeShellConfig(path, cfg)
 }
 

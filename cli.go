@@ -56,7 +56,14 @@ func runCommand(args []string, stdout, stderr io.Writer) (code int, handled bool
 					fmt.Fprintln(stderr, "error listing feeds:", err)
 					return 1
 				}
-				out, _ := json.Marshal(barStatus(feeds))
+				status := barStatus(feeds)
+				if status.Text == "" {
+					// The Omarchy bar shows the raw output when text is
+					// empty, so print nothing rather than JSON to hide it.
+					fmt.Fprintln(stdout)
+					return 0
+				}
+				out, _ := json.Marshal(status)
 				fmt.Fprintln(stdout, string(out))
 				return 0
 			}), true

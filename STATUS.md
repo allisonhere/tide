@@ -2,8 +2,8 @@
 
 ## Current branch: main
 
-Everything below is merged to `main`. Latest release: v1.2.1. Everything under "Since v1.2.1"
-is written up as v1.3.0 in `CHANGELOG.md`, ready to release.
+Everything below is merged to `main`. Latest release: v1.3.1 (v1.3.0 plus two Omarchy bar fixes: the empty
+state printed raw JSON, and the bar polled every 60 s, now 5 s).
 
 ## What's working
 

@@ -231,8 +231,8 @@ rather than failing.
 {"text":" 12","tooltip":"Tide: 12 unread\nSome Feed  9\nAnother  3","class":"unread"}
 ```
 
-`text` is empty when nothing is unread (class `empty`), so the module hides
-itself. The icon is the Nerd Font RSS glyph.
+When nothing is unread it prints an empty line instead, so the module hides
+itself (the Omarchy bar would otherwise show the raw JSON). The icon is the Nerd Font RSS glyph.
 
 **Omarchy bar** — turn on **Settings → Feeds → Show in Omarchy bar**
 and save. Tide adds its module to the right of the bar (backing up
@@ -242,7 +242,7 @@ it by hand instead, add a command module to a section of `bar.layout` in
 `~/.config/omarchy/shell.json` (it reloads on save):
 
 ```json
-{ "id": "tide", "type": "command", "exec": "tide --bar", "interval": 60, "tooltip": "Tide", "onClick": "omarchy-launch-or-focus-tui tide" }
+{ "id": "tide", "type": "command", "exec": "tide --bar", "interval": 5, "tooltip": "Tide", "onClick": "omarchy-launch-or-focus-tui tide" }
 ```
 
 **Waybar** — add `"custom/tide"` to a `modules-*` list and define it:
@@ -251,7 +251,7 @@ it by hand instead, add a command module to a section of `bar.layout` in
 "custom/tide": {
   "exec": "tide --bar",
   "return-type": "json",
-  "interval": 60,
+  "interval": 5,
   "on-click": "alacritty -e tide"
 }
 ```

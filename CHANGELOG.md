@@ -5,6 +5,17 @@ bundled into the app: Settings → Changelog.
 
 ## Unreleased
 
+## v1.3.1
+
+### Fixed
+
+- The Omarchy bar showed the raw `{"text":"",...}` JSON when nothing was unread, because the bar
+  falls back to the command's output when `text` is empty. `tide --bar` now prints an empty line in
+  that case, which hides the module.
+- The Omarchy bar followed new feeds slowly. It re-runs `tide --bar` every 5 seconds instead of 60,
+  so an added or fetched feed shows up within moments. Turning *Show in Omarchy bar* on again, or
+  saving Settings with it on, updates the interval in an existing install.
+
 ## v1.3.0
 
 ### Added
