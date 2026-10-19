@@ -33,6 +33,37 @@ func TestBumpVersion(t *testing.T) {
 	}
 }
 
+func TestLatestReleaseTagFetchesRemoteTagsBeforeSelectingVersion(t *testing.T) {
+	root := t.TempDir()
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	mustRun(t, "", "git", "init", "--bare", remote)
+	mustRun(t, root, "git", "init", "-b", "main")
+	mustRun(t, root, "git", "config", "user.name", "Release Test")
+	mustRun(t, root, "git", "config", "user.email", "release@example.com")
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/release-test\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, root, "git", "add", "go.mod")
+	mustRun(t, root, "git", "commit", "-m", "initial")
+	mustRun(t, root, "git", "remote", "add", "origin", remote)
+	mustRun(t, root, "git", "push", "-u", "origin", "main")
+	mustRun(t, root, "git", "tag", "-a", "v1.3.1", "-m", "Release v1.3.1")
+	mustRun(t, root, "git", "push", "origin", "refs/tags/v1.3.1")
+	mustRun(t, root, "git", "tag", "-d", "v1.3.1")
+
+	latest, err := latestReleaseTag(root)
+	if err != nil {
+		t.Fatalf("latestReleaseTag returned error: %v", err)
+	}
+	if latest != "v1.3.1" {
+		t.Fatalf("latest tag = %q, want v1.3.1", latest)
+	}
+	next, err := bumpVersion(latest, bumpPatch)
+	if err != nil || next != "v1.3.2" {
+		t.Fatalf("next patch = %q, %v; want v1.3.2", next, err)
+	}
+}
+
 func TestParseVersionRejectsNonReleaseTags(t *testing.T) {
 	for _, value := range []string{"", "1.2", "release-1.2.3", "v1.2.3-beta"} {
 		if _, err := parseVersion(value); err == nil {

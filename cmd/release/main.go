@@ -142,16 +142,9 @@ func inspectRepo() (repoInfo, error) {
 	if err != nil {
 		return repoInfo{}, errors.New("the repository needs an origin remote")
 	}
-	tags, err := runOutput(root, "git", "tag", "--list", "v[0-9]*", "--sort=-version:refname")
+	latest, err := latestReleaseTag(root)
 	if err != nil {
-		return repoInfo{}, fmt.Errorf("read tags: %w", err)
-	}
-	latest := firstLine(tags)
-	if latest == "" {
-		latest = "v0.0.0"
-	}
-	if _, err := parseVersion(latest); err != nil {
-		return repoInfo{}, fmt.Errorf("latest tag %q is not semantic versioning", latest)
+		return repoInfo{}, err
 	}
 	statusOut, err := runOutput(root, "git", "status", "--short")
 	if err != nil {
@@ -175,6 +168,24 @@ func inspectRepo() (repoInfo, error) {
 		info.actionsURL = "https://github.com/" + slug + "/actions/workflows/release.yml"
 	}
 	return info, nil
+}
+
+func latestReleaseTag(root string) (string, error) {
+	if _, err := runOutput(root, "git", "fetch", "--tags", "origin", "main"); err != nil {
+		return "", fmt.Errorf("refresh tags from origin: %w", err)
+	}
+	tags, err := runOutput(root, "git", "tag", "--list", "v[0-9]*", "--sort=-version:refname")
+	if err != nil {
+		return "", fmt.Errorf("read tags: %w", err)
+	}
+	latest := firstLine(tags)
+	if latest == "" {
+		latest = "v0.0.0"
+	}
+	if _, err := parseVersion(latest); err != nil {
+		return "", fmt.Errorf("latest tag %q is not semantic versioning", latest)
+	}
+	return latest, nil
 }
 
 func (m model) Init() tea.Cmd {
