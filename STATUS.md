@@ -55,6 +55,8 @@ state printed raw JSON, and the bar polled every 60 s, now 5 s).
   The in-app updater mirrors this: a non-writable binary dir migrates the update
   to `~/.local/bin/tide` and reports the shadowed old copy in Settings → UPDATES.
   One `sudo rm -f /usr/local/bin/tide` on upgrade, then never again.
+  Pacman-owned installs remain package-managed and update through `yay` or `paru` rather than
+  installing a second copy under `~/.local/bin`.
 
 ## Known issues / next up
 - Cut v1.3.0 with `./deploy.sh`. `deploy.sh` does not roll the changelog heading to the new

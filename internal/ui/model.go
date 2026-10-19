@@ -4136,11 +4136,11 @@ func (m Model) effectiveManualCommand() string {
 	if !update.IsNewerVersion(v, m.currentVersion) {
 		return ""
 	}
-	ok, err := update.InstallDestinationWritable()
-	if err != nil || ok {
+	command, err := update.SuggestedInstallCommand()
+	if err != nil || command == "" {
 		return ""
 	}
-	return update.SuggestedManualInstallScript
+	return command
 }
 
 // settingsStorageState reads the database's current size for the Feeds section.

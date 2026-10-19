@@ -512,6 +512,8 @@ Tide can check GitHub releases for a newer version and install the matching bina
 - Startup checks are enabled by default and run at most once every 24 hours
 - Manual checks and installs live in the `UPDATES` section of Settings (`S`)
 - Tide never downloads or installs an update until you explicitly choose `Update now`
+- Tide verifies the release SHA-256 checksum and rejects oversized archives before installation
+- Pacman-managed installs use their AUR helper instead of creating a competing user-local copy
 - While the download and install run, the update overlay shows a progress bar
 - After a successful install, Tide keeps the update modal open and asks whether to restart now;
   Enter restarts after terminal cleanup, while Esc lets you restart later

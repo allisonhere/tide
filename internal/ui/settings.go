@@ -1362,7 +1362,15 @@ func (s Settings) viewSplit(width, height int, chrome managerChrome) string {
 	rightW := max(18, width-leftW-1)
 	left := s.viewSectionsPane(leftW, height, chrome)
 	right := s.viewSectionPane(rightW, height, chrome)
-	separator := lipgloss.NewStyle().Background(chrome.baseBg).Render(" ")
+	dividerGlyph := "│"
+	if chrome.plainUI {
+		dividerGlyph = "|"
+	}
+	dividerCell := lipgloss.NewStyle().
+		Background(chrome.baseBg).
+		Foreground(chrome.border).
+		Render(dividerGlyph)
+	separator := strings.TrimSuffix(strings.Repeat(dividerCell+"\n", height), "\n")
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, separator, right)
 }
 

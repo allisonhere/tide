@@ -1569,3 +1569,27 @@ func TestSettingsSidebarUppercasesOnlyTheSelectedSection(t *testing.T) {
 		t.Fatalf("expected the selected section to stay uppercase without focus:\n%s", unfocused)
 	}
 }
+
+func TestSettingsSplitHasOpaqueFullHeightDivider(t *testing.T) {
+	withTrueColor(t)
+	s := newSettings(config.DefaultConfig(), settingsUpdateState{})
+	chrome := newManagerChrome(72, CatppuccinMocha, false)
+	const width, height = 72, 14
+	view := s.viewSplit(width, height, chrome)
+	dividerCol := clamp(width/4, 14, 18)
+
+	for row := range height {
+		for col := range width {
+			cellBackground(t, view, width, height, col, row)
+		}
+		if got := cellBackground(t, view, width, height, dividerCol, row); got != chrome.baseBg {
+			t.Fatalf("divider row %d background = %s, want %s", row, got, chrome.baseBg)
+		}
+	}
+	lines := strings.Split(ansi.Strip(view), "\n")
+	for row, line := range lines {
+		if !strings.Contains(line, "│") {
+			t.Fatalf("divider missing from row %d: %q", row, line)
+		}
+	}
+}

@@ -3,20 +3,30 @@ package update
 import (
 	"archive/tar"
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
 const defaultReleasesURL = "https://api.github.com/repos/allisonhere/tide/releases/latest"
 const binaryName = "tide"
+
+const (
+	maxArchiveBytes  int64 = 128 << 20
+	maxBinaryBytes   int64 = 128 << 20
+	maxChecksumBytes int64 = 1 << 20
+)
 
 // SuggestedManualInstallScript is shown when an update is available but the running binary's install directory is not writable (before any download/install attempt).
 const SuggestedManualInstallScript = "curl -fsSL https://raw.githubusercontent.com/allisonhere/tide/main/install.sh | sh"
@@ -37,6 +47,7 @@ type ReleaseInfo struct {
 	Body        string
 	AssetName   string
 	DownloadURL string
+	ChecksumURL string
 }
 
 // CheckResult reports whether a newer stable release is available for the running version. -allie
@@ -51,6 +62,7 @@ type DownloadedAsset struct {
 	Release     ReleaseInfo
 	ArchivePath string
 	BinaryPath  string
+	TempDir     string
 }
 
 // InstallResult tells the UI whether Tide was replaced directly or needs a manual command. -allie
@@ -116,15 +128,20 @@ func (u *Updater) Check(currentVersion string) (CheckResult, error) {
 		return CheckResult{}, err
 	}
 
-	var downloadURL string
+	var downloadURL, checksumURL string
 	for _, asset := range release.Assets {
-		if asset.Name == assetName+".tar.gz" {
+		switch asset.Name {
+		case assetName + ".tar.gz":
 			downloadURL = asset.DownloadURL
-			break
+		case "checksums.txt":
+			checksumURL = asset.DownloadURL
 		}
 	}
 	if downloadURL == "" {
 		return CheckResult{}, fmt.Errorf("latest release %s does not have asset %s.tar.gz", release.TagName, assetName)
+	}
+	if checksumURL == "" {
+		return CheckResult{}, fmt.Errorf("latest release %s does not have checksums.txt", release.TagName)
 	}
 
 	info := ReleaseInfo{
@@ -134,6 +151,7 @@ func (u *Updater) Check(currentVersion string) (CheckResult, error) {
 		Body:        strings.TrimSpace(release.Body),
 		AssetName:   assetName,
 		DownloadURL: downloadURL,
+		ChecksumURL: checksumURL,
 	}
 	return CheckResult{
 		CurrentVersion: currentVersion,
@@ -160,23 +178,46 @@ func (u *Updater) Download(release ReleaseInfo) (DownloadedAsset, error) {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return DownloadedAsset{}, fmt.Errorf("download failed: HTTP %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+	if resp.ContentLength > maxArchiveBytes {
+		return DownloadedAsset{}, fmt.Errorf("update archive is too large: %d bytes", resp.ContentLength)
+	}
 
 	tmpDir, err := os.MkdirTemp("", "tide-update-*")
 	if err != nil {
 		return DownloadedAsset{}, fmt.Errorf("create update temp dir: %w", err)
 	}
+	keepTempDir := false
+	defer func() {
+		if !keepTempDir {
+			_ = os.RemoveAll(tmpDir)
+		}
+	}()
 
 	archivePath := filepath.Join(tmpDir, release.AssetName+".tar.gz")
 	archiveFile, err := os.Create(archivePath)
 	if err != nil {
 		return DownloadedAsset{}, fmt.Errorf("create archive file: %w", err)
 	}
-	if _, err := io.Copy(archiveFile, resp.Body); err != nil {
+	hash := sha256.New()
+	written, err := io.Copy(io.MultiWriter(archiveFile, hash), io.LimitReader(resp.Body, maxArchiveBytes+1))
+	if err != nil {
 		_ = archiveFile.Close()
 		return DownloadedAsset{}, fmt.Errorf("write archive file: %w", err)
 	}
+	if written > maxArchiveBytes {
+		_ = archiveFile.Close()
+		return DownloadedAsset{}, fmt.Errorf("update archive is too large: limit is %d bytes", maxArchiveBytes)
+	}
 	if err := archiveFile.Close(); err != nil {
 		return DownloadedAsset{}, fmt.Errorf("close archive file: %w", err)
+	}
+	expected, err := u.releaseChecksum(release.ChecksumURL, release.AssetName+".tar.gz")
+	if err != nil {
+		return DownloadedAsset{}, err
+	}
+	actual := fmt.Sprintf("%x", hash.Sum(nil))
+	if !strings.EqualFold(actual, expected) {
+		return DownloadedAsset{}, fmt.Errorf("update checksum mismatch for %s.tar.gz", release.AssetName)
 	}
 
 	binaryPath, err := extractTarGz(archivePath, tmpDir, release.AssetName)
@@ -187,14 +228,62 @@ func (u *Updater) Download(release ReleaseInfo) (DownloadedAsset, error) {
 		return DownloadedAsset{}, fmt.Errorf("mark update binary executable: %w", err)
 	}
 
+	keepTempDir = true
 	return DownloadedAsset{
 		Release:     release,
 		ArchivePath: archivePath,
 		BinaryPath:  binaryPath,
+		TempDir:     tmpDir,
 	}, nil
 }
 
+func (u *Updater) releaseChecksum(url, assetName string) (string, error) {
+	if strings.TrimSpace(url) == "" {
+		return "", fmt.Errorf("release does not provide a checksum URL")
+	}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("build checksum request: %w", err)
+	}
+	req.Header.Set("User-Agent", "tide-update-download")
+	resp, err := u.httpClient().Do(req)
+	if err != nil {
+		return "", fmt.Errorf("download checksums: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("checksum download failed: HTTP %d", resp.StatusCode)
+	}
+	if resp.ContentLength > maxChecksumBytes {
+		return "", fmt.Errorf("checksum file is too large")
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxChecksumBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read checksums: %w", err)
+	}
+	if int64(len(body)) > maxChecksumBytes {
+		return "", fmt.Errorf("checksum file is too large")
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 || strings.TrimPrefix(fields[1], "*") != assetName {
+			continue
+		}
+		if len(fields[0]) != sha256.Size*2 {
+			return "", fmt.Errorf("invalid checksum for %s", assetName)
+		}
+		return fields[0], nil
+	}
+	return "", fmt.Errorf("checksums.txt does not contain %s", assetName)
+}
+
 func (u *Updater) Install(asset DownloadedAsset, currentExec string) (InstallResult, error) {
+	cleanupTempDir := asset.TempDir != ""
+	defer func() {
+		if cleanupTempDir {
+			_ = os.RemoveAll(asset.TempDir)
+		}
+	}()
 	result := InstallResult{
 		Version:        asset.Release.Version,
 		ExecutablePath: currentExec,
@@ -205,45 +294,34 @@ func (u *Updater) Install(asset DownloadedAsset, currentExec string) (InstallRes
 	if currentExec == "" {
 		return result, fmt.Errorf("current executable path is empty")
 	}
+	if command, managed := packageUpdateCommand(currentExec); managed {
+		result.RequiresManual = true
+		result.ManualCommand = command
+		return result, nil
+	}
 
 	targetExec, err := installTarget(currentExec, true)
 	if err != nil {
 		result.RequiresManual = true
 		result.ManualCommand = manualInstallCommand(asset.BinaryPath, currentExec)
+		cleanupTempDir = false
 		return result, nil
 	}
 	result.ExecutablePath = targetExec
 
 	nextPath := targetExec + ".new"
-	backupPath := targetExec + ".bak"
 	_ = os.Remove(nextPath)
-	_ = os.Remove(backupPath)
+	defer func() { _ = os.Remove(nextPath) }()
 
 	if err := copyExecutable(asset.BinaryPath, nextPath); err != nil {
 		return result, fmt.Errorf("stage update binary: %w", err)
 	}
 
-	_, statErr := os.Stat(targetExec)
-	targetExists := statErr == nil
-	if statErr != nil && !os.IsNotExist(statErr) {
-		return result, fmt.Errorf("stat current executable: %w", statErr)
-	}
-
-	if targetExists {
-		if err := os.Rename(targetExec, backupPath); err != nil {
-			return result, fmt.Errorf("backup current executable: %w", err)
-		}
-	}
-
 	if err := os.Rename(nextPath, targetExec); err != nil {
-		if targetExists {
-			_ = os.Rename(backupPath, targetExec)
-		}
 		return result, fmt.Errorf("replace executable: %w", err)
 	}
-
-	if targetExists {
-		_ = os.Remove(backupPath)
+	if err := syncDir(filepath.Dir(targetExec)); err != nil {
+		return result, fmt.Errorf("sync executable directory: %w", err)
 	}
 	result.Restartable = true
 	// If the install migrated to the user bin dir, an older copy may still sit
@@ -413,15 +491,23 @@ func extractTarGz(archivePath, destDir, expectedName string) (string, error) {
 		if name != expectedName {
 			continue
 		}
+		if hdr.Size < 0 || hdr.Size > maxBinaryBytes {
+			return "", fmt.Errorf("update binary is too large: %d bytes", hdr.Size)
+		}
 
 		outPath := filepath.Join(destDir, name)
 		outFile, err := os.Create(outPath)
 		if err != nil {
 			return "", fmt.Errorf("create extracted binary: %w", err)
 		}
-		if _, err := io.Copy(outFile, tr); err != nil {
+		written, err := io.Copy(outFile, io.LimitReader(tr, maxBinaryBytes+1))
+		if err != nil {
 			_ = outFile.Close()
 			return "", fmt.Errorf("extract binary: %w", err)
+		}
+		if written > maxBinaryBytes {
+			_ = outFile.Close()
+			return "", fmt.Errorf("update binary is too large: limit is %d bytes", maxBinaryBytes)
 		}
 		if err := outFile.Close(); err != nil {
 			return "", fmt.Errorf("close extracted binary: %w", err)
@@ -432,25 +518,61 @@ func extractTarGz(archivePath, destDir, expectedName string) (string, error) {
 	return "", fmt.Errorf("archive does not contain %s", expectedName)
 }
 
-// InstallDestinationWritable reports whether an in-app update can install
-// without a manual step — either the current executable's directory is
-// writable, or the ~/.local/bin fallback is usable.
+// InstallDestinationWritable reports whether an in-app update should install
+// directly. Package-managed executables remain owned by their package manager.
 func InstallDestinationWritable() (bool, error) {
-	exe, err := os.Executable()
+	command, err := SuggestedInstallCommand()
 	if err != nil {
 		return false, err
 	}
-	if _, err := installTarget(exe, false); err != nil {
-		return false, nil
+	return command == "", nil
+}
+
+// SuggestedInstallCommand returns the command a package-managed or otherwise
+// non-writable installation should use instead of the in-app updater.
+func SuggestedInstallCommand() (string, error) {
+	exe, err := executablePath()
+	if err != nil {
+		return "", err
 	}
-	return true, nil
+	if command, managed := packageUpdateCommand(exe); managed {
+		return command, nil
+	}
+	if _, err := installTarget(exe, false); err != nil {
+		return SuggestedManualInstallScript, nil
+	}
+	return "", nil
 }
 
 // Indirected for tests.
 var (
-	userHomeDir = os.UserHomeDir
-	dirWritable = ensureDirWritable
+	userHomeDir          = os.UserHomeDir
+	executablePath       = os.Executable
+	dirWritable          = ensureDirWritable
+	packageUpdateCommand = detectPacmanUpdateCommand
 )
+
+func detectPacmanUpdateCommand(executable string) (string, bool) {
+	pacman, err := exec.LookPath("pacman")
+	if err != nil {
+		return "", false
+	}
+	output, err := exec.Command(pacman, "-Qqo", executable).Output()
+	if err != nil {
+		return "", false
+	}
+	fields := strings.Fields(string(output))
+	if len(fields) == 0 {
+		return "", false
+	}
+	helper := "yay"
+	if _, err := exec.LookPath(helper); err != nil {
+		if _, paruErr := exec.LookPath("paru"); paruErr == nil {
+			helper = "paru"
+		}
+	}
+	return helper + " -S " + shellQuote(fields[0]), true
+}
 
 // installTarget picks where an in-app update should write the binary: the
 // current executable's own path when its directory is writable, otherwise
@@ -568,16 +690,37 @@ func copyExecutable(src, dst string) error {
 		_ = out.Close()
 		return err
 	}
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		return err
+	}
 	if err := out.Close(); err != nil {
 		return err
 	}
 	return os.Chmod(dst, 0o755)
 }
 
+func syncDir(dir string) error {
+	f, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	err = f.Sync()
+	if errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) {
+		return nil
+	}
+	return err
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
 func manualInstallCommand(binaryPath, target string) string {
-	return fmt.Sprintf("sudo install -m 0755 %q %q", binaryPath, target)
+	return fmt.Sprintf("sudo install -m 0755 %s %s", shellQuote(binaryPath), shellQuote(target))
 }
 
 func removeCommand(path string) string {
-	return fmt.Sprintf("sudo rm -f %q", path)
+	return fmt.Sprintf("sudo rm -f %s", shellQuote(path))
 }

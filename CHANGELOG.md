@@ -5,6 +5,13 @@ bundled into the app: Settings → Changelog.
 
 ## Unreleased
 
+### Fixed
+
+- Settings now has an opaque, full-height divider between its category list and detail form.
+- In-app updates now verify release checksums, cap download and extraction sizes, replace the
+  executable atomically, clean temporary files, and safely quote manual-install paths. Pacman-owned
+  installs now direct updates through `yay` or `paru` instead of creating a shadowed user-local copy.
+
 ## v1.3.1
 
 ### Fixed
@@ -15,7 +22,6 @@ bundled into the app: Settings → Changelog.
 - The Omarchy bar followed new feeds slowly. It re-runs `tide --bar` every 5 seconds instead of 60,
   so an added or fetched feed shows up within moments. Turning *Show in Omarchy bar* on again, or
   saving Settings with it on, updates the interval in an existing install.
-
 ## v1.3.0
 
 ### Added
