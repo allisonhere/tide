@@ -83,6 +83,30 @@ func TestListSubscriptionsAndUnreadCounts(t *testing.T) {
 	}
 }
 
+func TestUnreadCountsAcceptsAnEmptyArray(t *testing.T) {
+	client := New("https://rss.example.com", "alice", "secret")
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "https://rss.example.com/accounts/ClientLogin":
+			return responseWithBody(http.StatusOK, "SID=alice/token\nAuth=alice/token\n"), nil
+		case "https://rss.example.com/reader/api/0/unread-count?output=json":
+			// What Miniflux answers: it has no unread-count endpoint.
+			return responseWithJSON(http.StatusOK, `[]`), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	counts, err := client.UnreadCounts(context.Background())
+	if err != nil {
+		t.Fatalf("UnreadCounts returned error: %v", err)
+	}
+	if len(counts) != 0 {
+		t.Fatalf("expected no counts, got %v", counts)
+	}
+}
+
 func TestStreamContentsParsesEntries(t *testing.T) {
 	var requestedURL string
 	client := New("https://rss.example.com/api/greader.php", "alice", "secret")

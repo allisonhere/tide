@@ -1,6 +1,7 @@
 package greader
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -175,14 +176,23 @@ func (c *Client) ListSubscriptions(ctx context.Context) ([]Subscription, error) 
 }
 
 func (c *Client) UnreadCounts(ctx context.Context) (map[string]int64, error) {
+	var raw json.RawMessage
+	if err := c.getJSON(ctx, "/reader/api/0/unread-count", url.Values{"output": []string{"json"}}, &raw); err != nil {
+		return nil, err
+	}
+	// Miniflux has no unread-count: its catch-all for endpoints it lacks
+	// answers with an empty JSON array. Take that as "no counts".
+	if b := bytes.TrimSpace(raw); len(b) > 0 && b[0] == '[' {
+		return map[string]int64{}, nil
+	}
 	var resp struct {
 		UnreadCounts []struct {
 			ID    string `json:"id"`
 			Count any    `json:"count"`
 		} `json:"unreadcounts"`
 	}
-	if err := c.getJSON(ctx, "/reader/api/0/unread-count", url.Values{"output": []string{"json"}}, &resp); err != nil {
-		return nil, err
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("decode /reader/api/0/unread-count: %w", err)
 	}
 
 	counts := make(map[string]int64, len(resp.UnreadCounts))
