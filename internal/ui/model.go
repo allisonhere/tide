@@ -3473,6 +3473,15 @@ func (m *Model) loadMergedArticlesCmd(kind sidebarRowKind, folderID int64, feedI
 			return msg
 		}
 		msg.Articles, msg.Err = database.ListArticlesForFeeds(feedIDs, unreadOnly)
+		if kind == rowKindAllUnread && msg.Err == nil {
+			// The remote feeds' unread articles join the local ones. If they
+			// can't be had the local ones still show, unless there are none.
+			remote, err := m.loadGReaderUnreadArticles(context.Background())
+			if err != nil && len(msg.Articles) == 0 {
+				msg.Err = err
+			}
+			msg.Articles = mergeNewestFirst(msg.Articles, remote)
+		}
 		return msg
 	}
 }
