@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/allisonhere/tide/internal/config"
 	"github.com/allisonhere/tide/internal/db"
+	"github.com/allisonhere/tide/internal/greader"
 )
 
 // newMergedViewModel stores two local feeds in folder 10, each holding one
@@ -84,6 +86,53 @@ func TestAllUnreadListsUnreadAcrossLocalFeeds(t *testing.T) {
 	}
 	if view := m.renderArticlesPane(); !strings.Contains(view, "Alpha ·") || !strings.Contains(view, "Beta ·") {
 		t.Fatalf("expected merged rows to name their feed:\n%s", view)
+	}
+}
+
+func TestAllUnreadAddsTheRemoteFeedsUnreadArticles(t *testing.T) {
+	m, _ := newMergedViewModel(t)
+	remoteID := remoteStableID("feed", "feed/7")
+	m.greaderStreams = map[int64]string{remoteID: "feed/7"}
+	m.greaderClient = greader.New("https://rss.example.com", "alice", "secret")
+	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/accounts/ClientLogin":
+			return uiResponseWithBody(http.StatusOK, "Auth=test-token\n"), nil
+		case "/reader/api/0/stream/contents/user/-/state/com.google/reading-list":
+			return uiResponseWithJSON(http.StatusOK, `{"items":[
+				{"id":"tag:google.com,2005:reader/item/1","title":"Remote unread","published":1710000200,
+				 "alternate":[{"href":"http://example.com/1"}],"summary":{"content":"x"},"origin":{"streamId":"feed/7"}},
+				{"id":"tag:google.com,2005:reader/item/2","title":"From a feed not listed","published":1710000300,
+				 "summary":{"content":"y"},"origin":{"streamId":"feed/99"}}]}`), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	m = selectRow(t, m, rowKindAllUnread)
+
+	got := titles(m.filteredArticles)
+	if len(got) != 3 || got[0] != "Remote unread" || got[1] != "Beta unread" || got[2] != "Alpha unread" {
+		t.Fatalf("expected the remote unread article first among the local ones, got %q", got)
+	}
+	if m.filteredArticles[0].FeedID != remoteID {
+		t.Fatalf("expected the remote article to belong to feed %d, got %d", remoteID, m.filteredArticles[0].FeedID)
+	}
+}
+
+func TestAllUnreadKeepsTheLocalArticlesWhenTheRemoteSourceFails(t *testing.T) {
+	m, _ := newMergedViewModel(t)
+	m.greaderStreams = map[int64]string{remoteStableID("feed", "feed/7"): "feed/7"}
+	m.greaderClient = greader.New("https://rss.example.com", "alice", "secret")
+	m.greaderClient.HTTPClient = &http.Client{Transport: uiRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return uiResponseWithJSON(http.StatusInternalServerError, `{}`), nil
+	})}
+
+	m = selectRow(t, m, rowKindAllUnread)
+
+	if got := titles(m.filteredArticles); len(got) != 2 {
+		t.Fatalf("expected the two local unread articles, got %q", got)
 	}
 }
 

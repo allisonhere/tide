@@ -1,6 +1,7 @@
 package greader
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -108,13 +110,22 @@ func (c *Client) MarkEntryRead(ctx context.Context, itemID string, read bool) er
 	form := url.Values{
 		"i": []string{itemID},
 	}
-	if read {
-		form["a"] = []string{readTag}
-		form["r"] = []string{keptUnreadTag}
-	} else {
+	if !read {
 		form["r"] = []string{readTag}
+		return c.postFormText(ctx, "/reader/api/0/edit-tag", form, true)
 	}
-	return c.postFormText(ctx, "/reader/api/0/edit-tag", form, true)
+	form["a"] = []string{readTag}
+	form["r"] = []string{keptUnreadTag}
+	err := c.postFormText(ctx, "/reader/api/0/edit-tag", form, true)
+	if err != nil {
+		// Miniflux refuses to add read and remove kept-unread together; adding
+		// read alone says the same.
+		err = c.postFormText(ctx, "/reader/api/0/edit-tag", url.Values{
+			"i": []string{itemID},
+			"a": []string{readTag},
+		}, true)
+	}
+	return err
 }
 
 func (c *Client) MarkAllRead(ctx context.Context, streamID string) error {
@@ -175,14 +186,23 @@ func (c *Client) ListSubscriptions(ctx context.Context) ([]Subscription, error) 
 }
 
 func (c *Client) UnreadCounts(ctx context.Context) (map[string]int64, error) {
+	var raw json.RawMessage
+	if err := c.getJSON(ctx, "/reader/api/0/unread-count", url.Values{"output": []string{"json"}}, &raw); err != nil {
+		return nil, err
+	}
+	// Miniflux has no unread-count: its catch-all for endpoints it lacks
+	// answers with an empty JSON array. Count the unread items feed by feed.
+	if b := bytes.TrimSpace(raw); len(b) > 0 && b[0] == '[' {
+		return c.countUnreadByFeed(ctx)
+	}
 	var resp struct {
 		UnreadCounts []struct {
 			ID    string `json:"id"`
 			Count any    `json:"count"`
 		} `json:"unreadcounts"`
 	}
-	if err := c.getJSON(ctx, "/reader/api/0/unread-count", url.Values{"output": []string{"json"}}, &resp); err != nil {
-		return nil, err
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("decode /reader/api/0/unread-count: %w", err)
 	}
 
 	counts := make(map[string]int64, len(resp.UnreadCounts))
@@ -192,35 +212,76 @@ func (c *Client) UnreadCounts(ctx context.Context) (map[string]int64, error) {
 	return counts, nil
 }
 
+// countUnreadByFeed counts each feed's unread items from the ids of its items,
+// for servers without unread-count. A feed whose ids can't be had counts as
+// none, so one failing feed doesn't keep the rest from loading.
+func (c *Client) countUnreadByFeed(ctx context.Context) (map[string]int64, error) {
+	subs, err := c.ListSubscriptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int64, len(subs))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for _, sub := range subs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(id string) {
+			defer func() { <-sem; wg.Done() }()
+			var resp struct {
+				ItemRefs []struct {
+					ID string `json:"id"`
+				} `json:"itemRefs"`
+			}
+			query := url.Values{
+				"s":      []string{id},
+				"xt":     []string{"user/-/state/com.google/read"},
+				"n":      []string{"1000"},
+				"output": []string{"json"},
+			}
+			if err := c.getJSON(ctx, "/reader/api/0/stream/items/ids", query, &resp); err != nil || len(resp.ItemRefs) == 0 {
+				return
+			}
+			mu.Lock()
+			counts[id] = int64(len(resp.ItemRefs))
+			mu.Unlock()
+		}(sub.ID)
+	}
+	wg.Wait()
+	return counts, ctx.Err()
+}
+
+// streamContents is a reply with articles in it.
+type streamContents struct {
+	Items []struct {
+		ID         string   `json:"id"`
+		Title      string   `json:"title"`
+		Author     string   `json:"author"`
+		Published  int64    `json:"published"`
+		Updated    int64    `json:"updated"`
+		Categories []string `json:"categories"`
+		Alternate  []struct {
+			Href string `json:"href"`
+		} `json:"alternate"`
+		Canonical []struct {
+			Href string `json:"href"`
+		} `json:"canonical"`
+		Summary *struct {
+			Content string `json:"content"`
+		} `json:"summary"`
+		Content *struct {
+			Content string `json:"content"`
+		} `json:"content"`
+		Origin struct {
+			StreamID string `json:"streamId"`
+		} `json:"origin"`
+	} `json:"items"`
+}
+
 func (c *Client) StreamContents(ctx context.Context, streamID string, limit int) ([]Entry, error) {
 	if limit <= 0 {
 		limit = 100
-	}
-
-	var resp struct {
-		Items []struct {
-			ID         string   `json:"id"`
-			Title      string   `json:"title"`
-			Author     string   `json:"author"`
-			Published  int64    `json:"published"`
-			Updated    int64    `json:"updated"`
-			Categories []string `json:"categories"`
-			Alternate  []struct {
-				Href string `json:"href"`
-			} `json:"alternate"`
-			Canonical []struct {
-				Href string `json:"href"`
-			} `json:"canonical"`
-			Summary *struct {
-				Content string `json:"content"`
-			} `json:"summary"`
-			Content *struct {
-				Content string `json:"content"`
-			} `json:"content"`
-			Origin struct {
-				StreamID string `json:"streamId"`
-			} `json:"origin"`
-		} `json:"items"`
 	}
 
 	q := url.Values{
@@ -228,8 +289,20 @@ func (c *Client) StreamContents(ctx context.Context, streamID string, limit int)
 		"n":      []string{strconv.Itoa(limit)},
 		"xt":     []string{readTag},
 	}
-	if err := c.getJSON(ctx, "/reader/api/0/stream/contents/"+url.PathEscape(streamID), q, &resp); err != nil {
+	var raw json.RawMessage
+	if err := c.getJSON(ctx, "/reader/api/0/stream/contents/"+url.PathEscape(streamID), q, &raw); err != nil {
 		return nil, err
+	}
+	var resp streamContents
+	if b := bytes.TrimSpace(raw); len(b) > 0 && b[0] == '[' {
+		// Miniflux has no stream/contents: its catch-all answers with an empty
+		// JSON array. It does have the ids of a stream's items, and their contents.
+		var err error
+		if resp, err = c.itemContents(ctx, streamID, limit); err != nil {
+			return nil, err
+		}
+	} else if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("decode /reader/api/0/stream/contents: %w", err)
 	}
 
 	entries := make([]Entry, 0, len(resp.Items))
@@ -276,6 +349,39 @@ func (c *Client) StreamContents(ctx context.Context, streamID string, limit int)
 		})
 	}
 	return entries, nil
+}
+
+// itemContents gets a stream's unread articles in two steps, for servers without
+// stream/contents: the ids of its items, then the contents of those items.
+func (c *Client) itemContents(ctx context.Context, streamID string, limit int) (streamContents, error) {
+	var out streamContents
+	var ids struct {
+		ItemRefs []struct {
+			ID string `json:"id"`
+		} `json:"itemRefs"`
+	}
+	q := url.Values{
+		"s":      []string{streamID},
+		"xt":     []string{readTag},
+		"n":      []string{strconv.Itoa(limit)},
+		"output": []string{"json"},
+	}
+	if err := c.getJSON(ctx, "/reader/api/0/stream/items/ids", q, &ids); err != nil {
+		return out, err
+	}
+	if len(ids.ItemRefs) == 0 {
+		return out, nil
+	}
+	token, err := c.ensureToken(ctx)
+	if err != nil {
+		return out, err
+	}
+	form := url.Values{"T": []string{token}, "output": []string{"json"}}
+	for _, ref := range ids.ItemRefs {
+		form.Add("i", ref.ID)
+	}
+	err = c.postFormJSON(ctx, "/reader/api/0/stream/items/contents", form, &out)
+	return out, err
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, dst any) error {

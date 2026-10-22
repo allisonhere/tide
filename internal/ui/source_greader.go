@@ -123,29 +123,61 @@ func (m Model) loadGReaderArticles(ctx context.Context, feedID int64) ([]db.Arti
 
 	articles := make([]db.Article, 0, len(entries))
 	for _, entry := range entries {
-		title := greader.UnescapeAPIString(entry.Title)
-		if title == "" {
-			title = "(untitled)"
-		}
-		articles = append(articles, db.Article{
-			ID:          remoteStableID("article", entry.ID),
-			FeedID:      feedID,
-			GUID:        entry.ID,
-			Title:       title,
-			Link:        strings.TrimSpace(entry.Link),
-			Content:     m.normalizeRemoteArticleContent(entry.ContentHTML, entry.Link),
-			ImageURL:    feed.LeadImageFromHTML(entry.ContentHTML),
-			PublishedAt: entry.PublishedAt,
-			UpdatedAt:   entry.UpdatedAt,
-			Read:        entry.Read,
-			Author:      entry.Author,
-			Categories:  entry.Categories,
-		})
+		articles = append(articles, m.remoteArticle(feedID, entry))
 	}
 
 	sort.Slice(articles, func(i, j int) bool {
 		return articles[i].PublishedAt.After(articles[j].PublishedAt)
 	})
+	return articles, nil
+}
+
+// remoteArticle is entry as an article of the remote feed feedID.
+func (m Model) remoteArticle(feedID int64, entry greader.Entry) db.Article {
+	title := greader.UnescapeAPIString(entry.Title)
+	if title == "" {
+		title = "(untitled)"
+	}
+	return db.Article{
+		ID:          remoteStableID("article", entry.ID),
+		FeedID:      feedID,
+		GUID:        entry.ID,
+		Title:       title,
+		Link:        strings.TrimSpace(entry.Link),
+		Content:     m.normalizeRemoteArticleContent(entry.ContentHTML, entry.Link),
+		ImageURL:    feed.LeadImageFromHTML(entry.ContentHTML),
+		PublishedAt: entry.PublishedAt,
+		UpdatedAt:   entry.UpdatedAt,
+		Read:        entry.Read,
+		Author:      entry.Author,
+		Categories:  entry.Categories,
+	}
+}
+
+// readingListStream is the remote stream of everything the account follows.
+const readingListStream = "user/-/state/com.google/reading-list"
+
+// loadGReaderUnreadArticles loads the unread articles of every remote feed in
+// one request, for All Unread. Articles of a stream that isn't one of the
+// listed feeds are left out.
+func (m Model) loadGReaderUnreadArticles(ctx context.Context) ([]db.Article, error) {
+	if m.greaderClient == nil || len(m.greaderStreams) == 0 {
+		return nil, nil
+	}
+	entries, err := m.greaderClient.StreamContents(ctx, readingListStream, 200)
+	if err != nil {
+		return nil, err
+	}
+	feedOf := make(map[string]int64, len(m.greaderStreams))
+	for id, stream := range m.greaderStreams {
+		feedOf[stream] = id
+	}
+	articles := make([]db.Article, 0, len(entries))
+	for _, entry := range entries {
+		if id, ok := feedOf[entry.StreamID]; ok {
+			articles = append(articles, m.remoteArticle(id, entry))
+		}
+	}
 	return articles, nil
 }
 
@@ -166,6 +198,16 @@ func (m Model) normalizeRemoteArticleContent(contentHTML, link string) string {
 		}
 	}
 	return contentHTML
+}
+
+// mergeNewestFirst is a and b together, newest first.
+func mergeNewestFirst(a, b []db.Article) []db.Article {
+	if len(b) == 0 {
+		return a
+	}
+	out := append(append(make([]db.Article, 0, len(a)+len(b)), a...), b...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].PublishedAt.After(out[j].PublishedAt) })
+	return out
 }
 
 func remoteStableID(kind, value string) int64 {
