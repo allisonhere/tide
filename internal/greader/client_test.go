@@ -340,6 +340,41 @@ func TestMarkEntryReadUsesTokenAndEditTag(t *testing.T) {
 	}
 }
 
+func TestMarkEntryReadFallsBackToReadAloneWhenTheServerRefusesBothTags(t *testing.T) {
+	client := New("https://rss.example.com", "alice", "secret")
+	var forms []url.Values
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/accounts/ClientLogin":
+			return responseWithBody(http.StatusOK, "SID=alice/token\nAuth=alice/token\n"), nil
+		case "/reader/api/0/token":
+			return responseWithBody(http.StatusOK, "csrf-token\n"), nil
+		case "/reader/api/0/edit-tag":
+			body, _ := io.ReadAll(req.Body)
+			form, _ := url.ParseQuery(string(body))
+			forms = append(forms, form)
+			// What Miniflux does with a=read together with r=kept-unread.
+			if form.Get("r") != "" {
+				return responseWithJSON(http.StatusInternalServerError, `{"error_message":"googlereader: kept-unread and read should not be supplied simultaneously"}`), nil
+			}
+			return responseWithBody(http.StatusOK, "OK"), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	if err := client.MarkEntryRead(context.Background(), "tag:google.com,2005:reader/item/00000000000021fd", true); err != nil {
+		t.Fatalf("MarkEntryRead returned error: %v", err)
+	}
+	if len(forms) != 2 || forms[0].Get("a") != "user/-/state/com.google/read" || forms[0].Get("r") != "user/-/state/com.google/kept-unread" {
+		t.Fatalf("the first try should add read and remove kept-unread, got %v", forms)
+	}
+	if forms[1].Get("a") != "user/-/state/com.google/read" || forms[1].Get("r") != "" || forms[1].Get("T") != "csrf-token" {
+		t.Fatalf("the retry should add read alone, with the token, got %v", forms[1])
+	}
+}
+
 func TestMarkAllReadUsesTokenAndStreamID(t *testing.T) {
 	client := New("https://rss.example.com/api/greader.php", "alice", "secret")
 	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {

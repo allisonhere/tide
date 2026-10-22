@@ -110,13 +110,22 @@ func (c *Client) MarkEntryRead(ctx context.Context, itemID string, read bool) er
 	form := url.Values{
 		"i": []string{itemID},
 	}
-	if read {
-		form["a"] = []string{readTag}
-		form["r"] = []string{keptUnreadTag}
-	} else {
+	if !read {
 		form["r"] = []string{readTag}
+		return c.postFormText(ctx, "/reader/api/0/edit-tag", form, true)
 	}
-	return c.postFormText(ctx, "/reader/api/0/edit-tag", form, true)
+	form["a"] = []string{readTag}
+	form["r"] = []string{keptUnreadTag}
+	err := c.postFormText(ctx, "/reader/api/0/edit-tag", form, true)
+	if err != nil {
+		// Miniflux refuses to add read and remove kept-unread together; adding
+		// read alone says the same.
+		err = c.postFormText(ctx, "/reader/api/0/edit-tag", url.Values{
+			"i": []string{itemID},
+			"a": []string{readTag},
+		}, true)
+	}
+	return err
 }
 
 func (c *Client) MarkAllRead(ctx context.Context, streamID string) error {
