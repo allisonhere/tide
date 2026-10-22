@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -181,9 +182,9 @@ func (c *Client) UnreadCounts(ctx context.Context) (map[string]int64, error) {
 		return nil, err
 	}
 	// Miniflux has no unread-count: its catch-all for endpoints it lacks
-	// answers with an empty JSON array. Take that as "no counts".
+	// answers with an empty JSON array. Count the unread items feed by feed.
 	if b := bytes.TrimSpace(raw); len(b) > 0 && b[0] == '[' {
-		return map[string]int64{}, nil
+		return c.countUnreadByFeed(ctx)
 	}
 	var resp struct {
 		UnreadCounts []struct {
@@ -200,6 +201,46 @@ func (c *Client) UnreadCounts(ctx context.Context) (map[string]int64, error) {
 		counts[unread.ID] = toInt64(unread.Count)
 	}
 	return counts, nil
+}
+
+// countUnreadByFeed counts each feed's unread items from the ids of its items,
+// for servers without unread-count. A feed whose ids can't be had counts as
+// none, so one failing feed doesn't keep the rest from loading.
+func (c *Client) countUnreadByFeed(ctx context.Context) (map[string]int64, error) {
+	subs, err := c.ListSubscriptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int64, len(subs))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for _, sub := range subs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(id string) {
+			defer func() { <-sem; wg.Done() }()
+			var resp struct {
+				ItemRefs []struct {
+					ID string `json:"id"`
+				} `json:"itemRefs"`
+			}
+			query := url.Values{
+				"s":      []string{id},
+				"xt":     []string{"user/-/state/com.google/read"},
+				"n":      []string{"1000"},
+				"output": []string{"json"},
+			}
+			if err := c.getJSON(ctx, "/reader/api/0/stream/items/ids", query, &resp); err != nil || len(resp.ItemRefs) == 0 {
+				return
+			}
+			mu.Lock()
+			counts[id] = int64(len(resp.ItemRefs))
+			mu.Unlock()
+		}(sub.ID)
+	}
+	wg.Wait()
+	return counts, ctx.Err()
 }
 
 func (c *Client) StreamContents(ctx context.Context, streamID string, limit int) ([]Entry, error) {

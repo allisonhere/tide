@@ -83,15 +83,33 @@ func TestListSubscriptionsAndUnreadCounts(t *testing.T) {
 	}
 }
 
-func TestUnreadCountsAcceptsAnEmptyArray(t *testing.T) {
+func TestUnreadCountsFallBackToItemIDsWhenTheServerAnswersAnArray(t *testing.T) {
 	client := New("https://rss.example.com", "alice", "secret")
 	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		switch req.URL.String() {
-		case "https://rss.example.com/accounts/ClientLogin":
+		switch req.URL.Path {
+		case "/accounts/ClientLogin":
 			return responseWithBody(http.StatusOK, "SID=alice/token\nAuth=alice/token\n"), nil
-		case "https://rss.example.com/reader/api/0/unread-count?output=json":
+		case "/reader/api/0/unread-count":
 			// What Miniflux answers: it has no unread-count endpoint.
 			return responseWithJSON(http.StatusOK, `[]`), nil
+		case "/reader/api/0/subscription/list":
+			return responseWithJSON(http.StatusOK, `{"subscriptions":[
+				{"id":"feed/1","title":"A","url":"http://a/feed"},
+				{"id":"feed/2","title":"B","url":"http://b/feed"},
+				{"id":"feed/3","title":"C","url":"http://c/feed"}]}`), nil
+		case "/reader/api/0/stream/items/ids":
+			q := req.URL.Query()
+			if q.Get("xt") != "user/-/state/com.google/read" {
+				t.Fatalf("unread items should exclude read ones, got xt=%q", q.Get("xt"))
+			}
+			switch q.Get("s") {
+			case "feed/1":
+				return responseWithJSON(http.StatusOK, `{"itemRefs":[{"id":"10"},{"id":"11"},{"id":"12"}]}`), nil
+			case "feed/2":
+				return responseWithJSON(http.StatusInternalServerError, `{"error":"boom"}`), nil
+			default:
+				return responseWithJSON(http.StatusOK, `{"itemRefs":[]}`), nil
+			}
 		default:
 			t.Fatalf("unexpected request %s", req.URL.String())
 			return nil, nil
@@ -102,8 +120,8 @@ func TestUnreadCountsAcceptsAnEmptyArray(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UnreadCounts returned error: %v", err)
 	}
-	if len(counts) != 0 {
-		t.Fatalf("expected no counts, got %v", counts)
+	if len(counts) != 1 || counts["feed/1"] != 3 {
+		t.Fatalf("expected only feed/1 with 3 unread (a failing feed counts as none), got %v", counts)
 	}
 }
 
