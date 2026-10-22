@@ -243,35 +243,36 @@ func (c *Client) countUnreadByFeed(ctx context.Context) (map[string]int64, error
 	return counts, ctx.Err()
 }
 
+// streamContents is a reply with articles in it.
+type streamContents struct {
+	Items []struct {
+		ID         string   `json:"id"`
+		Title      string   `json:"title"`
+		Author     string   `json:"author"`
+		Published  int64    `json:"published"`
+		Updated    int64    `json:"updated"`
+		Categories []string `json:"categories"`
+		Alternate  []struct {
+			Href string `json:"href"`
+		} `json:"alternate"`
+		Canonical []struct {
+			Href string `json:"href"`
+		} `json:"canonical"`
+		Summary *struct {
+			Content string `json:"content"`
+		} `json:"summary"`
+		Content *struct {
+			Content string `json:"content"`
+		} `json:"content"`
+		Origin struct {
+			StreamID string `json:"streamId"`
+		} `json:"origin"`
+	} `json:"items"`
+}
+
 func (c *Client) StreamContents(ctx context.Context, streamID string, limit int) ([]Entry, error) {
 	if limit <= 0 {
 		limit = 100
-	}
-
-	var resp struct {
-		Items []struct {
-			ID         string   `json:"id"`
-			Title      string   `json:"title"`
-			Author     string   `json:"author"`
-			Published  int64    `json:"published"`
-			Updated    int64    `json:"updated"`
-			Categories []string `json:"categories"`
-			Alternate  []struct {
-				Href string `json:"href"`
-			} `json:"alternate"`
-			Canonical []struct {
-				Href string `json:"href"`
-			} `json:"canonical"`
-			Summary *struct {
-				Content string `json:"content"`
-			} `json:"summary"`
-			Content *struct {
-				Content string `json:"content"`
-			} `json:"content"`
-			Origin struct {
-				StreamID string `json:"streamId"`
-			} `json:"origin"`
-		} `json:"items"`
 	}
 
 	q := url.Values{
@@ -279,8 +280,20 @@ func (c *Client) StreamContents(ctx context.Context, streamID string, limit int)
 		"n":      []string{strconv.Itoa(limit)},
 		"xt":     []string{readTag},
 	}
-	if err := c.getJSON(ctx, "/reader/api/0/stream/contents/"+url.PathEscape(streamID), q, &resp); err != nil {
+	var raw json.RawMessage
+	if err := c.getJSON(ctx, "/reader/api/0/stream/contents/"+url.PathEscape(streamID), q, &raw); err != nil {
 		return nil, err
+	}
+	var resp streamContents
+	if b := bytes.TrimSpace(raw); len(b) > 0 && b[0] == '[' {
+		// Miniflux has no stream/contents: its catch-all answers with an empty
+		// JSON array. It does have the ids of a stream's items, and their contents.
+		var err error
+		if resp, err = c.itemContents(ctx, streamID, limit); err != nil {
+			return nil, err
+		}
+	} else if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("decode /reader/api/0/stream/contents: %w", err)
 	}
 
 	entries := make([]Entry, 0, len(resp.Items))
@@ -327,6 +340,39 @@ func (c *Client) StreamContents(ctx context.Context, streamID string, limit int)
 		})
 	}
 	return entries, nil
+}
+
+// itemContents gets a stream's unread articles in two steps, for servers without
+// stream/contents: the ids of its items, then the contents of those items.
+func (c *Client) itemContents(ctx context.Context, streamID string, limit int) (streamContents, error) {
+	var out streamContents
+	var ids struct {
+		ItemRefs []struct {
+			ID string `json:"id"`
+		} `json:"itemRefs"`
+	}
+	q := url.Values{
+		"s":      []string{streamID},
+		"xt":     []string{readTag},
+		"n":      []string{strconv.Itoa(limit)},
+		"output": []string{"json"},
+	}
+	if err := c.getJSON(ctx, "/reader/api/0/stream/items/ids", q, &ids); err != nil {
+		return out, err
+	}
+	if len(ids.ItemRefs) == 0 {
+		return out, nil
+	}
+	token, err := c.ensureToken(ctx)
+	if err != nil {
+		return out, err
+	}
+	form := url.Values{"T": []string{token}, "output": []string{"json"}}
+	for _, ref := range ids.ItemRefs {
+		form.Add("i", ref.ID)
+	}
+	err = c.postFormJSON(ctx, "/reader/api/0/stream/items/contents", form, &out)
+	return out, err
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, dst any) error {

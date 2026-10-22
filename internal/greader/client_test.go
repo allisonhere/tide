@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -122,6 +123,79 @@ func TestUnreadCountsFallBackToItemIDsWhenTheServerAnswersAnArray(t *testing.T) 
 	}
 	if len(counts) != 1 || counts["feed/1"] != 3 {
 		t.Fatalf("expected only feed/1 with 3 unread (a failing feed counts as none), got %v", counts)
+	}
+}
+
+func TestStreamContentsFallBackToItemContentsWhenTheServerAnswersAnArray(t *testing.T) {
+	client := New("https://rss.example.com", "alice", "secret")
+	var posted url.Values
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/accounts/ClientLogin":
+			return responseWithBody(http.StatusOK, "SID=alice/token\nAuth=alice/token\n"), nil
+		case "/reader/api/0/stream/contents/feed/7":
+			// What Miniflux answers: it has no stream/contents endpoint.
+			return responseWithJSON(http.StatusOK, `[]`), nil
+		case "/reader/api/0/stream/items/ids":
+			q := req.URL.Query()
+			if q.Get("s") != "feed/7" || q.Get("xt") != "user/-/state/com.google/read" || q.Get("n") != "50" {
+				t.Fatalf("unexpected ids query %s", req.URL.RawQuery)
+			}
+			return responseWithJSON(http.StatusOK, `{"itemRefs":[{"id":"8717"},{"id":"8707"}]}`), nil
+		case "/reader/api/0/token":
+			return responseWithBody(http.StatusOK, "csrf-token\n"), nil
+		case "/reader/api/0/stream/items/contents":
+			if req.Method != http.MethodPost {
+				t.Fatalf("expected POST, got %s", req.Method)
+			}
+			body, _ := io.ReadAll(req.Body)
+			posted, _ = url.ParseQuery(string(body))
+			return responseWithJSON(http.StatusOK, `{"items":[
+				{"id":"tag:google.com,2005:reader/item/00000000000021fd","title":"First","published":1700000000,
+				 "categories":["user/-/state/com.google/reading-list"],
+				 "alternate":[{"href":"http://example.com/1"}],
+				 "summary":{"content":"<p>one</p>"},"origin":{"streamId":"feed/7"}},
+				{"id":"tag:google.com,2005:reader/item/00000000000021f3","title":"Second","published":1700000100,
+				 "categories":["user/-/state/com.google/reading-list","user/-/state/com.google/read"],
+				 "alternate":[{"href":"http://example.com/2"}],
+				 "summary":{"content":"<p>two</p>"},"origin":{"streamId":"feed/7"}}]}`), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	entries, err := client.StreamContents(context.Background(), "feed/7", 50)
+	if err != nil {
+		t.Fatalf("StreamContents returned error: %v", err)
+	}
+	if posted.Get("T") != "csrf-token" || strings.Join(posted["i"], ",") != "8717,8707" {
+		t.Fatalf("unexpected items/contents form %v", posted)
+	}
+	if len(entries) != 2 || entries[0].Title != "First" || entries[0].Link != "http://example.com/1" ||
+		entries[0].ContentHTML != "<p>one</p>" || entries[0].StreamID != "feed/7" || entries[0].Read || !entries[1].Read {
+		t.Fatalf("unexpected entries %+v", entries)
+	}
+}
+
+func TestStreamContentsWithNothingUnreadMakesNoContentsRequest(t *testing.T) {
+	client := New("https://rss.example.com", "alice", "secret")
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/accounts/ClientLogin":
+			return responseWithBody(http.StatusOK, "SID=alice/token\nAuth=alice/token\n"), nil
+		case "/reader/api/0/stream/contents/feed/7":
+			return responseWithJSON(http.StatusOK, `[]`), nil
+		case "/reader/api/0/stream/items/ids":
+			return responseWithJSON(http.StatusOK, `{"itemRefs":[]}`), nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL.String())
+			return nil, nil
+		}
+	})}
+	entries, err := client.StreamContents(context.Background(), "feed/7", 0)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("entries %v, err %v", entries, err)
 	}
 }
 
