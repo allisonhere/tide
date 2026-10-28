@@ -154,6 +154,9 @@ func (m Model) remoteArticle(feedID int64, entry greader.Entry) db.Article {
 	}
 }
 
+// allUnreadRemoteLimit caps the remote articles All Unread lists.
+const allUnreadRemoteLimit = 500
+
 // readingListStream is the remote stream of everything the account follows.
 const readingListStream = "user/-/state/com.google/reading-list"
 
@@ -164,7 +167,7 @@ func (m Model) loadGReaderUnreadArticles(ctx context.Context) ([]db.Article, err
 	if m.greaderClient == nil || len(m.greaderStreams) == 0 {
 		return nil, nil
 	}
-	entries, err := m.greaderClient.StreamContents(ctx, readingListStream, 200)
+	entries, err := m.greaderClient.StreamContents(ctx, readingListStream, allUnreadRemoteLimit)
 	if err != nil {
 		return nil, err
 	}

@@ -436,3 +436,59 @@ func responseWithJSON(status int, body string) *http.Response {
 		Body:       io.NopCloser(bytes.NewBufferString(body)),
 	}
 }
+
+func TestMarkEntryReadDoesNotRetryOtherFailures(t *testing.T) {
+	client := New("https://rss.example.com", "alice", "secret")
+	edits := 0
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/accounts/ClientLogin":
+			return responseWithBody(http.StatusOK, "SID=alice/token\nAuth=alice/token\n"), nil
+		case "/reader/api/0/token":
+			return responseWithBody(http.StatusOK, "csrf-token\n"), nil
+		case "/reader/api/0/edit-tag":
+			edits++
+			return responseWithJSON(http.StatusInternalServerError, `{"error":"boom"}`), nil
+		}
+		t.Fatalf("unexpected request %s", req.URL.String())
+		return nil, nil
+	})}
+
+	if err := client.MarkEntryRead(context.Background(), "item", true); err == nil || edits != 1 {
+		t.Fatalf("expected the first error and a single attempt, got err %v after %d attempts", err, edits)
+	}
+}
+
+func TestUnreadCountsFallbackFollowsContinuationAndReportsTotalFailure(t *testing.T) {
+	fail := false
+	client := New("https://rss.example.com", "alice", "secret")
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/accounts/ClientLogin":
+			return responseWithBody(http.StatusOK, "Auth=alice/token\n"), nil
+		case "/reader/api/0/unread-count":
+			return responseWithJSON(http.StatusOK, `[]`), nil
+		case "/reader/api/0/subscription/list":
+			return responseWithJSON(http.StatusOK, `{"subscriptions":[{"id":"feed/1","title":"A","url":"http://a/feed"}]}`), nil
+		case "/reader/api/0/stream/items/ids":
+			if fail {
+				return responseWithJSON(http.StatusUnauthorized, `{}`), nil
+			}
+			if req.URL.Query().Get("c") == "" {
+				return responseWithJSON(http.StatusOK, `{"itemRefs":[{"id":"1"},{"id":"2"}],"continuation":"next"}`), nil
+			}
+			return responseWithJSON(http.StatusOK, `{"itemRefs":[{"id":"3"}]}`), nil
+		}
+		t.Fatalf("unexpected request %s", req.URL.String())
+		return nil, nil
+	})}
+
+	counts, err := client.UnreadCounts(context.Background())
+	if err != nil || counts["feed/1"] != 3 {
+		t.Fatalf("expected 3 unread across two pages, got %v, err %v", counts, err)
+	}
+	fail = true
+	if _, err := client.UnreadCounts(context.Background()); err == nil {
+		t.Fatal("expected an error when every feed fails")
+	}
+}

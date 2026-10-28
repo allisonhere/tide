@@ -117,13 +117,17 @@ func (c *Client) MarkEntryRead(ctx context.Context, itemID string, read bool) er
 	form["a"] = []string{readTag}
 	form["r"] = []string{keptUnreadTag}
 	err := c.postFormText(ctx, "/reader/api/0/edit-tag", form, true)
-	if err != nil {
-		// Miniflux refuses to add read and remove kept-unread together; adding
-		// read alone says the same.
-		err = c.postFormText(ctx, "/reader/api/0/edit-tag", url.Values{
+	// Miniflux refuses to add read and remove kept-unread together ("should
+	// not be supplied simultaneously"); adding read alone says the same. Any
+	// other failure is returned as is.
+	if err != nil && strings.Contains(err.Error(), "simultaneously") {
+		if err2 := c.postFormText(ctx, "/reader/api/0/edit-tag", url.Values{
 			"i": []string{itemID},
 			"a": []string{readTag},
-		}, true)
+		}, true); err2 != nil {
+			return err2
+		}
+		return nil
 	}
 	return err
 }
@@ -223,33 +227,74 @@ func (c *Client) countUnreadByFeed(ctx context.Context) (map[string]int64, error
 	counts := make(map[string]int64, len(subs))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	var failed int
+	var firstErr error
 	sem := make(chan struct{}, 8)
 	for _, sub := range subs {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(id string) {
 			defer func() { <-sem; wg.Done() }()
-			var resp struct {
-				ItemRefs []struct {
-					ID string `json:"id"`
-				} `json:"itemRefs"`
-			}
-			query := url.Values{
-				"s":      []string{id},
-				"xt":     []string{"user/-/state/com.google/read"},
-				"n":      []string{"1000"},
-				"output": []string{"json"},
-			}
-			if err := c.getJSON(ctx, "/reader/api/0/stream/items/ids", query, &resp); err != nil || len(resp.ItemRefs) == 0 {
+			n, err := c.countUnreadIDs(ctx, id)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				failed++
+				if firstErr == nil {
+					firstErr = err
+				}
 				return
 			}
-			mu.Lock()
-			counts[id] = int64(len(resp.ItemRefs))
-			mu.Unlock()
+			if n > 0 {
+				counts[id] = n
+			}
 		}(sub.ID)
 	}
 	wg.Wait()
-	return counts, ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return counts, err
+	}
+	// Individual failures count as none, but if every feed failed (a bad
+	// token, a dead server) say so instead of showing zeros everywhere.
+	if len(subs) > 0 && failed == len(subs) {
+		return nil, firstErr
+	}
+	return counts, nil
+}
+
+// unreadIDPages bounds how many pages of ids countUnreadIDs follows.
+const unreadIDPages = 10
+
+// countUnreadIDs counts a stream's unread items by paging through their ids.
+func (c *Client) countUnreadIDs(ctx context.Context, streamID string) (int64, error) {
+	var total int64
+	continuation := ""
+	for page := 0; page < unreadIDPages; page++ {
+		var resp struct {
+			ItemRefs []struct {
+				ID string `json:"id"`
+			} `json:"itemRefs"`
+			Continuation string `json:"continuation"`
+		}
+		query := url.Values{
+			"s":      []string{streamID},
+			"xt":     []string{readTag},
+			"n":      []string{"1000"},
+			"output": []string{"json"},
+		}
+		if continuation != "" {
+			query.Set("c", continuation)
+		}
+		if err := c.getJSON(ctx, "/reader/api/0/stream/items/ids", query, &resp); err != nil {
+			return total, err
+		}
+		total += int64(len(resp.ItemRefs))
+		if resp.Continuation == "" || len(resp.ItemRefs) == 0 {
+			break
+		}
+		continuation = resp.Continuation
+	}
+	return total, nil
 }
 
 // streamContents is a reply with articles in it.

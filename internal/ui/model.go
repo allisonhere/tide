@@ -3472,15 +3472,32 @@ func (m *Model) loadMergedArticlesCmd(kind sidebarRowKind, folderID int64, feedI
 		if database == nil {
 			return msg
 		}
+		// For All Unread the remote feeds' unread articles join the local
+		// ones; ask for them while the local query runs. If they can't be had
+		// the local ones still show, unless there are none.
+		type remoteResult struct {
+			articles []db.Article
+			err      error
+		}
+		var remoteCh chan remoteResult
+		if kind == rowKindAllUnread {
+			remoteCh = make(chan remoteResult, 1)
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				articles, err := m.loadGReaderUnreadArticles(ctx)
+				remoteCh <- remoteResult{articles, err}
+			}()
+		}
 		msg.Articles, msg.Err = database.ListArticlesForFeeds(feedIDs, unreadOnly)
-		if kind == rowKindAllUnread && msg.Err == nil {
-			// The remote feeds' unread articles join the local ones. If they
-			// can't be had the local ones still show, unless there are none.
-			remote, err := m.loadGReaderUnreadArticles(context.Background())
-			if err != nil && len(msg.Articles) == 0 {
-				msg.Err = err
+		if remoteCh != nil {
+			remote := <-remoteCh
+			if msg.Err == nil {
+				if remote.err != nil && len(msg.Articles) == 0 {
+					msg.Err = remote.err
+				}
+				msg.Articles = mergeNewestFirst(msg.Articles, remote.articles)
 			}
-			msg.Articles = mergeNewestFirst(msg.Articles, remote)
 		}
 		return msg
 	}
