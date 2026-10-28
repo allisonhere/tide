@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__caveman__caveman_retrieve"
+    ]
+  }
+}
