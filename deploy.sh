@@ -1524,7 +1524,7 @@ act_push() {
   local branch
   branch=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)
   log_step "Push $branch"
-  if mutate_streamed "push $branch to origin" git -C "$PROJECT_DIR" push origin "$branch"; then
+  if mutate_streamed "push $branch to origin" git -C "$PROJECT_DIR" push -u origin "$branch"; then
     log_result "pushed to origin/$branch"
     refresh_status
     return 0
