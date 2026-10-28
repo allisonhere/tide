@@ -15,7 +15,7 @@
 # redraw, not exit mid-frame. Every step reports its own status instead.
 set -uo pipefail
 
-DEPLOY_SCRIPT_VERSION="2.2.0"
+DEPLOY_SCRIPT_VERSION="2.2.1"
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$PROJECT_DIR/$(basename "${BASH_SOURCE[0]}")"
@@ -1393,7 +1393,9 @@ act_notes() {
 act_test() {
   log_step "Run tests"
   local start=$(date +%s) unformatted line
-  unformatted=$(gofmt -l . 2>&1)
+  # Tracked files only: `gofmt -l .` also walks a local module cache and any
+  # worktrees under the project, none of which CI ever sees.
+  unformatted=$(git ls-files -z -- '*.go' | xargs -0 -r gofmt -l 2>&1)
   if [ -n "$unformatted" ]; then
     log_err "gofmt would change these files:"
     while IFS= read -r line; do log_detail "$line"; done <<<"$unformatted"
