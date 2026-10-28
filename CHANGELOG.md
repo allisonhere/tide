@@ -5,6 +5,22 @@ bundled into the app: Settings → Changelog.
 
 ## Unreleased
 
+### Added
+
+- 32 new built-in themes, bringing the total to 51 across 23 families: One Dark Darker, Tokyo Night
+  Storm and Moon, Dracula Alucard, GitHub, Kanagawa, Solarized, Everforest, Nightfox, Ayu, Palenight,
+  Night Owl, SynthWave '84, Oxocarbon and Cyberdream. Existing theme names and
+  saved settings are unchanged, and a few palettes (for example Catppuccin's muted text) are
+  refreshed from their upstream sources.
+
+### Changed
+
+- The theme picker (`T`) now matches TideMail's: themes are grouped under their family, `/` filters by
+  name, family, variant or light/dark, each variant has a palette swatch, and a sample of the highlighted
+  theme shows the text, link, quote, status and tag colors. The Settings theme selector shows the same
+  readable names ("Tokyo Night Storm"). Config files still use the original theme names.
+- Themes now come from the shared `tideui` library, so Tide and the other Tide apps stay in step.
+
 ### Fixed
 
 - Settings now has an opaque, full-height divider between its category list and detail form.

@@ -2247,7 +2247,7 @@ func (s Settings) renderPaneCornersSelector(width int, chrome managerChrome) str
 
 func (s Settings) renderThemeSelector(width int, chrome managerChrome) string {
 	focused := s.focusedField == sfTheme
-	name := pickableThemeNameAt(s.themeIdx)
+	name := pickableThemeLabelAt(s.themeIdx)
 	labelW := formLabelWidth(width)
 	pickerW := max(1, width-labelW-2) // minus the 2-cell focus rail
 	return renderSoftRow("Theme", focused, renderSettingsPicker(pickerW, name, focused, chrome), width, labelW, chrome)

@@ -27,6 +27,7 @@ import (
 	"github.com/allisonhere/tide/internal/greader"
 	"github.com/allisonhere/tide/internal/refresh"
 	"github.com/allisonhere/tide/internal/update"
+	"github.com/allisonhere/tideui"
 )
 
 // ── Enums ────────────────────────────────────────────────────────────────────
@@ -193,7 +194,7 @@ type Model struct {
 	confirmedTheme int
 	activeTheme    int
 	styles         Styles
-	themeCursor    int
+	themePicker    tideui.ThemePicker
 	// omarchySig / omarchyWatching drive the "match-omarchy" theme's
 	// live-follow poll (see theme_omarchy.go).
 	omarchySig      string
@@ -1057,8 +1058,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openFeedAddDialog(), nil
 
 	case keyMatches(msg, m.keys.ThemePicker):
-		m.overlay = overlayThemePicker
-		m.themeCursor = m.confirmedTheme
+		m.openThemePicker()
 		return m, nil
 
 	case keyMatches(msg, m.keys.Search):
@@ -1515,48 +1515,7 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case overlayThemePicker:
-		prevTheme := m.activeTheme
-		var themeCmd tea.Cmd
-		switch {
-		case keyMatches(msg, m.keys.Up):
-			if m.themeCursor > 0 {
-				m.themeCursor--
-				m.activeTheme = m.themeCursor
-				m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density, m.cfg.Display.PaneCorners)
-				if len(m.filteredArticles) > 0 {
-					m.setViewportArticle(m.filteredArticles[m.articleCursor])
-				}
-			}
-		case keyMatches(msg, m.keys.Down):
-			if m.themeCursor < len(PickableThemes())-1 {
-				m.themeCursor++
-				m.activeTheme = m.themeCursor
-				m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density, m.cfg.Display.PaneCorners)
-				if len(m.filteredArticles) > 0 {
-					m.setViewportArticle(m.filteredArticles[m.articleCursor])
-				}
-			}
-		case keyMatches(msg, m.keys.Confirm):
-			m.confirmedTheme = m.themeCursor
-			m.overlay = overlayNone
-			m.cfg.Theme = pickableThemeNameAt(m.confirmedTheme)
-			m.saveConfig()
-			themeCmd = m.startOmarchyWatchIfNeeded()
-			if len(m.filteredArticles) > 0 {
-				m.setViewportArticle(m.filteredArticles[m.articleCursor])
-			}
-		case keyMatches(msg, m.keys.Cancel):
-			m.activeTheme = m.confirmedTheme
-			m.styles = BuildStyles(MergedBuiltinThemeAtIndex(m.cfg, m.activeTheme), m.cfg.Display.Density, m.cfg.Display.PaneCorners)
-			m.overlay = overlayNone
-			if len(m.filteredArticles) > 0 {
-				m.setViewportArticle(m.filteredArticles[m.articleCursor])
-			}
-		}
-		if m.activeTheme != prevTheme {
-			return m, tea.Batch(themeCmd, setTermBgCmd(m.styles.Theme.Bg))
-		}
-		return m, themeCmd
+		return m.handleThemePickerKey(msg)
 
 	case overlayFeedManager:
 		return m.handleFeedManager(msg)
@@ -2824,11 +2783,8 @@ func (m Model) renderOverlay(base string) string {
 		box = renderSoftPanelBox(inner, winW, "tide", "search", chrome)
 
 	case overlayThemePicker:
-		winW := min(m.width-4, 40)
-		chrome := newManagerChrome(winW, m.styles.Theme, m.styles.PlainUI)
-		inner := m.renderThemePicker(winW, chrome)
-		inner = clampView(inner, winW, strings.Count(inner, "\n")+1, chrome.baseBg)
-		box = renderSoftPanelBox(inner, winW, "tide", "theme", chrome)
+		winW, winH := themePickerSize(m.width, m.height)
+		box = m.renderThemePicker(winW, winH)
 
 	case overlayFeedManager:
 		winW := min(m.width-4, 74)
@@ -3232,23 +3188,6 @@ func overlayOnBase(base, box string, width, height int, bg lipgloss.Color, shado
 		result[y] = left + boxLines[boxRow] + right
 	}
 	return strings.Join(result, "\n")
-}
-
-func (m Model) renderThemePicker(width int, chrome managerChrome) string {
-	labelW := max(1, width-2) // minus the 2-cell rail
-	pt := PickableThemes()
-	rows := make([]string, 0, len(pt))
-	for i, t := range pt {
-		selected := i == m.themeCursor
-		label := lipgloss.NewStyle().
-			Background(chrome.baseBg).
-			Foreground(chrome.text).
-			Render(" " + truncate(t.Name, max(1, labelW-1)))
-		rows = append(rows, softRail(chrome, selected, chrome.baseBg)+padStyled(label, labelW, chrome.baseBg))
-	}
-	body := clampView(lipgloss.JoinVertical(lipgloss.Left, rows...), width, len(rows), chrome.baseBg)
-	hints := renderSoftHints(width, chrome, "enter", "confirm", "esc", "revert")
-	return lipgloss.JoinVertical(lipgloss.Left, body, hints)
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────

@@ -110,27 +110,32 @@ Enter to restart, Esc to restart later.
 - Optional actionable links in content pane (Settings → Display)
 - **Optional article images in the content pane** (Kitty graphics; Settings → Display; off by default) — text wraps beside the image, `i` toggles per article, clean text-only fallback everywhere else
 - AI summaries with copy and save-to-Markdown actions
-- 19 built-in themes, including customizable VT52 and VT100 palettes, plus
+- 51 built-in themes (Catppuccin, Tokyo Night, GitHub, Kanagawa, Nightfox, Ayu and more) in a grouped,
+  searchable picker (`T`, then `/` to filter), including customizable VT52 and VT100 palettes, plus
   `match-omarchy` which follows your current [Omarchy](https://omarchy.org)
   desktop theme (contrast-corrected, updates live)
 - Terminal background sync (OSC 11)
 
 ## Themes
 
-- `catppuccin-mocha`
-- `catppuccin-latte`
-- `catppuccin-frappe`
-- `catppuccin-macchiato`
+- `catppuccin-mocha`, `catppuccin-macchiato`, `catppuccin-frappe`, `catppuccin-latte`
+- `one-dark`, `one-dark-darker`
+- `tokyo-night`, `tokyo-night-storm`, `tokyo-night-moon`, `tokyo-night-day`
+- `dracula`, `dracula-alucard`
+- `github-dark`, `github-dark-dimmed`, `github-light`
+- `gruvbox-dark`, `gruvbox-light`
 - `nord`
-- `dracula`
-- `gruvbox-dark`
-- `gruvbox-light`
-- `tokyo-night`
-- `tokyo-night-day`
-- `rose-pine`
-- `rose-pine-moon`
-- `rose-pine-dawn`
-- `one-dark`
+- `rose-pine`, `rose-pine-moon`, `rose-pine-dawn`
+- `kanagawa-wave`, `kanagawa-dragon`, `kanagawa-lotus`
+- `solarized-dark`, `solarized-light`
+- `everforest-dark`, `everforest-light`
+- `nightfox`, `dayfox`, `dawnfox`, `duskfox`, `nordfox`, `terafox`, `carbonfox`
+- `ayu-dark`, `ayu-mirage`, `ayu-light`
+- `palenight`
+- `night-owl`, `night-owl-light`
+- `synthwave-84`
+- `oxocarbon-dark`, `oxocarbon-light`
+- `cyberdream`, `cyberdream-light`
 - `magenta-geode`
 - `coral-sunset`
 - `lavender-fields-forever`
