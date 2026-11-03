@@ -1,5 +1,8 @@
 # Status — 2026-10-15
 
+Optional title wrapping is available in Settings → Display: **Wrap list titles** and **Wrap article title**. Both default off. In config, use `display.wrap_list_titles` and `display.wrap_article_title`.
+
+
 ## Current branch: main
 
 Everything below is merged to `main`. Latest release: v1.3.1 (v1.3.0 plus two Omarchy bar fixes: the empty

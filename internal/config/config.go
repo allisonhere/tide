@@ -25,6 +25,8 @@ type RetroTerminalTweak struct {
 }
 
 type DisplayConfig struct {
+	WrapListTitles           bool               `toml:"wrap_list_titles"`
+	WrapArticleTitle         bool               `toml:"wrap_article_title"`
 	Icons                    bool               `toml:"icons"`
 	ShowPaneHeaders          bool               `toml:"show_pane_headers"`
 	ShowPaneBorders          bool               `toml:"show_pane_borders"`

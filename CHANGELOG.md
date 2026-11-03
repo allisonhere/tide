@@ -7,6 +7,8 @@ bundled into the app: Settings → Changelog.
 
 ### Added
 
+- Optional title wrapping for the headings list and article pane, controlled independently in Display settings (#14).
+
 - 32 new built-in themes, bringing the total to 51 across 23 families: One Dark Darker, Tokyo Night
   Storm and Moon, Dracula Alucard, GitHub, Kanagawa, Solarized, Everforest, Nightfox, Ayu, Palenight,
   Night Owl, SynthWave '84, Oxocarbon and Cyberdream. Existing theme names and

@@ -101,6 +101,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 				{"S → Display", "focus line: highlight current readable content line"},
 				{"S → Display", "actionable article links: show links block and enable link navigation"},
 				{"S → Display", "article images: lead image at the top of the content pane (Kitty only)"},
+				{"S → Display", "wrap list titles and article title independently (off by default)"},
 				{"S → Feeds", "refresh every: background refresh in minutes; 0 = startup and f/F"},
 				{"S → Feeds", "delete read after: retention in days; 0 keeps everything"},
 				{"", "retention never deletes starred, summarized, or unread articles"},

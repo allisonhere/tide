@@ -48,6 +48,8 @@ const (
 	sfActionableLinks
 	sfFilterLinks
 	sfArticleImages
+	sfWrapListTitles
+	sfWrapArticleTitle
 	sfReadingWidth
 	sfDisplayDensity
 	sfBrowser
@@ -203,6 +205,8 @@ type Settings struct {
 	omarchyBarWas        bool
 	actionableLinks      bool
 	filterLinks          bool
+	wrapListTitles       bool
+	wrapArticleTitle     bool
 	articleImages        bool
 	confirmQuit          bool
 	layoutDensityIdx     int // 0 = comfortable, 1 = compact
@@ -301,6 +305,8 @@ func newSettings(cfg config.Config, updateState settingsUpdateState) Settings {
 		actionableLinks:      cfg.Display.ActionableLinks,
 		filterLinks:          cfg.Display.FilterLinks,
 		articleImages:        cfg.Display.ArticleImages,
+		wrapListTitles:       cfg.Display.WrapListTitles,
+		wrapArticleTitle:     cfg.Display.WrapArticleTitle,
 		confirmQuit:          cfg.Display.ConfirmQuit,
 		layoutDensityIdx:     layoutIdx,
 		readingWidthInput:    mkInput(strconv.Itoa(cfg.Display.ReadingWidth), "0 (no limit)", false),
@@ -370,6 +376,8 @@ func (s Settings) ApplyTo(cfg config.Config) config.Config {
 	cfg.Display.ActionableLinks = s.actionableLinks
 	cfg.Display.FilterLinks = s.filterLinks
 	cfg.Display.ArticleImages = s.articleImages
+	cfg.Display.WrapListTitles = s.wrapListTitles
+	cfg.Display.WrapArticleTitle = s.wrapArticleTitle
 	cfg.Display.ConfirmQuit = s.confirmQuit
 	if w, err := strconv.Atoi(strings.TrimSpace(s.readingWidthInput.Value())); err == nil {
 		cfg.Display.ReadingWidth = max(0, w)
@@ -623,7 +631,7 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 		}
 		return append(fields,
 			sfShowPaneHeaders, sfShowPaneBorders, sfPaneCorners, sfShadow,
-			sfReadingWidth, sfFocusLine, sfActionableLinks, sfFilterLinks, sfArticleImages,
+			sfReadingWidth, sfFocusLine, sfActionableLinks, sfFilterLinks, sfArticleImages, sfWrapListTitles, sfWrapArticleTitle,
 			sfDefaultUnreadOnly, sfMarkReadOnOpen, sfMarkReadOnFocus, sfBrowser, sfConfirmQuit)
 	case ssFeeds:
 		fields := []settingsField{sfBackToSections}
@@ -1173,6 +1181,24 @@ func (s Settings) Update(msg tea.Msg, keys KeyMap) (Settings, tea.Cmd, bool) {
 			s.setFocusedField(s.prevField())
 		}
 
+	case sfWrapListTitles:
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.wrapListTitles = !s.wrapListTitles
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
+	case sfWrapArticleTitle:
+		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
+			s.wrapArticleTitle = !s.wrapArticleTitle
+		} else if keyMatches(key, keys.Down) {
+			s.setFocusedField(s.nextField())
+		} else if keyMatches(key, keys.Up) {
+			s.setFocusedField(s.prevField())
+		}
+
 	case sfConfirmQuit:
 		if keyMatches(key, keys.Space) || keyMatches(key, keys.Enter) {
 			s.confirmQuit = !s.confirmQuit
@@ -1469,6 +1495,8 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 		b.addToggle("Actionable article links", s.actionableLinks, sfActionableLinks)
 		b.addToggle("Filter links from articles", s.filterLinks, sfFilterLinks)
 		b.addToggle("Article images", s.articleImages, sfArticleImages)
+		b.addToggle("Wrap list titles", s.wrapListTitles, sfWrapListTitles)
+		b.addToggle("Wrap article title", s.wrapArticleTitle, sfWrapArticleTitle)
 		b.addGroup("Behavior")
 		b.addToggle("Default to unread only", s.defaultUnreadOnly, sfDefaultUnreadOnly)
 		b.addToggle("Mark read on open", s.markReadOnOpen, sfMarkReadOnOpen)

@@ -372,6 +372,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.refreshImageCellSize()
+		m.ensureArticleCursorVisible()
 		m.viewport = viewport.New(m.contentBodyWidth(), m.contentBodyHeight())
 		m.viewport.Style = lipgloss.NewStyle()
 		if len(m.filteredArticles) > 0 {
@@ -853,10 +854,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if idx := m.indexOfFilteredArticle(msg.ArticleID); msg.Advance && idx >= 0 && idx == m.articleCursor && idx < len(m.filteredArticles)-1 {
 			m.articleCursor = idx + 1
-			visible := max(1, m.articleRowsVisible())
-			if m.articleCursor >= m.listOffset+visible {
-				m.listOffset = m.articleCursor - visible + 1
-			}
+			m.ensureArticleCursorVisible()
 		} else {
 			m.articleCursor = clamp(m.articleCursor, 0, max(0, len(m.filteredArticles)-1))
 			maxOffset := max(0, len(m.filteredArticles)-1)
@@ -1391,6 +1389,7 @@ func (m Model) afterLayoutResize() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) resetContentViewportForLayout() {
+	m.ensureArticleCursorVisible()
 	offset := m.viewport.YOffset
 	m.viewport = viewport.New(m.contentBodyWidth(), m.contentBodyHeight())
 	m.viewport.Style = lipgloss.NewStyle()
@@ -1447,10 +1446,7 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 	case paneArticles:
 		if m.articleCursor < len(m.filteredArticles)-1 {
 			m.articleCursor++
-			visible := m.articleRowsVisible()
-			if m.articleCursor >= m.listOffset+visible {
-				m.listOffset = m.articleCursor - visible + 1
-			}
+			m.ensureArticleCursorVisible()
 			if len(m.filteredArticles) > 0 {
 				article := m.filteredArticles[m.articleCursor]
 				m.setViewportArticle(article)
@@ -1851,6 +1847,7 @@ func (m Model) renderFeedsPane() string {
 }
 
 func (m Model) renderArticlesPane() string {
+	m.ensureArticleCursorVisible()
 	w := m.articlesPaneWidth()
 	rowW := m.articlesPaneContentWidth()
 	h := m.articlesPaneContentHeight()
@@ -1869,6 +1866,10 @@ func (m Model) renderArticlesPane() string {
 			age = truncate(m.feedDisplayTitle(a.FeedID), feedTagWidth) + " · " + age
 		}
 
+		if m.cfg.Display.WrapListTitles {
+			rows = append(rows, m.renderWrappedArticleRow(i))
+			continue
+		}
 		dot := m.articleRowPrefix(a.Read)
 		if i == m.articleCursor {
 			dot = m.articleRowCursorPrefix()
@@ -2148,7 +2149,13 @@ func (m Model) renderArticleContent(a db.Article) string {
 	bodyWidth := m.contentBodyWidth()
 	titleWidth := max(1, contentWidth-m.styles.ContentTitle.GetHorizontalFrameSize())
 	metaWidth := max(1, contentWidth-m.styles.ContentMeta.GetHorizontalFrameSize())
-	title := m.styles.ContentTitle.Width(contentWidth + 2).Render(truncate(stripEmailInvisibles(unescapeDisplayText(a.Title)), titleWidth+2))
+	titleText := stripEmailInvisibles(unescapeDisplayText(a.Title))
+	if m.cfg.Display.WrapArticleTitle {
+		titleText = ansi.Wrap(normalizeInlineSpacing(titleText), max(1, titleWidth+2), "")
+	} else {
+		titleText = truncate(titleText, titleWidth+2)
+	}
+	title := m.styles.ContentTitle.Width(contentWidth + 2).Render(titleText)
 	meta := " " + m.styles.ContentMeta.Width(contentWidth).Render(truncate(a.PublishedAt.Format("Mon, 02 Jan 2006 15:04")+"  "+a.Link, metaWidth))
 
 	content := a.Content
@@ -3356,6 +3363,23 @@ func (m *Model) restoreArticleCursor() {
 // ensureArticleCursorVisible scrolls the article list just far enough that the
 // cursor sits inside the rendered window.
 func (m *Model) ensureArticleCursorVisible() {
+	if m.cfg.Display.WrapListTitles {
+		m.listOffset = clamp(m.listOffset, 0, max(0, len(m.filteredArticles)-1))
+		if m.articleCursor < m.listOffset {
+			m.listOffset = m.articleCursor
+		}
+		budget := max(1, m.articlesPaneContentHeight()-m.paneHeaderHeight())
+		used := 0
+		for i := m.articleCursor; i >= m.listOffset && i >= 0 && i < len(m.filteredArticles); i-- {
+			used += lipgloss.Height(m.renderWrappedArticleRow(i))
+			if used > budget {
+				m.listOffset = min(i+1, m.articleCursor)
+				break
+			}
+		}
+		return
+	}
+
 	visible := max(1, m.articleRowsVisible())
 	if m.articleCursor < m.listOffset {
 		m.listOffset = m.articleCursor
@@ -5248,6 +5272,23 @@ func (m Model) articlesPaneContentHeight() int {
 	return max(2, m.articlesPaneOuterHeight()-1)
 }
 func (m Model) articleRowsVisible() int {
+	if m.cfg.Display.WrapListTitles {
+		budget := max(1, m.articlesPaneContentHeight()-m.paneHeaderHeight())
+		used, count := 0, 0
+		for i := m.listOffset; i < len(m.filteredArticles); i++ {
+			height := lipgloss.Height(m.renderWrappedArticleRow(i))
+			if used+height > budget && count > 0 {
+				break
+			}
+			used += height
+			count++
+			if used >= budget {
+				break
+			}
+		}
+		return count
+	}
+
 	stride := m.styles.ListItemLineStride()
 	bodyLines := max(0, m.articlesPaneContentHeight()-m.paneHeaderHeight())
 	return bodyLines / stride
