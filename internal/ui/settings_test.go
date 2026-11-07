@@ -231,6 +231,7 @@ func TestSettingsLoadsAppliesAndShowsPaneHeaders(t *testing.T) {
 	}
 
 	s.setFocusedPane(settingsPaneDetail)
+	s.setFocusedField(sfShowPaneHeaders)
 	if v := s.View(62, 24, newManagerChrome(62, CatppuccinMocha, false)); !strings.Contains(v, "Pane header bars") {
 		t.Fatal("expected settings view to contain pane header bars toggle")
 	}

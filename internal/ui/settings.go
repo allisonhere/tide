@@ -629,12 +629,12 @@ func (s Settings) sectionFields(section settingsSection) []settingsField {
 	switch section {
 	case ssDisplay:
 		// Keep this in the order viewSectionBody draws the groups.
-		fields := []settingsField{sfBackToSections, sfTheme, sfDisplayDensity, sfIcons, sfDateFormat}
+		fields := []settingsField{sfBackToSections, sfTheme, sfTransparent, sfDisplayDensity, sfIcons, sfDateFormat}
 		if config.IsRetroTerminalTheme(s.themeName) {
 			fields = append(fields, sfRetroBg, sfRetroFg, sfRetroAccent)
 		}
 		return append(fields,
-			sfShowPaneHeaders, sfShowPaneBorders, sfPaneCorners, sfShadow, sfTransparent,
+			sfShowPaneHeaders, sfShowPaneBorders, sfPaneCorners, sfShadow,
 			sfReadingWidth, sfFocusLine, sfActionableLinks, sfFilterLinks, sfArticleImages, sfWrapListTitles, sfWrapArticleTitle,
 			sfDefaultUnreadOnly, sfMarkReadOnOpen, sfMarkReadOnFocus, sfBrowser, sfConfirmQuit)
 	case ssFeeds:
@@ -1486,6 +1486,7 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 	case ssDisplay:
 		b.addGroup("Appearance")
 		b.addThemeSelector()
+		b.addToggle("Transparent background", s.transparent, sfTransparent)
 		b.addDensitySelector()
 		b.addToggle("Icons", s.icons, sfIcons)
 		b.addDateFormatSelector()
@@ -1502,7 +1503,6 @@ func (s Settings) viewSectionBody(width int, chrome managerChrome) settingsSecti
 			b.addPaneCornersSelector()
 		}
 		b.addToggle("Modal drop shadow", s.shadow, sfShadow)
-		b.addToggle("Transparent background", s.transparent, sfTransparent)
 		b.addGroup("Reading")
 		b.addInput("Reading width (columns)", s.readingWidthInput, sfReadingWidth)
 		b.addToggle("Focus line", s.focusLine, sfFocusLine)

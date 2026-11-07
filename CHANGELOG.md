@@ -9,7 +9,7 @@ bundled into the app: Settings → Changelog.
 
 - Optional title wrapping for the headings list and article pane, controlled independently in Display settings (#14).
 
-- **Settings → Display → Panes → Transparent background** (`transparent = true` under `[display]`) lets
+- **Settings → Display → Appearance → Transparent background** (`transparent = true` under `[display]`) lets
   your terminal's background opacity show through the theme background. Selected rows, dialogs and
   the other surfaces stay solid.
 
