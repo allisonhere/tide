@@ -326,6 +326,7 @@ Display options, grouped as **Appearance**, **Panes**, **Reading** and **Behavio
 - Toggle pane header bars; when hidden, the focused pane's title and shortcuts move to the status line
 - Toggle pane borders, and pick square or rounded corners for the frames
 - Toggle the **modal drop shadow** behind dialogs (`display.shadow`, on by default; never drawn on VT52)
+- Toggle a **transparent background** (`display.transparent`, off by default): every theme paints a solid background even when your terminal has background opacity set; turn this on to let that opacity show through the theme background, while selected rows and dialogs stay solid
 - Switch between relative and absolute dates
 - Toggle mark-read-on-open
 - Toggle mark-read-on-focus
@@ -471,6 +472,7 @@ show_pane_headers = true
 show_pane_borders = true
 pane_corners = "square"   # or "round"
 shadow = true             # drop shadow behind dialogs
+transparent = false       # true lets the terminal's background opacity show through
 date_format = "relative"
 mark_read_on_open = true
 mark_read_on_focus = false

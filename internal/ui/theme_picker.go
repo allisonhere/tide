@@ -108,7 +108,7 @@ func (m Model) handleThemePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	if m.activeTheme != prevTheme {
-		return m, tea.Batch(themeCmd, setTermBgCmd(m.styles.Theme.Bg))
+		return m, tea.Batch(themeCmd, m.termBgCmd(m.styles.Theme.Bg))
 	}
 	return m, themeCmd
 }

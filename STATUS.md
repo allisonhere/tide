@@ -32,6 +32,10 @@ state printed raw JSON, and the bar polled every 60 s, now 5 s).
   `TestSettingsTabOrderMatchesDrawnOrder`.
 - **Modal drop shadow** (`internal/ui/shadow.go`, `display.shadow`): blended into the base behind
   the dialog, color derived from the theme background; off for the plain-ASCII VT52 theme.
+- **Terminal background** (`internal/ui/terminal.go`, `display.transparent`): OSC 11 sets the
+  terminal's default background one step off the theme's (`tideui.TerminalDefaultBg`) so terminals
+  with background opacity keep every painted cell solid; transparent mode sets the exact color and
+  rewrites theme-background cells to SGR 49 (`tideui.TransparentBackground`).
 
 ### Earlier
 - Toggleable pane header bars (`Settings → Display → Pane header bars`, on by

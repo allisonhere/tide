@@ -9,6 +9,10 @@ bundled into the app: Settings → Changelog.
 
 - Optional title wrapping for the headings list and article pane, controlled independently in Display settings (#14).
 
+- **Settings → Display → Panes → Transparent background** (`transparent = true` under `[display]`) lets
+  your terminal's background opacity show through the theme background. Selected rows, dialogs and
+  the other surfaces stay solid.
+
 - 32 new built-in themes, bringing the total to 51 across 23 families: One Dark Darker, Tokyo Night
   Storm and Moon, Dracula Alucard, GitHub, Kanagawa, Solarized, Everforest, Nightfox, Ayu, Palenight,
   Night Owl, SynthWave '84, Oxocarbon and Cyberdream. Existing theme names and
@@ -22,6 +26,13 @@ bundled into the app: Settings → Changelog.
   theme shows the text, link, quote, status and tag colors. The Settings theme selector shows the same
   readable names ("Tokyo Night Storm"). Config files still use the original theme names.
 - Themes now come from the shared `tideui` library, so Tide and the other Tide apps stay in step.
+
+### Fixed
+
+- With background opacity set in the terminal (kitty, Ghostty and others), the whole of Tide looked
+  see-through: those terminals make every cell whose color matches their default background
+  transparent, and Tide set that default to the theme background it paints everywhere. Every theme
+  now has a solid background, the same color the theme picker shows.
 
 ### Fixed
 

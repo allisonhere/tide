@@ -108,6 +108,7 @@ func renderHelp(width int, styles Styles, keys KeyMap) string {
 				{"S → Feeds", "mute titles containing: new articles matching a keyword arrive already read"},
 				{"S → Feeds", "show in Omarchy bar: unread count in the bar (Omarchy only)"},
 				{"S → Display", "modal drop shadow: shadow behind dialogs; adapts to the theme"},
+				{"S → Display", "transparent background: let the terminal's opacity show through; rows and dialogs stay solid"},
 				{"S → Changelog", "release notes for this version; ↑/↓ scroll, space pages"},
 				{"ctrl+s", "in Settings: save and close from anywhere"},
 			},

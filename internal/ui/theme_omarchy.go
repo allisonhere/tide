@@ -202,5 +202,5 @@ func (m Model) handleOmarchyThemeTick() (tea.Model, tea.Cmd) {
 	if len(m.filteredArticles) > 0 {
 		m.setViewportArticle(m.filteredArticles[m.articleCursor])
 	}
-	return m, tea.Batch(omarchyWatchCmd(), setTermBgCmd(merged.Bg))
+	return m, tea.Batch(omarchyWatchCmd(), m.termBgCmd(merged.Bg))
 }

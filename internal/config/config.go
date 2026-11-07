@@ -32,6 +32,7 @@ type DisplayConfig struct {
 	ShowPaneBorders          bool               `toml:"show_pane_borders"`
 	PaneCorners              string             `toml:"pane_corners"` // "square" | "round"
 	Shadow                   bool               `toml:"shadow"`       // drop shadow behind modal overlays
+	Transparent              bool               `toml:"transparent"`  // let the terminal's background opacity show through
 	DateFormat               string             `toml:"date_format"`  // "relative" | "absolute"
 	MarkReadOnOpen           bool               `toml:"mark_read_on_open"`
 	MarkReadOnFocus          bool               `toml:"mark_read_on_focus"`
