@@ -69,7 +69,7 @@ func run() (code int, restartExec string) {
 		cfg = config.DefaultConfig()
 	}
 
-	if setBG, resetBG := ui.TerminalBackgroundSequences(cfg.Theme); setBG != "" {
+	if setBG, resetBG := ui.TerminalBackgroundSequences(cfg.Theme, cfg.Display.Transparent); setBG != "" {
 		fmt.Print(setBG)
 		defer fmt.Print(resetBG)
 	}

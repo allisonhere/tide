@@ -1609,7 +1609,7 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.filteredArticles) > 0 {
 			m.setViewportArticle(m.filteredArticles[m.articleCursor])
 		}
-		cmd = tea.Batch(cmd, setTermBgCmd(m.styles.Theme.Bg))
+		cmd = tea.Batch(cmd, m.termBgCmd(m.styles.Theme.Bg))
 	}
 	action := m.settings.takeAction()
 	switch action {
@@ -1694,10 +1694,11 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.filteredArticles) > 0 {
 				m.restoreArticleID = m.filteredArticles[m.articleCursor].ID
 			}
+			bgCmd := m.termBgCmd(m.styles.Theme.Bg)
 			if m.settings.omarchyBar != m.settings.omarchyBarWas {
-				return m, tea.Batch(m.loadFeedsCmd(), omarchyBarCmd(m.settings.omarchyBar))
+				return m, tea.Batch(m.loadFeedsCmd(), omarchyBarCmd(m.settings.omarchyBar), bgCmd)
 			}
-			return m, m.loadFeedsCmd()
+			return m, tea.Batch(m.loadFeedsCmd(), bgCmd)
 		}
 		m.overlay = overlayNone
 		if previewingTheme {
@@ -1706,7 +1707,7 @@ func (m Model) handleSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.filteredArticles) > 0 {
 				m.setViewportArticle(m.filteredArticles[m.articleCursor])
 			}
-			return m, setTermBgCmd(m.styles.Theme.Bg)
+			return m, m.termBgCmd(m.styles.Theme.Bg)
 		}
 		return m, nil
 	}
@@ -1782,6 +1783,9 @@ func (m Model) View() string {
 		Height(m.height).
 		Background(m.styles.Theme.Bg).
 		Render(view)
+	if m.cfg.Display.Transparent {
+		out = tideui.TransparentBackground(out, m.styles.Theme.Bg)
+	}
 
 	// Append the article-image escape sequence as a zero-width suffix so it
 	// rides the Bubble Tea frame: one writer, and it lands after every text

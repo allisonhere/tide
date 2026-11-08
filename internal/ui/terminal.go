@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/allisonhere/tideui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -16,12 +17,13 @@ func openTTY() (*os.File, error) {
 
 // TerminalBackgroundSequences returns ANSI OSC sequences that set and later
 // reset the terminal's default background color for xterm-compatible terminals.
-func TerminalBackgroundSequences(themeName string) (set string, reset string) {
+// Unless transparent is set, the default is one step away from the theme's
+// background: terminals such as kitty apply their background opacity to every
+// cell whose color equals the default background, and Tide paints every cell in
+// the theme background, so an exact match would make the whole UI see-through.
+func TerminalBackgroundSequences(themeName string, transparent bool) (set string, reset string) {
 	theme, _ := ThemeByName(themeName)
-	if theme.Bg == "" {
-		return "", ""
-	}
-	return fmt.Sprintf("\x1b]11;%s\x07", string(theme.Bg)), "\x1b]111\x07"
+	return tideui.TerminalBackgroundSequencesFor(theme, transparent)
 }
 
 // setTermBgCmd returns a Cmd that sets the terminal background color via OSC 11.
@@ -35,4 +37,10 @@ func setTermBgCmd(bg lipgloss.Color) tea.Cmd {
 		}
 		return nil
 	}
+}
+
+// termBgCmd sets the terminal's default background for a theme background,
+// honoring the transparent-background setting.
+func (m Model) termBgCmd(bg lipgloss.Color) tea.Cmd {
+	return setTermBgCmd(tideui.TerminalDefaultBg(bg, m.cfg.Display.Transparent))
 }
